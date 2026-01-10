@@ -88,9 +88,7 @@ jobs:
           cache: maven
 
       - name: OWASP Dependency Check
-        run: mvn dependency-check:check -DfailBuildOnCVSS=7
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: mvn dependency-check:check -DfailBuildOnCVSS=7 -DnvdApiKey=${{ secrets.NVD_API_KEY }}
 
       - name: Upload OWASP report
         uses: actions/upload-artifact@v6
