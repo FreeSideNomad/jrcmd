@@ -43,7 +43,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="proc : ${processes}" th:onclick="'window.location=\'/processes/' + ${proc.processId} + '\''">
+                <tr th:each="proc : ${processes}" th:data-href="@{/processes/{id}(id=${proc.processId})}" onclick="window.location=this.dataset.href" style="cursor: pointer;">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
                     <td th:text="${proc.processType}">Type</td>
                     <td>

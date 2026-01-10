@@ -38,7 +38,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="batch : ${batches}" th:onclick="'window.location=\'/batches/' + ${batch.batchId} + '\''">
+                <tr th:each="batch : ${batches}" th:data-href="@{/batches/{id}(id=${batch.batchId})}" onclick="window.location=this.dataset.href" style="cursor: pointer;">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</code></td>
                     <td>
                         <span class="badge"
