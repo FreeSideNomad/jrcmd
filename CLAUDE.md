@@ -14,25 +14,40 @@ The Java implementation is designed to be wire-compatible with an existing Pytho
 
 1. **Create or link to a GitHub Issue** - Every change must be tied to a GitHub issue (feature, bug, user-story, or chore)
 2. **Create a feature branch** - Branch from main with descriptive naming (e.g., `feature/123-add-retry-policy`, `fix/456-handler-timeout`)
-3. **Run pre-commit validations** before committing:
-   - `make lint` - Code style checks
-   - `make typecheck` - Type hint validation
-   - `make test` - Run test suite
-4. **Create a Pull Request** - Use the PR template, link to the issue with "Closes #" or "Related to #"
+3. **Implement and commit** - Pre-commit hook automatically runs tests with coverage validation (80% line/branch required)
+4. **Push and verify CI** - After pushing, check GitHub Actions for any CI failures
+5. **Create a Pull Request** - Use the PR template, link to the issue with "Closes #" or "Related to #"
+
+## Pre-commit Hook Setup
+
+Configure git to use the project hooks:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The pre-commit hook runs `mvn clean verify` which includes:
+- Unit tests
+- JaCoCo coverage check (80% line and branch coverage required)
 
 ## Build Commands
 
 ```bash
-# Once the Maven project is set up:
 mvn clean install          # Build and install
-mvn test                   # Run tests
-mvn verify                 # Full verification including integration tests
-
-# Code quality (when configured):
-make lint                  # Run linting
-make typecheck             # Type checking
-make test                  # Run tests
+mvn test                   # Run unit tests only
+mvn verify                 # Full verification with coverage check
+mvn jacoco:report          # Generate coverage report (target/site/jacoco/)
 ```
+
+## CI/CD
+
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push to main and all PRs:
+- Builds with JDK 21
+- Runs tests against PostgreSQL with PGMQ extension
+- Enforces 80% code coverage (line and branch)
+- Posts coverage report to PRs
+
+**After every push, verify CI passes before proceeding.**
 
 ## Architecture
 
@@ -106,8 +121,7 @@ Use the appropriate issue template:
 ## PR Checklist
 
 Before requesting review, verify:
-- Code passes `make lint` and `make typecheck`
-- All tests pass (`make test`)
-- Type hints added for all new functions
-- Coverage not decreased
+- All tests pass (`mvn verify`)
+- Coverage meets 80% threshold (line and branch)
+- CI workflow passes (check GitHub Actions)
 - Related issue linked in PR description

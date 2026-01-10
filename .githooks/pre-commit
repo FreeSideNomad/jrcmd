@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Pre-commit hook: Run tests with coverage validation
+# Requires 80% line and branch coverage
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if Maven wrapper exists, otherwise use mvn
+if [ -f "./mvnw" ]; then
+    MVN="./mvnw"
+else
+    MVN="mvn"
+fi
+
+echo "Running unit tests with coverage..."
+$MVN clean verify -q
+
+# JaCoCo is configured in pom.xml to fail build if coverage < 80%
+# If we reach here, coverage requirements are met
+
+echo "Pre-commit checks passed!"
