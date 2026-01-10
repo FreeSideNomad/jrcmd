@@ -1,2 +1,3 @@
 com.commandbus.CommandBusAutoConfiguration
 com.commandbus.health.HealthAutoConfiguration
+com.commandbus.process.ProcessAutoConfiguration
