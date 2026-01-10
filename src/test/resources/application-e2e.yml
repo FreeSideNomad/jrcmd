@@ -6,6 +6,9 @@ spring:
     url: jdbc:postgresql://localhost:5432/commandbus_test
     username: postgres
     password: postgres
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   thymeleaf:
     prefix: classpath:/templates/e2e/
     cache: false

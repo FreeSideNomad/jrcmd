@@ -29,43 +29,43 @@
                     <ul class="nav flex-column">
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/}"
-                               th:classappend="${#request.requestURI == '/'} ? 'active'">
+                               th:classappend="${currentPath == '/'} ? 'active'">
                                 <i class="bi bi-speedometer2"></i> Dashboard
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/commands}"
-                               th:classappend="${#request.requestURI.startsWith('/commands')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/commands')} ? 'active'">
                                 <i class="bi bi-list-task"></i> Commands
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/tsq}"
-                               th:classappend="${#request.requestURI.startsWith('/tsq')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/tsq')} ? 'active'">
                                 <i class="bi bi-exclamation-triangle"></i> TSQ
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/batches}"
-                               th:classappend="${#request.requestURI.startsWith('/batches')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/batches')} ? 'active'">
                                 <i class="bi bi-collection"></i> Batches
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/processes}"
-                               th:classappend="${#request.requestURI.startsWith('/processes')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/processes')} ? 'active'">
                                 <i class="bi bi-diagram-3"></i> Processes
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" th:href="@{/queues}"
-                               th:classappend="${#request.requestURI.startsWith('/queues')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/queues')} ? 'active'">
                                 <i class="bi bi-inbox"></i> Queues
                             </a>
                         </li>
                         <li class="nav-item mt-3">
                             <a class="nav-link text-success" th:href="@{/send}"
-                               th:classappend="${#request.requestURI.startsWith('/send')} ? 'active'">
+                               th:classappend="${currentPath.startsWith('/send')} ? 'active'">
                                 <i class="bi bi-plus-circle"></i> Send Command
                             </a>
                         </li>
