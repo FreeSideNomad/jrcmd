@@ -1,5 +1,8 @@
-# E2E Test Application Configuration
-# Run with: mvn spring-boot:test-run -Dspring-boot.run.profiles=e2e
+# E2E Test Application Configuration (Base)
+# This is the base configuration. Use with additional profiles:
+#   e2e,ui    - UI only (no worker)
+#   e2e,worker - Worker only (no web server)
+#   e2e       - Both UI and worker (default)
 
 spring:
   datasource:
