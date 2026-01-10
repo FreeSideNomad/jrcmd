@@ -26,7 +26,21 @@ public class QueueController {
 
     @GetMapping
     public String queueStats(Model model) {
-        model.addAttribute("queues", e2eService.getQueueStats(domain));
+        var queues = e2eService.getQueueStats(domain);
+
+        // Find command and reply queues
+        var commandQueue = queues.stream()
+            .filter(q -> q.queueName().endsWith("__commands"))
+            .findFirst()
+            .orElse(null);
+        var replyQueue = queues.stream()
+            .filter(q -> q.queueName().endsWith("__replies"))
+            .findFirst()
+            .orElse(null);
+
+        model.addAttribute("commandQueue", commandQueue);
+        model.addAttribute("replyQueue", replyQueue);
+        model.addAttribute("stats", e2eService.getCommandStats(domain));
         model.addAttribute("domain", domain);
         return "pages/queues";
     }

@@ -19,7 +19,7 @@
                 <div class="card-header">
                     <h5><i class="bi bi-send"></i> Command Queue</h5>
                 </div>
-                <div class="card-body">
+                <div class="card-body" th:if="${commandQueue != null}">
                     <dl class="row mb-0">
                         <dt class="col-sm-6">Queue Name</dt>
                         <dd class="col-sm-6"><code th:text="${commandQueue.queueName}">queue</code></dd>
@@ -36,6 +36,9 @@
                         <dd class="col-sm-6" th:text="${commandQueue.oldestMessageAt != null ? #temporals.format(commandQueue.oldestMessageAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
                     </dl>
                 </div>
+                <div class="card-body text-muted" th:if="${commandQueue == null}">
+                    Queue not created yet. Send a command to create it.
+                </div>
             </div>
         </div>
 
@@ -44,7 +47,7 @@
                 <div class="card-header">
                     <h5><i class="bi bi-reply"></i> Reply Queue</h5>
                 </div>
-                <div class="card-body">
+                <div class="card-body" th:if="${replyQueue != null}">
                     <dl class="row mb-0">
                         <dt class="col-sm-6">Queue Name</dt>
                         <dd class="col-sm-6"><code th:text="${replyQueue.queueName}">queue</code></dd>
@@ -60,6 +63,9 @@
                         <dt class="col-sm-6">Oldest Message</dt>
                         <dd class="col-sm-6" th:text="${replyQueue.oldestMessageAt != null ? #temporals.format(replyQueue.oldestMessageAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
                     </dl>
+                </div>
+                <div class="card-body text-muted" th:if="${replyQueue == null}">
+                    Queue not created yet.
                 </div>
             </div>
         </div>

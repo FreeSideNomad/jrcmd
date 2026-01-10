@@ -66,6 +66,17 @@ public class E2EService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public CommandStatusStats getCommandStats(String domain) {
+        long pending = countCommandsByStatus(domain, CommandStatus.PENDING);
+        long inProgress = countCommandsByStatus(domain, CommandStatus.IN_PROGRESS);
+        long completed = countCommandsByStatus(domain, CommandStatus.COMPLETED);
+        long failed = countCommandsByStatus(domain, CommandStatus.FAILED);
+        long tsqCount = tsq.countTroubleshooting(domain, null);
+
+        return new CommandStatusStats(pending, inProgress, completed, failed, tsqCount);
+    }
+
     // ========== Commands ==========
 
     @Transactional(readOnly = true)
