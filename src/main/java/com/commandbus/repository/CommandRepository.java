@@ -72,8 +72,8 @@ public interface CommandRepository {
      * @param status Filter by status (nullable)
      * @param domain Filter by domain (nullable)
      * @param commandType Filter by command type (nullable)
-     * @param createdAfter Filter by created_at >= (nullable)
-     * @param createdBefore Filter by created_at <= (nullable)
+     * @param createdAfter Filter by created_at greater than or equal (nullable)
+     * @param createdBefore Filter by created_at less than or equal (nullable)
      * @param limit Maximum results
      * @param offset Results to skip
      * @return List of matching commands
