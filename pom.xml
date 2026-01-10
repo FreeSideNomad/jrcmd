@@ -261,6 +261,13 @@
                 </executions>
             </plugin>
 
+            <!-- Spring Boot Maven Plugin (for test-run goal) -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+            </plugin>
+
             <!-- OWASP Dependency Check -->
             <plugin>
                 <groupId>org.owasp</groupId>

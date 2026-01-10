@@ -22,9 +22,7 @@ echo "Starting E2E Demo UI..."
 echo "Application will be available at http://localhost:8080"
 echo ""
 
-# Run with the e2e profile
-# The test-compile ensures E2E classes are compiled
-mvn test-compile spring-boot:run \
-    -Dspring-boot.run.profiles=e2e \
-    -Dspring-boot.run.mainClass=com.commandbus.e2e.E2ETestApplication \
-    -Dspring-boot.run.directories=target/test-classes
+# Run the E2E application using spring-boot:test-run (includes test classpath)
+mvn spring-boot:test-run \
+    -Dspring-boot.run.main-class=com.commandbus.e2e.E2ETestApplication \
+    -Dspring-boot.run.profiles=e2e
