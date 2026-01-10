@@ -4,6 +4,7 @@
 spring:
   main:
     web-application-type: none
+    keep-alive: true  # Keep JVM running for worker threads
   flyway:
     enabled: false  # UI handles migrations
 
