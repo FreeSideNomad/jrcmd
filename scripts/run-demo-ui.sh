@@ -20,7 +20,7 @@ cd "$PROJECT_DIR"
 
 # Start PostgreSQL with PGMQ
 echo "Starting PostgreSQL with PGMQ..."
-docker rm -f commandbus-postgres 2>/dev/null || true
+docker rm -f java-commandbus-postgres 2>/dev/null || true
 docker compose up -d --wait
 
 # Kill any process running on port 8080
