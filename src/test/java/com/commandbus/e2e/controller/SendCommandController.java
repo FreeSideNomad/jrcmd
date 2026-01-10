@@ -9,6 +9,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -44,21 +45,86 @@ public class SendCommandController {
         return "pages/send_command";
     }
 
-    @PostMapping
-    public String sendCommand(
+    @PostMapping("/single")
+    public String sendSingleCommand(
             @RequestParam String commandType,
-            @RequestParam String dataJson,
+            @RequestParam(defaultValue = "{}") String data,
             RedirectAttributes redirectAttributes) {
         try {
-            Map<String, Object> data = objectMapper.readValue(dataJson, new TypeReference<>() {});
+            Map<String, Object> commandData = objectMapper.readValue(data, new TypeReference<>() {});
             UUID commandId = UUID.randomUUID();
 
-            commandBus.send(domain, commandType, commandId, data, null, null, null);
+            commandBus.send(domain, commandType, commandId, commandData, null, null, null);
 
             redirectAttributes.addFlashAttribute("success",
                 "Command sent: " + commandType + " (ID: " + commandId + ")");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to send: " + e.getMessage());
+        }
+        return "redirect:/send";
+    }
+
+    @PostMapping("/batch")
+    public String sendBatchCommand(
+            @RequestParam String commandType,
+            @RequestParam(defaultValue = "10") int count,
+            RedirectAttributes redirectAttributes) {
+        try {
+            UUID batchId = UUID.randomUUID();
+            for (int i = 0; i < count; i++) {
+                UUID commandId = UUID.randomUUID();
+                Map<String, Object> data = new HashMap<>();
+                data.put("index", i);
+                commandBus.send(domain, commandType, commandId, data, batchId, null, null);
+            }
+
+            redirectAttributes.addFlashAttribute("success",
+                "Batch sent: " + count + " " + commandType + " commands (Batch ID: " + batchId + ")");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to send batch: " + e.getMessage());
+        }
+        return "redirect:/send";
+    }
+
+    @PostMapping("/quick")
+    public String sendQuickAction(
+            @RequestParam String action,
+            RedirectAttributes redirectAttributes) {
+        try {
+            UUID batchId = UUID.randomUUID();
+            switch (action) {
+                case "success-batch" -> {
+                    for (int i = 0; i < 10; i++) {
+                        commandBus.send(domain, "SuccessCommand", UUID.randomUUID(),
+                            Map.of("index", i), batchId, null, null);
+                    }
+                    redirectAttributes.addFlashAttribute("success",
+                        "Sent 10 SuccessCommand batch (ID: " + batchId + ")");
+                }
+                case "mixed-batch" -> {
+                    for (int i = 0; i < 5; i++) {
+                        commandBus.send(domain, "SuccessCommand", UUID.randomUUID(),
+                            Map.of("index", i), batchId, null, null);
+                    }
+                    for (int i = 0; i < 5; i++) {
+                        commandBus.send(domain, "PermanentFailCommand", UUID.randomUUID(),
+                            Map.of("index", i), batchId, null, null);
+                    }
+                    redirectAttributes.addFlashAttribute("success",
+                        "Sent mixed batch: 5 success + 5 fail (ID: " + batchId + ")");
+                }
+                case "fail-batch" -> {
+                    for (int i = 0; i < 5; i++) {
+                        commandBus.send(domain, "PermanentFailCommand", UUID.randomUUID(),
+                            Map.of("index", i), batchId, null, null);
+                    }
+                    redirectAttributes.addFlashAttribute("success",
+                        "Sent 5 PermanentFailCommand batch (ID: " + batchId + ")");
+                }
+                default -> redirectAttributes.addFlashAttribute("error", "Unknown action: " + action);
+            }
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed: " + e.getMessage());
         }
         return "redirect:/send";
     }
