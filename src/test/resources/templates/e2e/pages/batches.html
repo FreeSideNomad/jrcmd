@@ -38,8 +38,12 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="batch : ${batches}" th:data-href="@{/batches/{id}(id=${batch.batchId})}" onclick="window.location=this.dataset.href" style="cursor: pointer;">
-                    <td><code class="uuid-short" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</code></td>
+                <tr th:each="batch : ${batches}" class="clickable-row" style="cursor: pointer;">
+                    <td>
+                        <a th:href="@{/batches/{id}(id=${batch.batchId})}" class="row-link">
+                            <code class="uuid-short" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</code>
+                        </a>
+                    </td>
                     <td>
                         <span class="badge"
                               th:classappend="${batch.status.name() == 'COMPLETED'} ? 'bg-success' :

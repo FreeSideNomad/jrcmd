@@ -43,8 +43,12 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="cmd : ${commands}" th:data-href="@{/commands/{id}(id=${cmd.commandId})}" onclick="window.location=this.dataset.href" style="cursor: pointer;">
-                    <td><code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code></td>
+                <tr th:each="cmd : ${commands}" class="clickable-row" style="cursor: pointer;">
+                    <td>
+                        <a th:href="@{/commands/{id}(id=${cmd.commandId})}" class="row-link">
+                            <code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code>
+                        </a>
+                    </td>
                     <td th:text="${cmd.commandType}">Type</td>
                     <td>
                         <span class="badge"

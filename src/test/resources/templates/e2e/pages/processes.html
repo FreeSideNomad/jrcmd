@@ -43,8 +43,12 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="proc : ${processes}" th:data-href="@{/processes/{id}(id=${proc.processId})}" onclick="window.location=this.dataset.href" style="cursor: pointer;">
-                    <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
+                <tr th:each="proc : ${processes}" class="clickable-row" style="cursor: pointer;">
+                    <td>
+                        <a th:href="@{/processes/{id}(id=${proc.processId})}" class="row-link">
+                            <code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code>
+                        </a>
+                    </td>
                     <td th:text="${proc.processType}">Type</td>
                     <td>
                         <span class="badge"
