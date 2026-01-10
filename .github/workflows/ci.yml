@@ -12,7 +12,7 @@ jobs:
 
     services:
       postgres:
-        image: tembo-io/pgmq-pg:latest
+        image: quay.io/tembo/pg17-pgmq:latest
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -35,23 +35,37 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Check for source files
+        id: check-sources
+        run: |
+          if find src/main/java -name "*.java" 2>/dev/null | grep -q .; then
+            echo "has_sources=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_sources=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and test with coverage
+        if: steps.check-sources.outputs.has_sources == 'true'
         run: mvn clean verify
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/testdb
           SPRING_DATASOURCE_USERNAME: postgres
           SPRING_DATASOURCE_PASSWORD: postgres
 
+      - name: Build only (no sources yet)
+        if: steps.check-sources.outputs.has_sources == 'false'
+        run: mvn clean compile -DskipTests
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.check-sources.outputs.has_sources == 'true'
         with:
           name: jacoco-report
           path: target/site/jacoco/
 
       - name: Add coverage to PR
         uses: madrapps/jacoco-report@v1.6.1
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-sources.outputs.has_sources == 'true'
         with:
           paths: target/site/jacoco/jacoco.xml
           token: ${{ secrets.GITHUB_TOKEN }}
