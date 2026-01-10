@@ -63,7 +63,7 @@ public class JdbcCommandRepository implements CommandRepository {
             metadata.attempts(),
             metadata.maxAttempts(),
             metadata.correlationId(),
-            metadata.replyTo(),
+            metadata.replyTo() != null ? metadata.replyTo() : "",
             metadata.batchId(),
             Timestamp.from(metadata.createdAt()),
             Timestamp.from(metadata.updatedAt())
@@ -86,7 +86,7 @@ public class JdbcCommandRepository implements CommandRepository {
             .map(m -> new Object[]{
                 m.domain(), queueName, m.msgId(), m.commandId(), m.commandType(),
                 m.status().getValue(), m.attempts(), m.maxAttempts(),
-                m.correlationId(), m.replyTo(), m.batchId(),
+                m.correlationId(), m.replyTo() != null ? m.replyTo() : "", m.batchId(),
                 Timestamp.from(m.createdAt()), Timestamp.from(m.updatedAt())
             })
             .toList();
