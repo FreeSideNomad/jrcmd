@@ -55,9 +55,9 @@
                 </div>
             </div>
 
-            <div th:if="${command.lastErrorCode}" class="alert alert-danger mt-3">
-                <strong>Error:</strong> <span th:text="${command.lastErrorCode}">code</span> -
-                <span th:text="${command.lastErrorMessage}">message</span>
+            <div th:if="${command.errorCode}" class="alert alert-danger mt-3">
+                <strong>Error:</strong> <span th:text="${command.errorCode}">code</span> -
+                <span th:text="${command.errorMessage}">message</span>
             </div>
         </div>
     </div>
