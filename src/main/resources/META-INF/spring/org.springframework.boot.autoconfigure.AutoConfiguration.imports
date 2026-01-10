@@ -1,0 +1,2 @@
+com.commandbus.CommandBusAutoConfiguration
+com.commandbus.health.HealthAutoConfiguration
