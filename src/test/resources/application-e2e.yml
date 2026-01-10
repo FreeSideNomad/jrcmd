@@ -3,7 +3,7 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/commandbus_test
+    url: jdbc:postgresql://localhost:5433/commandbus_test
     username: postgres
     password: postgres
   flyway:
