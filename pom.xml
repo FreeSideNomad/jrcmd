@@ -36,7 +36,7 @@
         <!-- Dependency versions -->
         <spring-boot.version>3.4.1</spring-boot.version>
         <postgresql.version>42.7.8</postgresql.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
+        <testcontainers.version>2.0.3</testcontainers.version>
 
         <!-- Plugin versions -->
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
