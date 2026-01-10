@@ -1,0 +1,74 @@
+/* E2E Test Application Styles */
+
+.sidebar {
+    min-height: calc(100vh - 56px);
+    border-right: 1px solid #dee2e6;
+}
+
+.sidebar .nav-link {
+    color: #333;
+    padding: 0.75rem 1rem;
+}
+
+.sidebar .nav-link.active {
+    background-color: #e9ecef;
+    font-weight: 600;
+}
+
+.sidebar .nav-link:hover {
+    background-color: #f8f9fa;
+}
+
+.sidebar .nav-link i {
+    margin-right: 0.5rem;
+}
+
+/* Status badges */
+.badge-pending { background-color: #6c757d; }
+.badge-in-progress { background-color: #0d6efd; }
+.badge-completed { background-color: #198754; }
+.badge-failed { background-color: #dc3545; }
+.badge-waiting { background-color: #ffc107; color: #000; }
+
+/* Progress bar in tables */
+.progress-sm {
+    height: 0.5rem;
+}
+
+/* Card hover effect */
+.card-hover:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    transition: box-shadow 0.15s ease-in-out;
+}
+
+/* Timeline styles */
+.timeline-marker {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-top: 4px;
+}
+
+.timeline-item:not(:last-child) .timeline-content {
+    border-left: 2px solid #dee2e6;
+    padding-left: 1rem;
+    margin-left: -1rem;
+    padding-bottom: 1rem;
+}
+
+/* JSON display */
+pre code {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Table styles */
+.table-hover tbody tr:hover {
+    cursor: pointer;
+}
+
+/* UUID abbreviation */
+.uuid-short {
+    font-family: monospace;
+    font-size: 0.85em;
+}

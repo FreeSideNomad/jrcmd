@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Batch Detail - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/batches}">Batches</a></li>
+            <li class="breadcrumb-item active" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">ID</li>
+        </ol>
+    </nav>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Batch Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Batch ID</dt>
+                        <dd class="col-sm-8"><code th:text="${batch.batchId}">uuid</code></dd>
+
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge"
+                                  th:classappend="${batch.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                                  (${batch.status.name() == 'FAILED'} ? 'bg-danger' :
+                                                  (${batch.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                                  th:text="${batch.status}">STATUS</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Progress</dt>
+                        <dd class="col-sm-8">
+                            <div class="progress mb-1">
+                                <div class="progress-bar" role="progressbar"
+                                     th:style="'width: ' + ${batch.progressPercent()} + '%'">
+                                    <span th:text="${batch.progressPercent() + '%'}">0%</span>
+                                </div>
+                            </div>
+                            <small th:text="${batch.completedCount + ' of ' + batch.totalCount + ' commands'}">0 of 0</small>
+                        </dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Completed</dt>
+                        <dd class="col-sm-8 text-success" th:text="${batch.completedCount}">0</dd>
+
+                        <dt class="col-sm-4">Failed</dt>
+                        <dd class="col-sm-8 text-danger" th:text="${batch.failedCommands()}">0</dd>
+
+                        <dt class="col-sm-4">Created At</dt>
+                        <dd class="col-sm-8" th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+
+                        <dt class="col-sm-4">Completed At</dt>
+                        <dd class="col-sm-8" th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5>Batch Commands</h5>
+        </div>
+        <div class="card-body">
+            <div th:if="${commands.isEmpty()}" class="text-muted">No commands in this batch.</div>
+            <table th:unless="${commands.isEmpty()}" class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Command ID</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Created At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="cmd : ${commands}" th:onclick="'window.location=\'/commands/' + ${cmd.commandId} + '\''">
+                        <td><code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code></td>
+                        <td th:text="${cmd.commandType}">Type</td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${cmd.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                                  (${cmd.status.name() == 'FAILED'} ? 'bg-danger' :
+                                                  (${cmd.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                                  th:text="${cmd.status}">STATUS</span>
+                        </td>
+                        <td th:text="${#temporals.format(cmd.createdAt, 'HH:mm:ss')}">time</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

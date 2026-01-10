@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Command Detail - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/commands}">Commands</a></li>
+            <li class="breadcrumb-item active" th:text="${#strings.abbreviate(command.commandId.toString(), 12)}">ID</li>
+        </ol>
+    </nav>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Command Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Command ID</dt>
+                        <dd class="col-sm-8"><code th:text="${command.commandId}">uuid</code></dd>
+
+                        <dt class="col-sm-4">Type</dt>
+                        <dd class="col-sm-8" th:text="${command.commandType}">type</dd>
+
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge"
+                                  th:classappend="${command.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                                  (${command.status.name() == 'FAILED'} ? 'bg-danger' :
+                                                  (${command.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                                  th:text="${command.status}">STATUS</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Attempts</dt>
+                        <dd class="col-sm-8" th:text="${command.attempts + '/' + command.maxAttempts}">0/3</dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Created At</dt>
+                        <dd class="col-sm-8" th:text="${#temporals.format(command.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+
+                        <dt class="col-sm-4">Updated At</dt>
+                        <dd class="col-sm-8" th:text="${#temporals.format(command.updatedAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+
+                        <dt class="col-sm-4" th:if="${command.correlationId}">Correlation ID</dt>
+                        <dd class="col-sm-8" th:if="${command.correlationId}"><code th:text="${command.correlationId}">uuid</code></dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div th:if="${command.errorCode}" class="alert alert-danger mt-3">
+                <strong>Error:</strong> <span th:text="${command.errorCode}">code</span> -
+                <span th:text="${command.errorMessage}">message</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5>Audit Trail</h5>
+        </div>
+        <div class="card-body">
+            <div th:if="${auditTrail.isEmpty()}" class="text-muted">No audit events recorded.</div>
+            <table th:unless="${auditTrail.isEmpty()}" class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Event</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="event : ${auditTrail}">
+                        <td th:text="${#temporals.format(event.occurredAt, 'HH:mm:ss')}">time</td>
+                        <td><span class="badge bg-secondary" th:text="${event.eventType}">event</span></td>
+                        <td><small th:text="${event.details}">details</small></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

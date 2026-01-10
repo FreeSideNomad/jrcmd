@@ -1,0 +1,30 @@
+# E2E Test Application Configuration
+# Run with: mvn spring-boot:test-run -Dspring-boot.run.profiles=e2e
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/commandbus_test
+    username: postgres
+    password: postgres
+  thymeleaf:
+    prefix: classpath:/templates/e2e/
+    cache: false
+
+commandbus:
+  enabled: true
+  domain: test
+  default-max-attempts: 3
+  backoff-schedule: [1, 2, 5]
+  worker:
+    visibility-timeout: 30
+    poll-interval-ms: 500
+    concurrency: 4
+    use-notify: true
+    auto-start: true
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.commandbus: DEBUG

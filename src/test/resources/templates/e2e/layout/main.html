@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:fragment="layout(title, content)">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:replace="${title}">E2E Test App</title>
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.2/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.2/font/bootstrap-icons.css}">
+    <link rel="stylesheet" th:href="@{/css/e2e.css}">
+    <script th:src="@{/webjars/htmx.org/1.9.10/dist/htmx.min.js}"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" th:href="@{/}">
+                <i class="bi bi-terminal"></i> Command Bus E2E
+            </a>
+            <span class="navbar-text text-light">
+                Domain: <strong th:text="${domain}">test</strong>
+            </span>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-2 d-md-block bg-light sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/}"
+                               th:classappend="${#request.requestURI == '/'} ? 'active'">
+                                <i class="bi bi-speedometer2"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/commands}"
+                               th:classappend="${#request.requestURI.startsWith('/commands')} ? 'active'">
+                                <i class="bi bi-list-task"></i> Commands
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/tsq}"
+                               th:classappend="${#request.requestURI.startsWith('/tsq')} ? 'active'">
+                                <i class="bi bi-exclamation-triangle"></i> TSQ
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/batches}"
+                               th:classappend="${#request.requestURI.startsWith('/batches')} ? 'active'">
+                                <i class="bi bi-collection"></i> Batches
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/processes}"
+                               th:classappend="${#request.requestURI.startsWith('/processes')} ? 'active'">
+                                <i class="bi bi-diagram-3"></i> Processes
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/queues}"
+                               th:classappend="${#request.requestURI.startsWith('/queues')} ? 'active'">
+                                <i class="bi bi-inbox"></i> Queues
+                            </a>
+                        </li>
+                        <li class="nav-item mt-3">
+                            <a class="nav-link text-success" th:href="@{/send}"
+                               th:classappend="${#request.requestURI.startsWith('/send')} ? 'active'">
+                                <i class="bi bi-plus-circle"></i> Send Command
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main class="col-md-10 ms-sm-auto px-md-4 py-3">
+                <div th:if="${success}" class="alert alert-success alert-dismissible fade show">
+                    <span th:text="${success}"></span>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                <div th:if="${error}" class="alert alert-danger alert-dismissible fade show">
+                    <span th:text="${error}"></span>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+
+                <th:block th:replace="${content}"/>
+            </main>
+        </div>
+    </div>
+
+    <script th:src="@{/webjars/bootstrap/5.3.2/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>
