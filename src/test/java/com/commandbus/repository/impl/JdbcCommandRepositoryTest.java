@@ -441,4 +441,64 @@ class JdbcCommandRepositoryTest {
             assertFalse(result);
         }
     }
+
+    @Nested
+    class GetDistinctDomainsTests {
+
+        @Test
+        void shouldReturnDistinctDomains() {
+            when(jdbcTemplate.queryForList(
+                contains("SELECT DISTINCT domain"),
+                eq(String.class)
+            )).thenReturn(List.of("payments", "orders", "users"));
+
+            List<String> result = repository.getDistinctDomains();
+
+            assertEquals(3, result.size());
+            assertEquals(List.of("payments", "orders", "users"), result);
+        }
+
+        @Test
+        void shouldReturnEmptyListWhenNoDomains() {
+            when(jdbcTemplate.queryForList(
+                contains("SELECT DISTINCT domain"),
+                eq(String.class)
+            )).thenReturn(List.of());
+
+            List<String> result = repository.getDistinctDomains();
+
+            assertTrue(result.isEmpty());
+        }
+    }
+
+    @Nested
+    class GetDistinctCommandTypesTests {
+
+        @Test
+        void shouldReturnDistinctCommandTypes() {
+            when(jdbcTemplate.queryForList(
+                contains("SELECT DISTINCT command_type"),
+                eq(String.class),
+                eq("payments")
+            )).thenReturn(List.of("DebitAccount", "CreditAccount", "TransferFunds"));
+
+            List<String> result = repository.getDistinctCommandTypes("payments");
+
+            assertEquals(3, result.size());
+            assertEquals(List.of("DebitAccount", "CreditAccount", "TransferFunds"), result);
+        }
+
+        @Test
+        void shouldReturnEmptyListWhenNoCommandTypes() {
+            when(jdbcTemplate.queryForList(
+                contains("SELECT DISTINCT command_type"),
+                eq(String.class),
+                eq("unknown")
+            )).thenReturn(List.of());
+
+            List<String> result = repository.getDistinctCommandTypes("unknown");
+
+            assertTrue(result.isEmpty());
+        }
+    }
 }
