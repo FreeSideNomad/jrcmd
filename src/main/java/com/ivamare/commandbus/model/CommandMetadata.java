@@ -88,4 +88,18 @@ public record CommandMetadata(
             createdAt, Instant.now(), batchId
         );
     }
+
+    /**
+     * Returns a copy with updated reply queue.
+     */
+    public CommandMetadata withReplyTo(String newReplyTo) {
+        return new CommandMetadata(
+            domain, commandId, commandType,
+            status,
+            attempts, maxAttempts,
+            msgId, correlationId, newReplyTo,
+            lastErrorType, lastErrorCode, lastErrorMessage,
+            createdAt, Instant.now(), batchId
+        );
+    }
 }
