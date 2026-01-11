@@ -68,7 +68,7 @@ class JdbcBatchRepositoryTest {
                 eq(metadata.completedCount()),
                 eq(metadata.canceledCount()),
                 eq(metadata.inTroubleshootingCount()),
-                any(), any(), any()
+                any(), any(), any(), any()  // createdAt, startedAt, completedAt, batchType
             );
         }
 
@@ -77,7 +77,7 @@ class JdbcBatchRepositoryTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.PENDING, 10, 0, 0, 0,
-                Instant.now(), null, null
+                Instant.now(), null, null, "COMMAND"
             );
 
             repository.save(metadata);
@@ -88,7 +88,7 @@ class JdbcBatchRepositoryTest {
                 eq(metadata.batchId()),
                 eq(metadata.name()),
                 isNull(),
-                any(), any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any(), any()  // Added batchType
             );
         }
     }
@@ -263,6 +263,68 @@ class JdbcBatchRepositoryTest {
             assertFalse(repository.tsqRetry("payments", batchId));
             assertFalse(repository.tsqCancel("payments", batchId));
             assertFalse(repository.tsqComplete("payments", batchId));
+        }
+    }
+
+    @Nested
+    class RefreshStatsTests {
+
+        @Test
+        void shouldCallRefreshStatsStoredProcedure() {
+            UUID batchId = UUID.randomUUID();
+            when(jdbcTemplate.queryForObject(
+                contains("sp_refresh_batch_stats"),
+                eq(Boolean.class),
+                eq("payments"), eq(batchId)
+            )).thenReturn(true);
+
+            repository.refreshStats("payments", batchId);
+
+            verify(jdbcTemplate).queryForObject(
+                contains("sp_refresh_batch_stats"),
+                eq(Boolean.class),
+                eq("payments"), eq(batchId)
+            );
+        }
+    }
+
+    @Nested
+    class ListByTypeTests {
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldListByTypeWithStatus() {
+            when(jdbcTemplate.query(
+                contains("batch_type = ?"),
+                any(RowMapper.class),
+                eq("payments"), eq("COMMAND"), eq("PENDING"), eq(10), eq(0)
+            )).thenReturn(List.of());
+
+            repository.listByType("payments", "COMMAND", BatchStatus.PENDING, 10, 0);
+
+            verify(jdbcTemplate).query(
+                contains("batch_type = ?"),
+                any(RowMapper.class),
+                eq("payments"), eq("COMMAND"), eq("PENDING"), eq(10), eq(0)
+            );
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldListByTypeWithoutStatus() {
+            when(jdbcTemplate.query(
+                argThat(sql -> sql != null && sql.contains("batch_type = ?") && !sql.contains("status = ?")),
+                any(RowMapper.class),
+                eq("payments"), eq("PROCESS"), eq(10), eq(0)
+            )).thenReturn(List.of());
+
+            repository.listByType("payments", "PROCESS", null, 10, 0);
+
+            verify(jdbcTemplate).query(
+                argThat(sql -> sql != null && sql.contains("batch_type = ?") && !sql.contains("status = ?")),
+                any(RowMapper.class),
+                eq("payments"), eq("PROCESS"), eq(10), eq(0)
+            );
         }
     }
 }

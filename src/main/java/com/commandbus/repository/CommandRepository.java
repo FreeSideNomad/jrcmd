@@ -177,4 +177,19 @@ public interface CommandRepository {
         int maxAttempts,
         long msgId
     );
+
+    /**
+     * Get distinct domains from all commands.
+     *
+     * @return List of distinct domain names
+     */
+    List<String> getDistinctDomains();
+
+    /**
+     * Get distinct command types for a domain.
+     *
+     * @param domain The domain to query
+     * @return List of distinct command types
+     */
+    List<String> getDistinctCommandTypes(String domain);
 }

@@ -74,4 +74,24 @@ public interface BatchRepository {
      * @return true if batch is now complete
      */
     boolean tsqComplete(String domain, UUID batchId);
+
+    /**
+     * Refresh batch statistics by calling sp_refresh_batch_stats.
+     *
+     * @param domain The domain
+     * @param batchId The batch ID
+     */
+    void refreshStats(String domain, UUID batchId);
+
+    /**
+     * List batches by type (COMMAND or PROCESS).
+     *
+     * @param domain The domain
+     * @param batchType The batch type ("COMMAND" or "PROCESS")
+     * @param status Filter by status (nullable)
+     * @param limit Maximum results
+     * @param offset Results to skip
+     * @return List of batches matching criteria
+     */
+    List<BatchMetadata> listByType(String domain, String batchType, BatchStatus status, int limit, int offset);
 }
