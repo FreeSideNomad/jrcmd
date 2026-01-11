@@ -267,6 +267,23 @@ public class JdbcCommandRepository implements CommandRepository {
         return Boolean.TRUE.equals(result);
     }
 
+    @Override
+    public List<String> getDistinctDomains() {
+        return jdbcTemplate.queryForList(
+            "SELECT DISTINCT domain FROM commandbus.command ORDER BY domain",
+            String.class
+        );
+    }
+
+    @Override
+    public List<String> getDistinctCommandTypes(String domain) {
+        return jdbcTemplate.queryForList(
+            "SELECT DISTINCT command_type FROM commandbus.command WHERE domain = ? ORDER BY command_type",
+            String.class,
+            domain
+        );
+    }
+
     private static Instant toInstant(Timestamp ts) {
         return ts != null ? ts.toInstant() : null;
     }

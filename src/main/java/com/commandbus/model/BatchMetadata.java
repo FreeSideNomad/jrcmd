@@ -19,6 +19,7 @@ import java.util.UUID;
  * @param createdAt Batch creation timestamp
  * @param startedAt When first command was processed (nullable)
  * @param completedAt When all commands reached terminal state (nullable)
+ * @param batchType Type of batch: "COMMAND" or "PROCESS" (nullable, defaults to COMMAND)
  */
 public record BatchMetadata(
     String domain,
@@ -32,10 +33,11 @@ public record BatchMetadata(
     int inTroubleshootingCount,
     Instant createdAt,
     Instant startedAt,
-    Instant completedAt
+    Instant completedAt,
+    String batchType
 ) {
     /**
-     * Creates a new batch metadata with default values.
+     * Creates a new batch metadata with default values (COMMAND type).
      */
     public static BatchMetadata create(
             String domain,
@@ -43,11 +45,25 @@ public record BatchMetadata(
             String name,
             Map<String, Object> customData,
             int totalCount) {
+        return create(domain, batchId, name, customData, totalCount, "COMMAND");
+    }
+
+    /**
+     * Creates a new batch metadata with specified type.
+     */
+    public static BatchMetadata create(
+            String domain,
+            UUID batchId,
+            String name,
+            Map<String, Object> customData,
+            int totalCount,
+            String batchType) {
         return new BatchMetadata(
             domain, batchId, name, customData,
             BatchStatus.PENDING,
             totalCount, 0, 0, 0,
-            Instant.now(), null, null
+            Instant.now(), null, null,
+            batchType
         );
     }
 

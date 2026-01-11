@@ -54,7 +54,8 @@ public class JdbcBatchRepository implements BatchRepository {
                 rs.getInt("in_troubleshooting_count"),
                 toInstant(rs.getTimestamp("created_at")),
                 toInstant(rs.getTimestamp("started_at")),
-                toInstant(rs.getTimestamp("completed_at"))
+                toInstant(rs.getTimestamp("completed_at")),
+                rs.getString("batch_type")
             );
         };
     }
@@ -74,8 +75,8 @@ public class JdbcBatchRepository implements BatchRepository {
             INSERT INTO commandbus.batch (
                 domain, batch_id, name, custom_data, status,
                 total_count, completed_count, canceled_count, in_troubleshooting_count,
-                created_at, started_at, completed_at
-            ) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, started_at, completed_at, batch_type
+            ) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             metadata.domain(),
             metadata.batchId(),
@@ -88,7 +89,8 @@ public class JdbcBatchRepository implements BatchRepository {
             metadata.inTroubleshootingCount(),
             Timestamp.from(metadata.createdAt()),
             metadata.startedAt() != null ? Timestamp.from(metadata.startedAt()) : null,
-            metadata.completedAt() != null ? Timestamp.from(metadata.completedAt()) : null
+            metadata.completedAt() != null ? Timestamp.from(metadata.completedAt()) : null,
+            metadata.batchType() != null ? metadata.batchType() : "COMMAND"
         );
     }
 
@@ -157,6 +159,32 @@ public class JdbcBatchRepository implements BatchRepository {
             domain, batchId
         );
         return Boolean.TRUE.equals(result);
+    }
+
+    @Override
+    public void refreshStats(String domain, UUID batchId) {
+        jdbcTemplate.queryForObject(
+            "SELECT commandbus.sp_refresh_batch_stats(?, ?)",
+            Boolean.class,
+            domain, batchId
+        );
+    }
+
+    @Override
+    public List<BatchMetadata> listByType(String domain, String batchType, BatchStatus status, int limit, int offset) {
+        if (status != null) {
+            return jdbcTemplate.query(
+                "SELECT * FROM commandbus.batch WHERE domain = ? AND batch_type = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                batchMapper,
+                domain, batchType, status.getValue(), limit, offset
+            );
+        } else {
+            return jdbcTemplate.query(
+                "SELECT * FROM commandbus.batch WHERE domain = ? AND batch_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                batchMapper,
+                domain, batchType, limit, offset
+            );
+        }
     }
 
     private static Instant toInstant(Timestamp ts) {

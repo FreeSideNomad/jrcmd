@@ -280,7 +280,8 @@ public class DefaultCommandBus implements CommandBus {
             domain, effectiveBatchId, name, customData,
             BatchStatus.PENDING,
             commands.size(), 0, 0, 0,
-            now, null, null
+            now, null, null,
+            "COMMAND"
         );
         batchRepository.save(batchMetadata);
 

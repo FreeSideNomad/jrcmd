@@ -53,7 +53,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED, 10, 10, 0, 0,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertTrue(metadata.isComplete());
@@ -64,7 +64,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED_WITH_FAILURES, 10, 8, 2, 0,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertTrue(metadata.isComplete());
@@ -75,7 +75,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.PENDING, 10, 0, 0, 0,
-                Instant.now(), null, null
+                Instant.now(), null, null, "COMMAND"
             );
 
             assertFalse(metadata.isComplete());
@@ -86,7 +86,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.IN_PROGRESS, 10, 5, 0, 0,
-                Instant.now(), Instant.now(), null
+                Instant.now(), Instant.now(), null, "COMMAND"
             );
 
             assertFalse(metadata.isComplete());
@@ -101,7 +101,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED, 10, 10, 0, 0,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertTrue(metadata.isFullySuccessful());
@@ -112,7 +112,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED, 10, 8, 2, 0,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertFalse(metadata.isFullySuccessful());
@@ -123,7 +123,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED, 10, 8, 0, 2,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertFalse(metadata.isFullySuccessful());
@@ -134,7 +134,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.IN_PROGRESS, 10, 5, 0, 0,
-                Instant.now(), Instant.now(), null
+                Instant.now(), Instant.now(), null, "COMMAND"
             );
 
             assertFalse(metadata.isFullySuccessful());
@@ -145,7 +145,7 @@ class BatchMetadataTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.COMPLETED_WITH_FAILURES, 10, 8, 2, 0,
-                Instant.now(), Instant.now(), Instant.now()
+                Instant.now(), Instant.now(), Instant.now(), "COMMAND"
             );
 
             assertFalse(metadata.isFullySuccessful());
@@ -163,13 +163,13 @@ class BatchMetadataTest {
             BatchMetadata m1 = new BatchMetadata(
                 "payments", batchId, "Test", Map.of("a", 1),
                 BatchStatus.PENDING, 10, 0, 0, 0,
-                now, null, null
+                now, null, null, "COMMAND"
             );
 
             BatchMetadata m2 = new BatchMetadata(
                 "payments", batchId, "Test", Map.of("a", 1),
                 BatchStatus.PENDING, 10, 0, 0, 0,
-                now, null, null
+                now, null, null, "COMMAND"
             );
 
             assertEquals(m1, m2);

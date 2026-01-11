@@ -68,7 +68,7 @@ class JdbcBatchRepositoryTest {
                 eq(metadata.completedCount()),
                 eq(metadata.canceledCount()),
                 eq(metadata.inTroubleshootingCount()),
-                any(), any(), any()
+                any(), any(), any(), any()  // createdAt, startedAt, completedAt, batchType
             );
         }
 
@@ -77,7 +77,7 @@ class JdbcBatchRepositoryTest {
             BatchMetadata metadata = new BatchMetadata(
                 "payments", UUID.randomUUID(), "Test", null,
                 BatchStatus.PENDING, 10, 0, 0, 0,
-                Instant.now(), null, null
+                Instant.now(), null, null, "COMMAND"
             );
 
             repository.save(metadata);
@@ -88,7 +88,7 @@ class JdbcBatchRepositoryTest {
                 eq(metadata.batchId()),
                 eq(metadata.name()),
                 isNull(),
-                any(), any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any(), any()  // Added batchType
             );
         }
     }
