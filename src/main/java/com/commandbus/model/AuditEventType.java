@@ -18,6 +18,9 @@ public final class AuditEventType {
     /** Command failed (transient or permanent) */
     public static final String FAILED = "FAILED";
 
+    /** Command failed due to business rule violation (bypasses TSQ) */
+    public static final String BUSINESS_RULE_FAILED = "BUSINESS_RULE_FAILED";
+
     /** Command scheduled for retry */
     public static final String RETRY_SCHEDULED = "RETRY_SCHEDULED";
 

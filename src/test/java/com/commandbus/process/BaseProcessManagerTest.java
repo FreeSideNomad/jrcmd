@@ -358,6 +358,47 @@ class BaseProcessManagerTest {
     }
 
     @Test
+    @DisplayName("should auto-compensate on business rule failure")
+    void shouldAutoCompensateOnBusinessRuleFailure() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, "RES-789", null, null);
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(state.toMap()),
+            ProcessStatus.WAITING_FOR_REPLY,
+            OrderStep.PROCESS_PAYMENT,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        // Business rule failure - should auto-compensate without TSQ
+        Reply reply = Reply.businessRuleFailed(commandId, processId, "ACCOUNT_CLOSED", "Customer account is closed");
+
+        // Completed steps that need compensation
+        when(processRepo.getCompletedSteps("orders", processId, jdbcTemplate))
+            .thenReturn(List.of("RESERVE_INVENTORY"));
+
+        processManager.handleReply(reply, process, jdbcTemplate);
+
+        // Verify status changed to COMPENSATING (not WAITING_FOR_TSQ)
+        verify(processRepo, atLeastOnce()).update(argThat(p ->
+            p.status() == ProcessStatus.COMPENSATING
+        ), eq(jdbcTemplate));
+
+        // Verify compensation command sent (RELEASE_INVENTORY for RESERVE_INVENTORY)
+        verify(commandBus).send(
+            eq("orders"),
+            eq("ReleaseInventory"),
+            any(UUID.class),
+            argThat((Map<String, Object> data) -> "RES-789".equals(data.get("reservationId"))),
+            eq(processId),
+            eq("order_replies"),
+            isNull()
+        );
+    }
+
+    @Test
     @DisplayName("should run compensations on cancel from TSQ")
     void shouldRunCompensationsOnCancelFromTSQ() {
         UUID processId = UUID.randomUUID();

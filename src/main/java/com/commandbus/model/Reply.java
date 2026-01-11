@@ -12,6 +12,7 @@ import java.util.UUID;
  * @param data Result data (nullable)
  * @param errorCode Application error code (nullable)
  * @param errorMessage Error message (nullable)
+ * @param errorType Type of error: "PERMANENT", "TRANSIENT", or "BUSINESS_RULE" (nullable)
  */
 public record Reply(
     UUID commandId,
@@ -19,27 +20,36 @@ public record Reply(
     ReplyOutcome outcome,
     Map<String, Object> data,
     String errorCode,
-    String errorMessage
+    String errorMessage,
+    String errorType
 ) {
     /**
      * Create a success reply with result data.
      */
     public static Reply success(UUID commandId, UUID correlationId, Map<String, Object> data) {
-        return new Reply(commandId, correlationId, ReplyOutcome.SUCCESS, data, null, null);
+        return new Reply(commandId, correlationId, ReplyOutcome.SUCCESS, data, null, null, null);
     }
 
     /**
-     * Create a failed reply with error information.
+     * Create a failed reply with error information (permanent error type).
      */
     public static Reply failed(UUID commandId, UUID correlationId, String errorCode, String errorMessage) {
-        return new Reply(commandId, correlationId, ReplyOutcome.FAILED, null, errorCode, errorMessage);
+        return new Reply(commandId, correlationId, ReplyOutcome.FAILED, null, errorCode, errorMessage, "PERMANENT");
+    }
+
+    /**
+     * Create a failed reply for business rule violation.
+     * Process managers will auto-compensate for this error type.
+     */
+    public static Reply businessRuleFailed(UUID commandId, UUID correlationId, String errorCode, String errorMessage) {
+        return new Reply(commandId, correlationId, ReplyOutcome.FAILED, null, errorCode, errorMessage, "BUSINESS_RULE");
     }
 
     /**
      * Create a canceled reply (from TSQ).
      */
     public static Reply canceled(UUID commandId, UUID correlationId) {
-        return new Reply(commandId, correlationId, ReplyOutcome.CANCELED, null, null, null);
+        return new Reply(commandId, correlationId, ReplyOutcome.CANCELED, null, null, null, null);
     }
 
     /**
@@ -61,5 +71,12 @@ public record Reply(
      */
     public boolean isCanceled() {
         return outcome == ReplyOutcome.CANCELED;
+    }
+
+    /**
+     * Check if this is a business rule failure.
+     */
+    public boolean isBusinessRuleFailure() {
+        return "BUSINESS_RULE".equals(errorType);
     }
 }
