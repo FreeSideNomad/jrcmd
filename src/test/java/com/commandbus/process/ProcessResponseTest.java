@@ -67,7 +67,7 @@ class ProcessResponseTest {
     @DisplayName("should handle null data in success reply")
     void shouldHandleNullDataInSuccessReply() {
         UUID commandId = UUID.randomUUID();
-        Reply reply = new Reply(commandId, null, ReplyOutcome.SUCCESS, null, null, null);
+        Reply reply = new Reply(commandId, null, ReplyOutcome.SUCCESS, null, null, null, null);
 
         ProcessResponse<PaymentResult> response = ProcessResponse.fromReply(
             reply,

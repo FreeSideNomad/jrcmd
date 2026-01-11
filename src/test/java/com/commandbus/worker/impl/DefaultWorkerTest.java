@@ -1,5 +1,6 @@
 package com.commandbus.worker.impl;
 
+import com.commandbus.exception.BusinessRuleException;
 import com.commandbus.exception.HandlerNotFoundException;
 import com.commandbus.exception.PermanentCommandException;
 import com.commandbus.exception.TransientCommandException;
@@ -427,6 +428,118 @@ class DefaultWorkerTest {
                 eq(AuditEventType.MOVED_TO_TSQ), eq("PERMANENT"), eq("PERM_ERROR"),
                 eq("Permanent failure"), isNull(), isNull()
             );
+        }
+
+        @Test
+        @DisplayName("should handle BusinessRuleException with FAILED status")
+        void shouldHandleBusinessRuleException() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, null, null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any()))
+                .thenThrow(new BusinessRuleException("ACCOUNT_CLOSED", "Account is closed"));
+
+            when(commandRepository.get(eq(DOMAIN), eq(commandId)))
+                .thenReturn(Optional.of(metadata));
+
+            when(pgmqClient.archive(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+
+            when(commandRepository.spFinishCommand(
+                eq(DOMAIN), eq(commandId), eq(CommandStatus.FAILED),
+                eq(AuditEventType.BUSINESS_RULE_FAILED), eq("BUSINESS_RULE"), eq("ACCOUNT_CLOSED"),
+                eq("Account is closed"), isNull(), isNull()
+            )).thenReturn(false);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            verify(pgmqClient).archive(eq(QUEUE_NAME), eq(msgId));
+            verify(commandRepository).spFinishCommand(
+                eq(DOMAIN), eq(commandId), eq(CommandStatus.FAILED),
+                eq(AuditEventType.BUSINESS_RULE_FAILED), eq("BUSINESS_RULE"), eq("ACCOUNT_CLOSED"),
+                eq("Account is closed"), isNull(), isNull()
+            );
+        }
+
+        @Test
+        @DisplayName("should send business rule reply when reply_to is set")
+        void shouldSendBusinessRuleReplyWhenReplyToIsSet() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString(),
+                "reply_to", "reply_queue"
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, "reply_queue", null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any()))
+                .thenThrow(new BusinessRuleException("ACCOUNT_CLOSED", "Account is closed"));
+
+            when(commandRepository.get(eq(DOMAIN), eq(commandId)))
+                .thenReturn(Optional.of(metadata));
+
+            when(pgmqClient.archive(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+
+            when(pgmqClient.send(eq("reply_queue"), anyMap())).thenReturn(1L);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Verify reply is sent with error_type=BUSINESS_RULE
+            verify(pgmqClient).send(eq("reply_queue"), argThat(reply -> {
+                return reply.get("command_id").equals(commandId.toString())
+                    && "FAILED".equals(reply.get("outcome"))
+                    && "BUSINESS_RULE".equals(reply.get("error_type"))
+                    && "ACCOUNT_CLOSED".equals(reply.get("error_code"))
+                    && "Account is closed".equals(reply.get("error_message"));
+            }));
         }
 
         @Test

@@ -249,4 +249,56 @@ class ExceptionTest {
             assertInstanceOf(CommandBusException.class, exception);
         }
     }
+
+    @Nested
+    class BusinessRuleExceptionTest {
+
+        @Test
+        void shouldCreateWithCodeAndMessage() {
+            BusinessRuleException exception = new BusinessRuleException("ACCOUNT_CLOSED", "Account is closed");
+
+            assertEquals("ACCOUNT_CLOSED", exception.getCode());
+            assertEquals("Account is closed", exception.getErrorMessage());
+            assertEquals("[ACCOUNT_CLOSED] Account is closed", exception.getMessage());
+            assertEquals(Map.of(), exception.getDetails());
+        }
+
+        @Test
+        void shouldCreateWithDetails() {
+            Map<String, Object> details = Map.of("accountId", "acc-123", "closedAt", "2024-01-15");
+            BusinessRuleException exception = new BusinessRuleException("ACCOUNT_CLOSED", "Account is closed", details);
+
+            assertEquals("ACCOUNT_CLOSED", exception.getCode());
+            assertEquals("Account is closed", exception.getErrorMessage());
+            assertEquals(details, exception.getDetails());
+        }
+
+        @Test
+        void shouldMakeDetailsImmutable() {
+            Map<String, Object> mutableDetails = new HashMap<>();
+            mutableDetails.put("key", "value");
+
+            BusinessRuleException exception = new BusinessRuleException("CODE", "msg", mutableDetails);
+
+            // Original map modification should not affect exception
+            mutableDetails.put("another", "entry");
+            assertEquals(1, exception.getDetails().size());
+
+            // Exception details should be immutable
+            assertThrows(UnsupportedOperationException.class,
+                () -> exception.getDetails().put("new", "entry"));
+        }
+
+        @Test
+        void shouldHandleNullDetails() {
+            BusinessRuleException exception = new BusinessRuleException("CODE", "msg", null);
+            assertEquals(Map.of(), exception.getDetails());
+        }
+
+        @Test
+        void shouldBeCommandBusException() {
+            BusinessRuleException exception = new BusinessRuleException("CODE", "msg");
+            assertInstanceOf(CommandBusException.class, exception);
+        }
+    }
 }

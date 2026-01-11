@@ -1,5 +1,6 @@
 package com.commandbus.worker.impl;
 
+import com.commandbus.exception.BusinessRuleException;
 import com.commandbus.exception.PermanentCommandException;
 import com.commandbus.exception.TransientCommandException;
 import com.commandbus.handler.HandlerRegistry;
@@ -334,6 +335,8 @@ public class DefaultWorker implements Worker {
             // Complete successfully
             complete(metadata, pgmqMessage.msgId(), result);
 
+        } catch (BusinessRuleException e) {
+            handleBusinessRuleError(commandId, pgmqMessage.msgId(), e);
         } catch (TransientCommandException e) {
             handleTransientError(commandId, pgmqMessage.msgId(), e);
         } catch (PermanentCommandException e) {
@@ -469,6 +472,54 @@ public class DefaultWorker implements Worker {
 
         log.warn("Command {} moved to TSQ (permanent error): {}",
             commandId, e.getMessage());
+    }
+
+    private void handleBusinessRuleError(UUID commandId, long msgId, BusinessRuleException e) {
+        log.debug("Business rule error for command {}: {}", commandId, e.getMessage());
+
+        Optional<CommandMetadata> metadataOpt = commandRepository.get(domain, commandId);
+        if (metadataOpt.isEmpty()) return;
+
+        CommandMetadata metadata = metadataOpt.get();
+
+        // Archive the message
+        pgmqClient.archive(queueName, msgId);
+
+        // Update status to FAILED (NOT IN_TROUBLESHOOTING_QUEUE)
+        commandRepository.spFinishCommand(
+            domain, commandId,
+            CommandStatus.FAILED,
+            AuditEventType.BUSINESS_RULE_FAILED,
+            "BUSINESS_RULE", e.getCode(), e.getErrorMessage(),
+            null,
+            metadata.batchId()
+        );
+
+        // Send failure reply with error_type=BUSINESS_RULE
+        if (metadata.replyTo() != null && !metadata.replyTo().isBlank()) {
+            sendBusinessRuleReply(metadata, e);
+        }
+
+        log.warn("Command {} failed due to business rule: [{}] {}",
+            commandId, e.getCode(), e.getErrorMessage());
+    }
+
+    private void sendBusinessRuleReply(CommandMetadata metadata, BusinessRuleException e) {
+        try {
+            Map<String, Object> reply = new HashMap<>();
+            reply.put("command_id", metadata.commandId().toString());
+            if (metadata.correlationId() != null) {
+                reply.put("correlation_id", metadata.correlationId().toString());
+            }
+            reply.put("outcome", ReplyOutcome.FAILED.getValue());
+            reply.put("error_type", "BUSINESS_RULE");
+            reply.put("error_code", e.getCode());
+            reply.put("error_message", e.getErrorMessage());
+
+            pgmqClient.send(metadata.replyTo(), reply);
+        } catch (Exception ex) {
+            log.error("Failed to send business rule reply for command {}", metadata.commandId(), ex);
+        }
     }
 
     private void failExhausted(CommandMetadata metadata, long msgId, TransientCommandException e) {
