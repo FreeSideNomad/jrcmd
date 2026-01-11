@@ -1,6 +1,7 @@
 package com.ivamare.commandbus.e2e.controller;
 
 import com.ivamare.commandbus.e2e.service.E2EService;
+import com.ivamare.commandbus.model.AuditEvent;
 import com.ivamare.commandbus.model.CommandStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -78,10 +80,43 @@ public class CommandController {
             return "redirect:/commands?error=notfound";
         }
 
+        List<AuditEvent> auditTrail = e2eService.getCommandAuditTrail(selectedDomain, commandId);
+
         model.addAttribute("command", command.get());
-        model.addAttribute("auditTrail", e2eService.getCommandAuditTrail(selectedDomain, commandId));
+        model.addAttribute("auditTrail", auditTrail);
         model.addAttribute("domain", selectedDomain);
+        model.addAttribute("executionTime", calculateExecutionTime(auditTrail));
 
         return "pages/command_detail";
+    }
+
+    /**
+     * Calculate execution time from RECEIVED to terminal event (COMPLETED/FAILED/etc).
+     */
+    private String calculateExecutionTime(List<AuditEvent> auditTrail) {
+        Instant receivedAt = null;
+        Instant completedAt = null;
+
+        for (AuditEvent event : auditTrail) {
+            if ("RECEIVED".equals(event.eventType())) {
+                receivedAt = event.timestamp();
+            } else if ("COMPLETED".equals(event.eventType()) ||
+                       "FAILED".equals(event.eventType()) ||
+                       "MOVED_TO_TSQ".equals(event.eventType())) {
+                completedAt = event.timestamp();
+            }
+        }
+
+        if (receivedAt == null || completedAt == null) {
+            return null;
+        }
+
+        long micros = Duration.between(receivedAt, completedAt).toNanos() / 1000;
+        if (micros >= 1_000_000) {
+            return String.format("%.3fs", micros / 1_000_000.0);
+        } else if (micros >= 1000) {
+            return String.format("%.3fms", micros / 1000.0);
+        }
+        return micros + "µs";
     }
 }

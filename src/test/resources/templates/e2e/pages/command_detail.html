@@ -49,8 +49,11 @@
                         <dt class="col-sm-4">Updated At</dt>
                         <dd class="col-sm-8"><code th:text="${#temporals.format(command.updatedAt, 'HH:mm:ss.SSSSSS')}">time</code></dd>
 
-                        <dt class="col-sm-4">Duration</dt>
-                        <dd class="col-sm-8"><span class="badge bg-info" th:text="${command.durationFormatted()}">0ms</span></dd>
+                        <dt class="col-sm-4">Execution Time</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${executionTime != null}" class="badge bg-info" th:text="${executionTime}">0ms</span>
+                            <span th:if="${executionTime == null}" class="text-muted">N/A</span>
+                        </dd>
 
                         <dt class="col-sm-4" th:if="${command.correlationId}">Correlation ID</dt>
                         <dd class="col-sm-8" th:if="${command.correlationId}"><code th:text="${command.correlationId}">uuid</code></dd>
