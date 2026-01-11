@@ -9,17 +9,39 @@
     <h2><i class="bi bi-list-task"></i> Commands</h2>
 
     <form class="row g-3 mb-4" th:action="@{/commands}" method="get">
+        <!-- Domain dropdown -->
         <div class="col-auto">
-            <input type="text" name="commandType" class="form-control" placeholder="Command Type"
-                   th:value="${commandType}">
+            <label class="visually-hidden" for="domain">Domain</label>
+            <select name="domain" id="domain" class="form-select" onchange="this.form.submit()">
+                <option th:each="d : ${domains}"
+                        th:value="${d}"
+                        th:text="${d}"
+                        th:selected="${d == selectedDomain}"></option>
+            </select>
         </div>
+
+        <!-- Command Type dropdown -->
         <div class="col-auto">
-            <select name="status" class="form-select">
+            <label class="visually-hidden" for="commandType">Command Type</label>
+            <select name="commandType" id="commandType" class="form-select">
+                <option value="">All Types</option>
+                <option th:each="type : ${commandTypes}"
+                        th:value="${type}"
+                        th:text="${type}"
+                        th:selected="${type == commandType}"></option>
+            </select>
+        </div>
+
+        <!-- Status dropdown -->
+        <div class="col-auto">
+            <label class="visually-hidden" for="status">Status</label>
+            <select name="status" id="status" class="form-select">
                 <option value="">All Statuses</option>
                 <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
                         th:selected="${s == status}"></option>
             </select>
         </div>
+
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">Filter</button>
             <a th:href="@{/commands}" class="btn btn-secondary">Clear</a>
@@ -50,7 +72,8 @@
                         <span class="badge"
                               th:classappend="${cmd.status.name() == 'COMPLETED'} ? 'bg-success' :
                                               (${cmd.status.name() == 'FAILED'} ? 'bg-danger' :
-                                              (${cmd.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                                              (${cmd.status.name() == 'IN_PROGRESS'} ? 'bg-primary' :
+                                              (${cmd.status.name() == 'IN_TROUBLESHOOTING_QUEUE'} ? 'bg-warning text-dark' : 'bg-secondary')))"
                               th:text="${cmd.status}">STATUS</span>
                     </td>
                     <td th:text="${cmd.attempts + '/' + cmd.maxAttempts}">0/3</td>

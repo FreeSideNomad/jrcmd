@@ -1,5 +1,6 @@
 package com.ivamare.commandbus.e2e.service;
 
+import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.dto.*;
 import com.ivamare.commandbus.model.*;
 import com.ivamare.commandbus.ops.TroubleshootingQueue;
@@ -22,6 +23,7 @@ import java.util.*;
 public class E2EService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final CommandBus commandBus;
     private final CommandRepository commandRepository;
     private final BatchRepository batchRepository;
     private final ProcessRepository processRepository;
@@ -30,12 +32,14 @@ public class E2EService {
 
     public E2EService(
             JdbcTemplate jdbcTemplate,
+            CommandBus commandBus,
             CommandRepository commandRepository,
             BatchRepository batchRepository,
             ProcessRepository processRepository,
             AuditRepository auditRepository,
             TroubleshootingQueue tsq) {
         this.jdbcTemplate = jdbcTemplate;
+        this.commandBus = commandBus;
         this.commandRepository = commandRepository;
         this.batchRepository = batchRepository;
         this.processRepository = processRepository;
@@ -110,6 +114,16 @@ public class E2EService {
         return countCommandsByStatus(domain, status);
     }
 
+    @Transactional(readOnly = true)
+    public List<String> getDistinctDomains() {
+        return commandRepository.getDistinctDomains();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getDistinctCommandTypes(String domain) {
+        return commandRepository.getDistinctCommandTypes(domain);
+    }
+
     // ========== TSQ ==========
 
     @Transactional(readOnly = true)
@@ -149,6 +163,41 @@ public class E2EService {
     }
 
     // ========== Batches ==========
+
+    @Transactional
+    public UUID createBatch(String domain, BatchCreateRequest request) {
+        // Build BatchCommand list with behavior embedded in payload
+        List<BatchCommand> commands = new java.util.ArrayList<>();
+        String commandType = request.commandType() != null ? request.commandType() : "TestCommand";
+        Integer maxAttempts = request.maxAttempts() > 0 ? request.maxAttempts() : null;
+
+        for (int i = 0; i < request.commandCount(); i++) {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("index", i);
+            payload.put("batchName", request.name());
+            if (request.behavior() != null) {
+                payload.put("failPermanentPct", request.behavior().failPermanentPct());
+                payload.put("failTransientPct", request.behavior().failTransientPct());
+                payload.put("failBusinessRulePct", request.behavior().failBusinessRulePct());
+                payload.put("timeoutPct", request.behavior().timeoutPct());
+                payload.put("minDurationMs", request.behavior().minDurationMs());
+                payload.put("maxDurationMs", request.behavior().maxDurationMs());
+            }
+
+            commands.add(new BatchCommand(
+                commandType,
+                UUID.randomUUID(),
+                payload,
+                null,  // correlationId
+                null,  // replyTo
+                maxAttempts
+            ));
+        }
+
+        // Create batch using CommandBus
+        CreateBatchResult result = commandBus.createBatch(domain, commands);
+        return result.batchId();
+    }
 
     @Transactional(readOnly = true)
     public List<BatchView> getBatches(String domain, BatchStatus status, int limit, int offset) {

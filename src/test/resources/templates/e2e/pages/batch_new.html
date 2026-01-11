@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Create Batch - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <h2><i class="bi bi-plus-circle"></i> Create Command Batch</h2>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <form th:action="@{/batches}" method="post" class="needs-validation" novalidate>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Batch Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="name" class="form-label">Batch Name</label>
+                                <input type="text" class="form-control" id="name" name="name"
+                                       th:value="${request.name()}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="commandType" class="form-label">Command Type</label>
+                                <select class="form-select" id="commandType" name="commandType">
+                                    <option th:each="type : ${commandTypes}"
+                                            th:value="${type}"
+                                            th:text="${type}"
+                                            th:selected="${type == request.commandType()}"></option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="commandCount" class="form-label">Command Count</label>
+                                <input type="number" class="form-control" id="commandCount" name="commandCount"
+                                       min="1" max="100000" th:value="${request.commandCount()}"
+                                       onchange="updatePreview()">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="maxAttempts" class="form-label">Max Attempts</label>
+                                <input type="number" class="form-control" id="maxAttempts" name="maxAttempts"
+                                       min="1" max="10" th:value="${request.maxAttempts()}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Failure Probabilities (Sequential)</h5>
+                        <small class="text-muted">Evaluated in order: Permanent → Transient → Business Rule → Timeout → Success</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="failPermanentPct" class="form-label">Permanent Fail %</label>
+                                <input type="number" class="form-control" id="failPermanentPct" name="failPermanentPct"
+                                       min="0" max="100" step="0.1" value="0" onchange="updatePreview()">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="failTransientPct" class="form-label">Transient Fail %</label>
+                                <input type="number" class="form-control" id="failTransientPct" name="failTransientPct"
+                                       min="0" max="100" step="0.1" value="0" onchange="updatePreview()">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="failBusinessRulePct" class="form-label">Business Rule Fail %</label>
+                                <input type="number" class="form-control" id="failBusinessRulePct" name="failBusinessRulePct"
+                                       min="0" max="100" step="0.1" value="0" onchange="updatePreview()">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="timeoutPct" class="form-label">Timeout %</label>
+                                <input type="number" class="form-control" id="timeoutPct" name="timeoutPct"
+                                       min="0" max="100" step="0.1" value="0" onchange="updatePreview()">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Processing Duration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="minDurationMs" class="form-label">Min Duration (ms)</label>
+                                <input type="number" class="form-control" id="minDurationMs" name="minDurationMs"
+                                       min="0" max="60000" value="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="maxDurationMs" class="form-label">Max Duration (ms)</label>
+                                <input type="number" class="form-control" id="maxDurationMs" name="maxDurationMs"
+                                       min="0" max="60000" value="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> Create Batch
+                    </button>
+                    <a th:href="@{/batches}" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card sticky-top" style="top: 20px;">
+                <div class="card-header">
+                    <h5 class="mb-0">Expected Outcomes</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="badge bg-danger">Permanent Failures</span>
+                            <span id="permanentCount">0</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-danger" id="permanentBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="badge bg-warning text-dark">Transient → TSQ</span>
+                            <span id="transientCount">0</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-warning" id="transientBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="badge bg-info">Business Rule</span>
+                            <span id="businessRuleCount">0</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-info" id="businessRuleBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="badge bg-secondary">Timeouts</span>
+                            <span id="timeoutCount">0</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-secondary" id="timeoutBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="badge bg-success">Success</span>
+                            <span id="successCount">0</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" id="successBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="d-flex justify-content-between">
+                        <strong>Total Commands</strong>
+                        <strong id="totalCount">0</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updatePreview() {
+            const count = parseInt(document.getElementById('commandCount').value) || 0;
+            const permanentPct = parseFloat(document.getElementById('failPermanentPct').value) || 0;
+            const transientPct = parseFloat(document.getElementById('failTransientPct').value) || 0;
+            const businessRulePct = parseFloat(document.getElementById('failBusinessRulePct').value) || 0;
+            const timeoutPct = parseFloat(document.getElementById('timeoutPct').value) || 0;
+
+            // Sequential calculation
+            const permanentCount = Math.round(count * (permanentPct / 100));
+            const remainingAfterPermanent = count - permanentCount;
+
+            const transientCount = Math.round(remainingAfterPermanent * (transientPct / 100));
+            const remainingAfterTransient = remainingAfterPermanent - transientCount;
+
+            const businessRuleCount = Math.round(remainingAfterTransient * (businessRulePct / 100));
+            const remainingAfterBusinessRule = remainingAfterTransient - businessRuleCount;
+
+            const timeoutCount = Math.round(remainingAfterBusinessRule * (timeoutPct / 100));
+            const successCount = remainingAfterBusinessRule - timeoutCount;
+
+            // Update counts
+            document.getElementById('permanentCount').textContent = permanentCount;
+            document.getElementById('transientCount').textContent = transientCount;
+            document.getElementById('businessRuleCount').textContent = businessRuleCount;
+            document.getElementById('timeoutCount').textContent = timeoutCount;
+            document.getElementById('successCount').textContent = successCount;
+            document.getElementById('totalCount').textContent = count;
+
+            // Update progress bars
+            const updateBar = (id, value, total) => {
+                const pct = total > 0 ? (value / total * 100) : 0;
+                document.getElementById(id).style.width = pct + '%';
+            };
+
+            updateBar('permanentBar', permanentCount, count);
+            updateBar('transientBar', transientCount, count);
+            updateBar('businessRuleBar', businessRuleCount, count);
+            updateBar('timeoutBar', timeoutCount, count);
+            updateBar('successBar', successCount, count);
+        }
+
+        // Initialize preview on page load
+        document.addEventListener('DOMContentLoaded', updatePreview);
+    </script>
+</div>
+</body>
+</html>
