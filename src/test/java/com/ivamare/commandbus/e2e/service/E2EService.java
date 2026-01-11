@@ -239,6 +239,47 @@ public class E2EService {
         }
     }
 
+    /**
+     * Calculate batch duration from audit events.
+     * Returns duration between first RECEIVED and last terminal event (COMPLETED/FAILED/MOVED_TO_TSQ).
+     */
+    @Transactional(readOnly = true)
+    public BatchDuration getBatchDuration(String domain, UUID batchId) {
+        String sql = """
+            SELECT
+                MIN(CASE WHEN event_type = 'RECEIVED' THEN timestamp END) as first_received,
+                MAX(CASE WHEN event_type IN ('COMPLETED', 'FAILED', 'MOVED_TO_TSQ', 'BUSINESS_RULE_FAILED') THEN timestamp END) as last_completed
+            FROM commandbus.command_audit a
+            JOIN commandbus.command c ON a.command_id = c.command_id AND a.domain = c.domain
+            WHERE c.batch_id = ? AND a.domain = ?
+            """;
+
+        return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> {
+            java.sql.Timestamp firstReceived = rs.getTimestamp("first_received");
+            java.sql.Timestamp lastCompleted = rs.getTimestamp("last_completed");
+            return new BatchDuration(
+                firstReceived != null ? firstReceived.toInstant() : null,
+                lastCompleted != null ? lastCompleted.toInstant() : null
+            );
+        }, batchId, domain);
+    }
+
+    public record BatchDuration(Instant firstReceived, Instant lastCompleted) {
+        public Long durationMs() {
+            if (firstReceived == null || lastCompleted == null) return null;
+            return java.time.Duration.between(firstReceived, lastCompleted).toMillis();
+        }
+
+        public String durationFormatted() {
+            Long ms = durationMs();
+            if (ms == null) return null;
+            if (ms >= 1000) {
+                return String.format("%.3fs", ms / 1000.0);
+            }
+            return ms + "ms";
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<CommandView> getBatchCommands(String domain, UUID batchId, int limit, int offset) {
         return commandRepository.listByBatch(domain, batchId, null, limit, offset)

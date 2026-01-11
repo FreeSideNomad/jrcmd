@@ -62,6 +62,16 @@
 
                         <dt class="col-sm-4">Completed At</dt>
                         <dd class="col-sm-8"><code th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></dd>
+
+                        <dt class="col-sm-4">Processing Time</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${batchDuration.durationFormatted() != null}" class="badge bg-info" th:text="${batchDuration.durationFormatted()}">0ms</span>
+                            <span th:if="${batchDuration.durationFormatted() == null}" class="text-muted">N/A</span>
+                            <small th:if="${batchDuration.firstReceived != null}" class="text-muted ms-2">
+                                (<code th:text="${#temporals.format(batchDuration.firstReceived, 'HH:mm:ss.SSSSSS')}">start</code>
+                                → <code th:text="${batchDuration.lastCompleted != null ? #temporals.format(batchDuration.lastCompleted, 'HH:mm:ss.SSSSSS') : '...'}">end</code>)
+                            </small>
+                        </dd>
                     </dl>
                 </div>
             </div>

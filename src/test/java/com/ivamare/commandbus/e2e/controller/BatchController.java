@@ -109,9 +109,11 @@ public class BatchController {
         }
 
         var commands = e2eService.getBatchCommands(domain, batchId, size, page * size);
+        var duration = e2eService.getBatchDuration(domain, batchId);
 
         model.addAttribute("batch", batch.get());
         model.addAttribute("commands", commands);
+        model.addAttribute("batchDuration", duration);
         model.addAttribute("page", page);
         model.addAttribute("size", size);
         model.addAttribute("domain", domain);

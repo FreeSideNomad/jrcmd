@@ -1,0 +1,2 @@
+- sp_receive ... AND c.status NOT IN ('COMPLETED', 'CANCELED') should also include failed
+- 
