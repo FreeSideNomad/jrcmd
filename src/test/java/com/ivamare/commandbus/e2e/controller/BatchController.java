@@ -36,6 +36,9 @@ public class BatchController {
             @RequestParam(defaultValue = "20") int size,
             Model model) {
 
+        // Refresh stats for pending/in-progress batches
+        e2eService.refreshAllPendingBatchStats(domain);
+
         var batches = e2eService.getBatches(domain, status, size, page * size);
 
         model.addAttribute("batches", batches);
@@ -96,6 +99,9 @@ public class BatchController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             Model model) {
+
+        // Refresh batch statistics before displaying
+        e2eService.refreshBatchStats(domain, batchId);
 
         var batch = e2eService.getBatchById(domain, batchId);
         if (batch.isEmpty()) {

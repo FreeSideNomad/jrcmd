@@ -213,6 +213,32 @@ public class E2EService {
             .map(this::toBatchView);
     }
 
+    /**
+     * Refresh batch statistics by calling the stored procedure.
+     */
+    @Transactional
+    public void refreshBatchStats(String domain, UUID batchId) {
+        jdbcTemplate.queryForRowSet(
+            "SELECT * FROM commandbus.sp_refresh_batch_stats(?, ?)",
+            domain, batchId
+        );
+    }
+
+    /**
+     * Refresh stats for all non-completed batches in the domain.
+     */
+    @Transactional
+    public void refreshAllPendingBatchStats(String domain) {
+        List<BatchMetadata> pendingBatches = batchRepository.listBatches(domain, null, 100, 0)
+            .stream()
+            .filter(b -> b.status() == BatchStatus.PENDING || b.status() == BatchStatus.IN_PROGRESS)
+            .toList();
+
+        for (BatchMetadata batch : pendingBatches) {
+            refreshBatchStats(domain, batch.batchId());
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<CommandView> getBatchCommands(String domain, UUID batchId, int limit, int offset) {
         return commandRepository.listByBatch(domain, batchId, null, limit, offset)
