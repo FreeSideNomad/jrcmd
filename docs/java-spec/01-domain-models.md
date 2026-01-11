@@ -7,7 +7,7 @@ This specification defines the domain model classes for the Java Command Bus lib
 ## Package Structure
 
 ```
-com.commandbus.model/
+com.ivamare.commandbus.model/
 ├── Command.java           # Immutable command
 ├── CommandMetadata.java   # Mutable command state
 ├── CommandStatus.java     # Status enum
@@ -25,7 +25,7 @@ com.commandbus.model/
 ├── AuditEvent.java        # Audit trail entry
 └── PgmqMessage.java       # Raw PGMQ message
 
-com.commandbus.exception/
+com.ivamare.commandbus.exception/
 ├── CommandBusException.java        # Base exception
 ├── TransientCommandException.java  # Retryable failure
 ├── PermanentCommandException.java  # Non-retryable failure
@@ -44,7 +44,7 @@ com.commandbus.exception/
 ### 1.1 CommandStatus
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 /**
  * Status of a command in its lifecycle.
@@ -92,7 +92,7 @@ public enum CommandStatus {
 ### 1.2 ReplyOutcome
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 /**
  * Outcome of command processing.
@@ -126,7 +126,7 @@ public enum ReplyOutcome {
 ### 1.3 BatchStatus
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 /**
  * Status of a batch in its lifecycle.
@@ -172,7 +172,7 @@ public enum BatchStatus {
 ### 2.1 Command (Immutable)
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.Map;
@@ -193,13 +193,13 @@ import java.util.UUID;
  * @param createdAt When the command was created
  */
 public record Command(
-    String domain,
-    String commandType,
-    UUID commandId,
-    Map<String, Object> data,
-    UUID correlationId,
-    String replyTo,
-    Instant createdAt
+        String domain,
+        String commandType,
+        UUID commandId,
+        Map<String, Object> data,
+        UUID correlationId,
+        String replyTo,
+        Instant createdAt
 ) {
     /**
      * Creates a command with validation.
@@ -229,10 +229,7 @@ public record Command(
 ### 2.2 HandlerContext
 
 ```java
-package com.commandbus.model;
-
-import java.util.concurrent.CompletableFuture;
-import java.util.function.IntConsumer;
+package com.ivamare.commandbus.model;
 
 /**
  * Context provided to command handlers during execution.
@@ -247,11 +244,11 @@ import java.util.function.IntConsumer;
  * @param visibilityExtender Function to extend visibility timeout (nullable)
  */
 public record HandlerContext(
-    Command command,
-    int attempt,
-    int maxAttempts,
-    long msgId,
-    VisibilityExtender visibilityExtender
+        Command command,
+        int attempt,
+        int maxAttempts,
+        long msgId,
+        VisibilityExtender visibilityExtender
 ) {
     /**
      * Extend the visibility timeout for long-running operations.
@@ -288,7 +285,7 @@ public record HandlerContext(
 ### 2.3 CommandMetadata
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -316,21 +313,21 @@ import java.util.UUID;
  * @param batchId Optional batch ID (nullable)
  */
 public record CommandMetadata(
-    String domain,
-    UUID commandId,
-    String commandType,
-    CommandStatus status,
-    int attempts,
-    int maxAttempts,
-    Long msgId,
-    UUID correlationId,
-    String replyTo,
-    String lastErrorType,
-    String lastErrorCode,
-    String lastErrorMessage,
-    Instant createdAt,
-    Instant updatedAt,
-    UUID batchId
+        String domain,
+        UUID commandId,
+        String commandType,
+        CommandStatus status,
+        int attempts,
+        int maxAttempts,
+        Long msgId,
+        UUID correlationId,
+        String replyTo,
+        String lastErrorType,
+        String lastErrorCode,
+        String lastErrorMessage,
+        Instant createdAt,
+        Instant updatedAt,
+        UUID batchId
 ) {
     /**
      * Creates a new command metadata with default values.
@@ -342,12 +339,12 @@ public record CommandMetadata(
             int maxAttempts) {
         var now = Instant.now();
         return new CommandMetadata(
-            domain, commandId, commandType,
-            CommandStatus.PENDING,
-            0, maxAttempts,
-            null, null, null,
-            null, null, null,
-            now, now, null
+                domain, commandId, commandType,
+                CommandStatus.PENDING,
+                0, maxAttempts,
+                null, null, null,
+                null, null, null,
+                now, now, null
         );
     }
 
@@ -356,12 +353,12 @@ public record CommandMetadata(
      */
     public CommandMetadata withStatus(CommandStatus newStatus) {
         return new CommandMetadata(
-            domain, commandId, commandType,
-            newStatus,
-            attempts, maxAttempts,
-            msgId, correlationId, replyTo,
-            lastErrorType, lastErrorCode, lastErrorMessage,
-            createdAt, Instant.now(), batchId
+                domain, commandId, commandType,
+                newStatus,
+                attempts, maxAttempts,
+                msgId, correlationId, replyTo,
+                lastErrorType, lastErrorCode, lastErrorMessage,
+                createdAt, Instant.now(), batchId
         );
     }
 
@@ -370,12 +367,12 @@ public record CommandMetadata(
      */
     public CommandMetadata withError(String errorType, String errorCode, String errorMessage) {
         return new CommandMetadata(
-            domain, commandId, commandType,
-            status,
-            attempts, maxAttempts,
-            msgId, correlationId, replyTo,
-            errorType, errorCode, errorMessage,
-            createdAt, Instant.now(), batchId
+                domain, commandId, commandType,
+                status,
+                attempts, maxAttempts,
+                msgId, correlationId, replyTo,
+                errorType, errorCode, errorMessage,
+                createdAt, Instant.now(), batchId
         );
     }
 }
@@ -384,7 +381,7 @@ public record CommandMetadata(
 ### 2.4 Reply
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.Map;
 import java.util.UUID;
@@ -400,12 +397,12 @@ import java.util.UUID;
  * @param errorMessage Error message if failed (nullable)
  */
 public record Reply(
-    UUID commandId,
-    UUID correlationId,
-    ReplyOutcome outcome,
-    Map<String, Object> data,
-    String errorCode,
-    String errorMessage
+        UUID commandId,
+        UUID correlationId,
+        ReplyOutcome outcome,
+        Map<String, Object> data,
+        String errorCode,
+        String errorMessage
 ) {
     /**
      * Creates a success reply.
@@ -437,7 +434,7 @@ public record Reply(
 ### 3.1 SendRequest
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.Map;
 import java.util.UUID;
@@ -454,13 +451,13 @@ import java.util.UUID;
  * @param maxAttempts Max retry attempts (nullable, uses default if null)
  */
 public record SendRequest(
-    String domain,
-    String commandType,
-    UUID commandId,
-    Map<String, Object> data,
-    UUID correlationId,
-    String replyTo,
-    Integer maxAttempts
+        String domain,
+        String commandType,
+        UUID commandId,
+        Map<String, Object> data,
+        UUID correlationId,
+        String replyTo,
+        Integer maxAttempts
 ) {
     /**
      * Creates a simple send request.
@@ -474,7 +471,7 @@ public record SendRequest(
 ### 3.2 SendResult
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.UUID;
 
@@ -485,15 +482,16 @@ import java.util.UUID;
  * @param msgId The PGMQ message ID assigned
  */
 public record SendResult(
-    UUID commandId,
-    long msgId
-) {}
+        UUID commandId,
+        long msgId
+) {
+}
 ```
 
 ### 3.3 BatchSendResult
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.List;
 
@@ -505,9 +503,9 @@ import java.util.List;
  * @param totalCommands Total number of commands sent
  */
 public record BatchSendResult(
-    List<SendResult> results,
-    int chunksProcessed,
-    int totalCommands
+        List<SendResult> results,
+        int chunksProcessed,
+        int totalCommands
 ) {
     public BatchSendResult {
         results = List.copyOf(results);
@@ -522,7 +520,7 @@ public record BatchSendResult(
 ### 4.1 BatchCommand
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.Map;
 import java.util.UUID;
@@ -538,12 +536,12 @@ import java.util.UUID;
  * @param maxAttempts Max retry attempts (nullable, uses default if null)
  */
 public record BatchCommand(
-    String commandType,
-    UUID commandId,
-    Map<String, Object> data,
-    UUID correlationId,
-    String replyTo,
-    Integer maxAttempts
+        String commandType,
+        UUID commandId,
+        Map<String, Object> data,
+        UUID correlationId,
+        String replyTo,
+        Integer maxAttempts
 ) {
     public BatchCommand {
         if (commandType == null || commandType.isBlank()) {
@@ -569,7 +567,7 @@ public record BatchCommand(
 ### 4.2 BatchMetadata
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.Map;
@@ -592,18 +590,18 @@ import java.util.UUID;
  * @param completedAt When all commands reached terminal state (nullable)
  */
 public record BatchMetadata(
-    String domain,
-    UUID batchId,
-    String name,
-    Map<String, Object> customData,
-    BatchStatus status,
-    int totalCount,
-    int completedCount,
-    int canceledCount,
-    int inTroubleshootingCount,
-    Instant createdAt,
-    Instant startedAt,
-    Instant completedAt
+        String domain,
+        UUID batchId,
+        String name,
+        Map<String, Object> customData,
+        BatchStatus status,
+        int totalCount,
+        int completedCount,
+        int canceledCount,
+        int inTroubleshootingCount,
+        Instant createdAt,
+        Instant startedAt,
+        Instant completedAt
 ) {
     /**
      * Checks if the batch is complete (all commands in terminal state).
@@ -624,7 +622,7 @@ public record BatchMetadata(
 ### 4.3 CreateBatchResult
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.util.List;
 import java.util.UUID;
@@ -637,9 +635,9 @@ import java.util.UUID;
  * @param totalCommands Total number of commands in the batch
  */
 public record CreateBatchResult(
-    UUID batchId,
-    List<SendResult> commandResults,
-    int totalCommands
+        UUID batchId,
+        List<SendResult> commandResults,
+        int totalCommands
 ) {
     public CreateBatchResult {
         commandResults = List.copyOf(commandResults);
@@ -654,7 +652,7 @@ public record CreateBatchResult(
 ### 5.1 TroubleshootingItem
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.Map;
@@ -678,26 +676,27 @@ import java.util.UUID;
  * @param updatedAt When the command was last updated
  */
 public record TroubleshootingItem(
-    String domain,
-    UUID commandId,
-    String commandType,
-    int attempts,
-    int maxAttempts,
-    String lastErrorType,
-    String lastErrorCode,
-    String lastErrorMessage,
-    UUID correlationId,
-    String replyTo,
-    Map<String, Object> payload,
-    Instant createdAt,
-    Instant updatedAt
-) {}
+        String domain,
+        UUID commandId,
+        String commandType,
+        int attempts,
+        int maxAttempts,
+        String lastErrorType,
+        String lastErrorCode,
+        String lastErrorMessage,
+        UUID correlationId,
+        String replyTo,
+        Map<String, Object> payload,
+        Instant createdAt,
+        Instant updatedAt
+) {
+}
 ```
 
 ### 5.2 AuditEvent
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.Map;
@@ -714,25 +713,27 @@ import java.util.UUID;
  * @param details Optional additional details (nullable)
  */
 public record AuditEvent(
-    long auditId,
-    String domain,
-    UUID commandId,
-    String eventType,
-    Instant timestamp,
-    Map<String, Object> details
-) {}
+        long auditId,
+        String domain,
+        UUID commandId,
+        String eventType,
+        Instant timestamp,
+        Map<String, Object> details
+) {
+}
 ```
 
 ### 5.3 AuditEventType (Constants)
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 /**
  * Standard audit event types.
  */
 public final class AuditEventType {
-    private AuditEventType() {}
+    private AuditEventType() {
+    }
 
     public static final String SENT = "SENT";
     public static final String RECEIVED = "RECEIVED";
@@ -755,7 +756,7 @@ public final class AuditEventType {
 ### 6.1 PgmqMessage
 
 ```java
-package com.commandbus.model;
+package com.ivamare.commandbus.model;
 
 import java.time.Instant;
 import java.util.Map;
@@ -770,12 +771,13 @@ import java.util.Map;
  * @param message The message payload
  */
 public record PgmqMessage(
-    long msgId,
-    int readCount,
-    Instant enqueuedAt,
-    Instant visibilityTimeout,
-    Map<String, Object> message
-) {}
+        long msgId,
+        int readCount,
+        Instant enqueuedAt,
+        Instant visibilityTimeout,
+        Map<String, Object> message
+) {
+}
 ```
 
 ---
@@ -785,7 +787,7 @@ public record PgmqMessage(
 ### 7.1 Base Exception
 
 ```java
-package com.commandbus.exception;
+package com.ivamare.commandbus.exception;
 
 /**
  * Base exception for all Command Bus errors.
@@ -805,7 +807,7 @@ public class CommandBusException extends RuntimeException {
 ### 7.2 TransientCommandException
 
 ```java
-package com.commandbus.exception;
+package com.ivamare.commandbus.exception;
 
 import java.util.Map;
 
@@ -849,7 +851,7 @@ public class TransientCommandException extends CommandBusException {
 ### 7.3 PermanentCommandException
 
 ```java
-package com.commandbus.exception;
+package com.ivamare.commandbus.exception;
 
 import java.util.Map;
 
@@ -893,7 +895,7 @@ public class PermanentCommandException extends CommandBusException {
 ### 7.4 Other Exceptions
 
 ```java
-package com.commandbus.exception;
+package com.ivamare.commandbus.exception;
 
 public class HandlerNotFoundException extends CommandBusException {
     private final String domain;
@@ -905,8 +907,13 @@ public class HandlerNotFoundException extends CommandBusException {
         this.commandType = commandType;
     }
 
-    public String getDomain() { return domain; }
-    public String getCommandType() { return commandType; }
+    public String getDomain() {
+        return domain;
+    }
+
+    public String getCommandType() {
+        return commandType;
+    }
 }
 
 public class HandlerAlreadyRegisteredException extends CommandBusException {
@@ -919,8 +926,13 @@ public class HandlerAlreadyRegisteredException extends CommandBusException {
         this.commandType = commandType;
     }
 
-    public String getDomain() { return domain; }
-    public String getCommandType() { return commandType; }
+    public String getDomain() {
+        return domain;
+    }
+
+    public String getCommandType() {
+        return commandType;
+    }
 }
 
 public class DuplicateCommandException extends CommandBusException {
@@ -933,8 +945,13 @@ public class DuplicateCommandException extends CommandBusException {
         this.commandId = commandId;
     }
 
-    public String getDomain() { return domain; }
-    public String getCommandId() { return commandId; }
+    public String getDomain() {
+        return domain;
+    }
+
+    public String getCommandId() {
+        return commandId;
+    }
 }
 
 public class CommandNotFoundException extends CommandBusException {
@@ -947,8 +964,13 @@ public class CommandNotFoundException extends CommandBusException {
         this.commandId = commandId;
     }
 
-    public String getDomain() { return domain; }
-    public String getCommandId() { return commandId; }
+    public String getDomain() {
+        return domain;
+    }
+
+    public String getCommandId() {
+        return commandId;
+    }
 }
 
 public class BatchNotFoundException extends CommandBusException {
@@ -961,8 +983,13 @@ public class BatchNotFoundException extends CommandBusException {
         this.batchId = batchId;
     }
 
-    public String getDomain() { return domain; }
-    public String getBatchId() { return batchId; }
+    public String getDomain() {
+        return domain;
+    }
+
+    public String getBatchId() {
+        return batchId;
+    }
 }
 
 public class InvalidOperationException extends CommandBusException {

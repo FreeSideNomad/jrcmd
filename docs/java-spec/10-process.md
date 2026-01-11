@@ -16,7 +16,7 @@ The process manager pattern enables:
 ### ProcessStatus Enum
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
 public enum ProcessStatus {
     /** Process created but not yet started */
@@ -51,7 +51,7 @@ public enum ProcessStatus {
 ### ProcessState Interface
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
 import java.util.Map;
 
@@ -79,10 +79,9 @@ public interface ProcessState {
 ### ProcessMetadata Record
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -92,17 +91,17 @@ import java.util.UUID;
  * @param <TStep> The step enum type (must extend Enum)
  */
 public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TStep>>(
-    String domain,
-    UUID processId,
-    String processType,
-    TState state,
-    ProcessStatus status,
-    TStep currentStep,
-    Instant createdAt,
-    Instant updatedAt,
-    Instant completedAt,
-    String errorCode,
-    String errorMessage
+        String domain,
+        UUID processId,
+        String processType,
+        TState state,
+        ProcessStatus status,
+        TStep currentStep,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant completedAt,
+        String errorCode,
+        String errorMessage
 ) {
     /**
      * Create a new process in PENDING status.
@@ -115,17 +114,17 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
             TState state) {
         Instant now = Instant.now();
         return new ProcessMetadata<>(
-            domain,
-            processId,
-            processType,
-            state,
-            ProcessStatus.PENDING,
-            null,           // currentStep
-            now,            // createdAt
-            now,            // updatedAt
-            null,           // completedAt
-            null,           // errorCode
-            null            // errorMessage
+                domain,
+                processId,
+                processType,
+                state,
+                ProcessStatus.PENDING,
+                null,           // currentStep
+                now,            // createdAt
+                now,            // updatedAt
+                null,           // completedAt
+                null,           // errorCode
+                null            // errorMessage
         );
     }
 
@@ -134,8 +133,8 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
      */
     public ProcessMetadata<TState, TStep> withStatus(ProcessStatus newStatus) {
         return new ProcessMetadata<>(
-            domain, processId, processType, state, newStatus, currentStep,
-            createdAt, Instant.now(), completedAt, errorCode, errorMessage
+                domain, processId, processType, state, newStatus, currentStep,
+                createdAt, Instant.now(), completedAt, errorCode, errorMessage
         );
     }
 
@@ -144,8 +143,8 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
      */
     public ProcessMetadata<TState, TStep> withCurrentStep(TStep step) {
         return new ProcessMetadata<>(
-            domain, processId, processType, state, status, step,
-            createdAt, Instant.now(), completedAt, errorCode, errorMessage
+                domain, processId, processType, state, status, step,
+                createdAt, Instant.now(), completedAt, errorCode, errorMessage
         );
     }
 
@@ -154,8 +153,8 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
      */
     public ProcessMetadata<TState, TStep> withError(String code, String message) {
         return new ProcessMetadata<>(
-            domain, processId, processType, state, status, currentStep,
-            createdAt, Instant.now(), completedAt, code, message
+                domain, processId, processType, state, status, currentStep,
+                createdAt, Instant.now(), completedAt, code, message
         );
     }
 
@@ -164,8 +163,8 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
      */
     public ProcessMetadata<TState, TStep> withCompletion(ProcessStatus finalStatus) {
         return new ProcessMetadata<>(
-            domain, processId, processType, state, finalStatus, currentStep,
-            createdAt, Instant.now(), Instant.now(), errorCode, errorMessage
+                domain, processId, processType, state, finalStatus, currentStep,
+                createdAt, Instant.now(), Instant.now(), errorCode, errorMessage
         );
     }
 }
@@ -174,9 +173,10 @@ public record ProcessMetadata<TState extends ProcessState, TStep extends Enum<TS
 ### ProcessAuditEntry Record
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
-import com.commandbus.domain.ReplyOutcome;
+import com.ivamare.commandbus.domain.ReplyOutcome;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -185,14 +185,14 @@ import java.util.UUID;
  * Audit trail entry for process step execution.
  */
 public record ProcessAuditEntry(
-    String stepName,
-    UUID commandId,
-    String commandType,
-    Map<String, Object> commandData,
-    Instant sentAt,
-    ReplyOutcome replyOutcome,
-    Map<String, Object> replyData,
-    Instant receivedAt
+        String stepName,
+        UUID commandId,
+        String commandType,
+        Map<String, Object> commandData,
+        Instant sentAt,
+        ReplyOutcome replyOutcome,
+        Map<String, Object> replyData,
+        Instant receivedAt
 ) {
     /**
      * Create entry for command being sent.
@@ -203,8 +203,8 @@ public record ProcessAuditEntry(
             String commandType,
             Map<String, Object> commandData) {
         return new ProcessAuditEntry(
-            stepName, commandId, commandType, commandData,
-            Instant.now(), null, null, null
+                stepName, commandId, commandType, commandData,
+                Instant.now(), null, null, null
         );
     }
 
@@ -213,8 +213,8 @@ public record ProcessAuditEntry(
      */
     public ProcessAuditEntry withReply(ReplyOutcome outcome, Map<String, Object> data) {
         return new ProcessAuditEntry(
-            stepName, commandId, commandType, commandData,
-            sentAt, outcome, data, Instant.now()
+                stepName, commandId, commandType, commandData,
+                sentAt, outcome, data, Instant.now()
         );
     }
 }
@@ -223,7 +223,7 @@ public record ProcessAuditEntry(
 ### ProcessCommand Record
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
 import java.util.Map;
 
@@ -233,8 +233,8 @@ import java.util.Map;
  * @param <TData> The command data type
  */
 public record ProcessCommand<TData>(
-    String commandType,
-    TData data
+        String commandType,
+        TData data
 ) {
     /**
      * Convert to map for serialization.
@@ -245,8 +245,8 @@ public record ProcessCommand<TData>(
             dataValue = ps.toMap();
         }
         return Map.of(
-            "commandType", commandType,
-            "data", dataValue
+                "commandType", commandType,
+                "data", dataValue
         );
     }
 }
@@ -255,10 +255,11 @@ public record ProcessCommand<TData>(
 ### ProcessResponse Record
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
-import com.commandbus.domain.Reply;
-import com.commandbus.domain.ReplyOutcome;
+import com.ivamare.commandbus.domain.Reply;
+import com.ivamare.commandbus.domain.ReplyOutcome;
+
 import java.util.Map;
 import java.util.function.Function;
 
@@ -268,10 +269,10 @@ import java.util.function.Function;
  * @param <TResult> The result data type
  */
 public record ProcessResponse<TResult>(
-    ReplyOutcome outcome,
-    TResult result,
-    String errorCode,
-    String errorMessage
+        ReplyOutcome outcome,
+        TResult result,
+        String errorCode,
+        String errorMessage
 ) {
     /**
      * Create from a Reply object with type conversion.
@@ -284,10 +285,10 @@ public record ProcessResponse<TResult>(
             result = resultMapper.apply(reply.data());
         }
         return new ProcessResponse<>(
-            reply.outcome(),
-            result,
-            reply.errorCode(),
-            reply.errorMessage()
+                reply.outcome(),
+                result,
+                reply.errorCode(),
+                reply.errorMessage()
         );
     }
 
@@ -314,11 +315,12 @@ public record ProcessResponse<TResult>(
 ### ProcessRepository Interface
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -407,9 +409,9 @@ public interface ProcessRepository {
 ### JdbcProcessRepository Implementation
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
-import com.commandbus.domain.ReplyOutcome;
+import com.ivamare.commandbus.domain.ReplyOutcome;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -422,7 +424,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -450,25 +451,25 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public void save(ProcessMetadata<?, ?> process, JdbcTemplate jdbc) {
         String sql = """
-            INSERT INTO commandbus.process (
-                domain, process_id, process_type, status, current_step,
-                state, error_code, error_message,
-                created_at, updated_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
-            """;
+                INSERT INTO commandbus.process (
+                    domain, process_id, process_type, status, current_step,
+                    state, error_code, error_message,
+                    created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
+                """;
 
         jdbc.update(sql,
-            process.domain(),
-            process.processId(),
-            process.processType(),
-            process.status().name(),
-            process.currentStep() != null ? process.currentStep().name() : null,
-            serializeState(process.state()),
-            process.errorCode(),
-            process.errorMessage(),
-            Timestamp.from(process.createdAt()),
-            Timestamp.from(process.updatedAt()),
-            process.completedAt() != null ? Timestamp.from(process.completedAt()) : null
+                process.domain(),
+                process.processId(),
+                process.processType(),
+                process.status().name(),
+                process.currentStep() != null ? process.currentStep().name() : null,
+                serializeState(process.state()),
+                process.errorCode(),
+                process.errorMessage(),
+                Timestamp.from(process.createdAt()),
+                Timestamp.from(process.updatedAt()),
+                process.completedAt() != null ? Timestamp.from(process.completedAt()) : null
         );
 
         log.debug("Saved process {}.{}", process.domain(), process.processId());
@@ -483,26 +484,26 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public void update(ProcessMetadata<?, ?> process, JdbcTemplate jdbc) {
         String sql = """
-            UPDATE commandbus.process SET
-                status = ?,
-                current_step = ?,
-                state = ?::jsonb,
-                error_code = ?,
-                error_message = ?,
-                updated_at = NOW(),
-                completed_at = ?
-            WHERE domain = ? AND process_id = ?
-            """;
+                UPDATE commandbus.process SET
+                    status = ?,
+                    current_step = ?,
+                    state = ?::jsonb,
+                    error_code = ?,
+                    error_message = ?,
+                    updated_at = NOW(),
+                    completed_at = ?
+                WHERE domain = ? AND process_id = ?
+                """;
 
         jdbc.update(sql,
-            process.status().name(),
-            process.currentStep() != null ? process.currentStep().name() : null,
-            serializeState(process.state()),
-            process.errorCode(),
-            process.errorMessage(),
-            process.completedAt() != null ? Timestamp.from(process.completedAt()) : null,
-            process.domain(),
-            process.processId()
+                process.status().name(),
+                process.currentStep() != null ? process.currentStep().name() : null,
+                serializeState(process.state()),
+                process.errorCode(),
+                process.errorMessage(),
+                process.completedAt() != null ? Timestamp.from(process.completedAt()) : null,
+                process.domain(),
+                process.processId()
         );
     }
 
@@ -515,12 +516,12 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public Optional<ProcessMetadata<?, ?>> getById(String domain, UUID processId, JdbcTemplate jdbc) {
         String sql = """
-            SELECT domain, process_id, process_type, status, current_step,
-                   state, error_code, error_message,
-                   created_at, updated_at, completed_at
-            FROM commandbus.process
-            WHERE domain = ? AND process_id = ?
-            """;
+                SELECT domain, process_id, process_type, status, current_step,
+                       state, error_code, error_message,
+                       created_at, updated_at, completed_at
+                FROM commandbus.process
+                WHERE domain = ? AND process_id = ?
+                """;
 
         List<ProcessMetadata<?, ?>> results = jdbc.query(sql, new ProcessMetadataRowMapper(), domain, processId);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -531,13 +532,13 @@ public class JdbcProcessRepository implements ProcessRepository {
     public List<ProcessMetadata<?, ?>> findByStatus(String domain, List<ProcessStatus> statuses) {
         String placeholders = String.join(",", statuses.stream().map(s -> "?").toList());
         String sql = """
-            SELECT domain, process_id, process_type, status, current_step,
-                   state, error_code, error_message,
-                   created_at, updated_at, completed_at
-            FROM commandbus.process
-            WHERE domain = ? AND status IN (%s)
-            ORDER BY created_at DESC
-            """.formatted(placeholders);
+                SELECT domain, process_id, process_type, status, current_step,
+                       state, error_code, error_message,
+                       created_at, updated_at, completed_at
+                FROM commandbus.process
+                WHERE domain = ? AND status IN (%s)
+                ORDER BY created_at DESC
+                """.formatted(placeholders);
 
         Object[] params = new Object[statuses.size() + 1];
         params[0] = domain;
@@ -552,13 +553,13 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Transactional(readOnly = true)
     public List<ProcessMetadata<?, ?>> findByType(String domain, String processType) {
         String sql = """
-            SELECT domain, process_id, process_type, status, current_step,
-                   state, error_code, error_message,
-                   created_at, updated_at, completed_at
-            FROM commandbus.process
-            WHERE domain = ? AND process_type = ?
-            ORDER BY created_at DESC
-            """;
+                SELECT domain, process_id, process_type, status, current_step,
+                       state, error_code, error_message,
+                       created_at, updated_at, completed_at
+                FROM commandbus.process
+                WHERE domain = ? AND process_type = ?
+                ORDER BY created_at DESC
+                """;
 
         return jdbcTemplate.query(sql, new ProcessMetadataRowMapper(), domain, processType);
     }
@@ -572,23 +573,23 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public void logStep(String domain, UUID processId, ProcessAuditEntry entry, JdbcTemplate jdbc) {
         String sql = """
-            INSERT INTO commandbus.process_audit (
-                domain, process_id, step_name, command_id, command_type,
-                command_data, sent_at, reply_outcome, reply_data, received_at
-            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
-            """;
+                INSERT INTO commandbus.process_audit (
+                    domain, process_id, step_name, command_id, command_type,
+                    command_data, sent_at, reply_outcome, reply_data, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
+                """;
 
         jdbc.update(sql,
-            domain,
-            processId,
-            entry.stepName(),
-            entry.commandId(),
-            entry.commandType(),
-            serializeMap(entry.commandData()),
-            Timestamp.from(entry.sentAt()),
-            entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
-            serializeMap(entry.replyData()),
-            entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null
+                domain,
+                processId,
+                entry.stepName(),
+                entry.commandId(),
+                entry.commandType(),
+                serializeMap(entry.commandData()),
+                Timestamp.from(entry.sentAt()),
+                entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
+                serializeMap(entry.replyData()),
+                entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null
         );
     }
 
@@ -602,20 +603,20 @@ public class JdbcProcessRepository implements ProcessRepository {
     public void updateStepReply(String domain, UUID processId, UUID commandId,
                                 ProcessAuditEntry entry, JdbcTemplate jdbc) {
         String sql = """
-            UPDATE commandbus.process_audit SET
-                reply_outcome = ?,
-                reply_data = ?::jsonb,
-                received_at = ?
-            WHERE domain = ? AND process_id = ? AND command_id = ?
-            """;
+                UPDATE commandbus.process_audit SET
+                    reply_outcome = ?,
+                    reply_data = ?::jsonb,
+                    received_at = ?
+                WHERE domain = ? AND process_id = ? AND command_id = ?
+                """;
 
         jdbc.update(sql,
-            entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
-            serializeMap(entry.replyData()),
-            entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null,
-            domain,
-            processId,
-            commandId
+                entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
+                serializeMap(entry.replyData()),
+                entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null,
+                domain,
+                processId,
+                commandId
         );
     }
 
@@ -623,12 +624,12 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Transactional(readOnly = true)
     public List<ProcessAuditEntry> getAuditTrail(String domain, UUID processId) {
         String sql = """
-            SELECT step_name, command_id, command_type, command_data,
-                   sent_at, reply_outcome, reply_data, received_at
-            FROM commandbus.process_audit
-            WHERE domain = ? AND process_id = ?
-            ORDER BY sent_at ASC
-            """;
+                SELECT step_name, command_id, command_type, command_data,
+                       sent_at, reply_outcome, reply_data, received_at
+                FROM commandbus.process_audit
+                WHERE domain = ? AND process_id = ?
+                ORDER BY sent_at ASC
+                """;
 
         return jdbcTemplate.query(sql, new ProcessAuditEntryRowMapper(), domain, processId);
     }
@@ -642,11 +643,11 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public List<String> getCompletedSteps(String domain, UUID processId, JdbcTemplate jdbc) {
         String sql = """
-            SELECT step_name
-            FROM commandbus.process_audit
-            WHERE domain = ? AND process_id = ? AND reply_outcome = 'SUCCESS'
-            ORDER BY sent_at ASC
-            """;
+                SELECT step_name
+                FROM commandbus.process_audit
+                WHERE domain = ? AND process_id = ? AND reply_outcome = 'SUCCESS'
+                ORDER BY sent_at ASC
+                """;
 
         return jdbc.queryForList(sql, String.class, domain, processId);
     }
@@ -673,7 +674,8 @@ public class JdbcProcessRepository implements ProcessRepository {
     private Map<String, Object> deserializeJson(String json) {
         if (json == null) return null;
         try {
-            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize JSON", e);
         }
@@ -692,17 +694,17 @@ public class JdbcProcessRepository implements ProcessRepository {
             Timestamp completedAt = rs.getTimestamp("completed_at");
 
             return new ProcessMetadata<>(
-                rs.getString("domain"),
-                UUID.fromString(rs.getString("process_id")),
-                rs.getString("process_type"),
-                state,
-                ProcessStatus.valueOf(rs.getString("status")),
-                null,  // currentStep - needs to be cast by caller using step enum
-                rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("updated_at").toInstant(),
-                completedAt != null ? completedAt.toInstant() : null,
-                rs.getString("error_code"),
-                rs.getString("error_message")
+                    rs.getString("domain"),
+                    UUID.fromString(rs.getString("process_id")),
+                    rs.getString("process_type"),
+                    state,
+                    ProcessStatus.valueOf(rs.getString("status")),
+                    null,  // currentStep - needs to be cast by caller using step enum
+                    rs.getTimestamp("created_at").toInstant(),
+                    rs.getTimestamp("updated_at").toInstant(),
+                    completedAt != null ? completedAt.toInstant() : null,
+                    rs.getString("error_code"),
+                    rs.getString("error_message")
             );
         }
     }
@@ -714,14 +716,14 @@ public class JdbcProcessRepository implements ProcessRepository {
             Timestamp receivedAt = rs.getTimestamp("received_at");
 
             return new ProcessAuditEntry(
-                rs.getString("step_name"),
-                UUID.fromString(rs.getString("command_id")),
-                rs.getString("command_type"),
-                deserializeJson(rs.getString("command_data")),
-                rs.getTimestamp("sent_at").toInstant(),
-                outcomeStr != null ? ReplyOutcome.valueOf(outcomeStr) : null,
-                deserializeJson(rs.getString("reply_data")),
-                receivedAt != null ? receivedAt.toInstant() : null
+                    rs.getString("step_name"),
+                    UUID.fromString(rs.getString("command_id")),
+                    rs.getString("command_type"),
+                    deserializeJson(rs.getString("command_data")),
+                    rs.getTimestamp("sent_at").toInstant(),
+                    outcomeStr != null ? ReplyOutcome.valueOf(outcomeStr) : null,
+                    deserializeJson(rs.getString("reply_data")),
+                    receivedAt != null ? receivedAt.toInstant() : null
             );
         }
     }
@@ -745,11 +747,11 @@ public class JdbcProcessRepository implements ProcessRepository {
 ### BaseProcessManager Abstract Class
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
-import com.commandbus.CommandBus;
-import com.commandbus.domain.Reply;
-import com.commandbus.domain.ReplyOutcome;
+import com.ivamare.commandbus.CommandBus;
+import com.ivamare.commandbus.domain.Reply;
+import com.ivamare.commandbus.domain.ReplyOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -878,10 +880,10 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
             TState state = createInitialState(initialData);
 
             ProcessMetadata<TState, TStep> process = ProcessMetadata.create(
-                getDomain(),
-                processId,
-                getProcessType(),
-                state
+                    getDomain(),
+                    processId,
+                    getProcessType(),
+                    state
             );
 
             processRepo.save(process, jdbcTemplate);
@@ -923,21 +925,21 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
 
         // Deserialize current step
         TStep currentStep = rawProcess.currentStep() != null
-            ? Enum.valueOf(getStepClass(), rawProcess.currentStep().toString())
-            : null;
+                ? Enum.valueOf(getStepClass(), rawProcess.currentStep().toString())
+                : null;
 
         ProcessMetadata<TState, TStep> process = new ProcessMetadata<>(
-            rawProcess.domain(),
-            rawProcess.processId(),
-            rawProcess.processType(),
-            state,
-            rawProcess.status(),
-            currentStep,
-            rawProcess.createdAt(),
-            rawProcess.updatedAt(),
-            rawProcess.completedAt(),
-            rawProcess.errorCode(),
-            rawProcess.errorMessage()
+                rawProcess.domain(),
+                rawProcess.processId(),
+                rawProcess.processType(),
+                state,
+                rawProcess.status(),
+                currentStep,
+                rawProcess.createdAt(),
+                rawProcess.updatedAt(),
+                rawProcess.completedAt(),
+                rawProcess.errorCode(),
+                rawProcess.errorMessage()
         );
 
         // Record reply in audit log
@@ -958,17 +960,17 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
         // Update state
         TState updatedState = updateState(state, currentStep, reply);
         ProcessMetadata<TState, TStep> updatedProcess = new ProcessMetadata<>(
-            process.domain(),
-            process.processId(),
-            process.processType(),
-            updatedState,
-            process.status(),
-            currentStep,
-            process.createdAt(),
-            Instant.now(),
-            process.completedAt(),
-            process.errorCode(),
-            process.errorMessage()
+                process.domain(),
+                process.processId(),
+                process.processType(),
+                updatedState,
+                process.status(),
+                currentStep,
+                process.createdAt(),
+                Instant.now(),
+                process.completedAt(),
+                process.errorCode(),
+                process.errorMessage()
         );
 
         // Handle failure (goes to TSQ, wait for operator)
@@ -996,27 +998,27 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
         beforeSendCommand(process, step, commandId, commandPayload, jdbc);
 
         commandBus.send(
-            getDomain(),
-            command.commandType(),
-            commandId,
-            commandPayload,
-            process.processId(),  // correlationId
-            replyQueue,
-            jdbc
+                getDomain(),
+                command.commandType(),
+                commandId,
+                commandPayload,
+                process.processId(),  // correlationId
+                replyQueue,
+                jdbc
         );
 
         ProcessMetadata<TState, TStep> updated = new ProcessMetadata<>(
-            process.domain(),
-            process.processId(),
-            process.processType(),
-            process.state(),
-            ProcessStatus.WAITING_FOR_REPLY,
-            step,
-            process.createdAt(),
-            Instant.now(),
-            process.completedAt(),
-            process.errorCode(),
-            process.errorMessage()
+                process.domain(),
+                process.processId(),
+                process.processType(),
+                process.state(),
+                ProcessStatus.WAITING_FOR_REPLY,
+                step,
+                process.createdAt(),
+                Instant.now(),
+                process.completedAt(),
+                process.errorCode(),
+                process.errorMessage()
         );
 
         // Record in audit log
@@ -1024,12 +1026,12 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
         processRepo.update(updated, jdbc);
 
         log.debug("Process {} executing step {} with command {}",
-            process.processId(), step, commandId);
+                process.processId(), step, commandId);
     }
 
     private void runCompensations(ProcessMetadata<TState, TStep> process, JdbcTemplate jdbc) {
         List<String> completedSteps = processRepo.getCompletedSteps(
-            process.domain(), process.processId(), jdbc);
+                process.domain(), process.processId(), jdbc);
 
         // Run compensations in reverse order
         for (int i = completedSteps.size() - 1; i >= 0; i--) {
@@ -1039,17 +1041,17 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
 
             if (compStep != null) {
                 ProcessMetadata<TState, TStep> updated = new ProcessMetadata<>(
-                    process.domain(),
-                    process.processId(),
-                    process.processType(),
-                    process.state(),
-                    ProcessStatus.COMPENSATING,
-                    compStep,
-                    process.createdAt(),
-                    Instant.now(),
-                    process.completedAt(),
-                    process.errorCode(),
-                    process.errorMessage()
+                        process.domain(),
+                        process.processId(),
+                        process.processType(),
+                        process.state(),
+                        ProcessStatus.COMPENSATING,
+                        compStep,
+                        process.createdAt(),
+                        Instant.now(),
+                        process.completedAt(),
+                        process.errorCode(),
+                        process.errorMessage()
                 );
                 processRepo.update(updated, jdbc);
 
@@ -1073,21 +1075,21 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
 
     private void handleFailure(ProcessMetadata<TState, TStep> process, Reply reply, JdbcTemplate jdbc) {
         ProcessMetadata<TState, TStep> failed = new ProcessMetadata<>(
-            process.domain(),
-            process.processId(),
-            process.processType(),
-            process.state(),
-            ProcessStatus.WAITING_FOR_TSQ,
-            process.currentStep(),
-            process.createdAt(),
-            Instant.now(),
-            process.completedAt(),
-            reply.errorCode(),
-            reply.errorMessage()
+                process.domain(),
+                process.processId(),
+                process.processType(),
+                process.state(),
+                ProcessStatus.WAITING_FOR_TSQ,
+                process.currentStep(),
+                process.createdAt(),
+                Instant.now(),
+                process.completedAt(),
+                reply.errorCode(),
+                reply.errorMessage()
         );
         processRepo.update(failed, jdbc);
         log.warn("Process {} step {} failed, waiting for TSQ intervention",
-            process.processId(), process.currentStep());
+                process.processId(), process.currentStep());
     }
 
     private void recordCommand(
@@ -1098,20 +1100,20 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
             Map<String, Object> commandData,
             JdbcTemplate jdbc) {
         ProcessAuditEntry entry = ProcessAuditEntry.forCommand(
-            step.name(), commandId, commandType, commandData);
+                step.name(), commandId, commandType, commandData);
         processRepo.logStep(process.domain(), process.processId(), entry, jdbc);
     }
 
     private void recordReply(ProcessMetadata<TState, TStep> process, Reply reply, JdbcTemplate jdbc) {
         ProcessAuditEntry entry = new ProcessAuditEntry(
-            process.currentStep() != null ? process.currentStep().name() : "",
-            reply.commandId(),
-            "",  // Will be looked up
-            null,
-            Instant.now(),  // Will be preserved
-            reply.outcome(),
-            reply.data(),
-            Instant.now()
+                process.currentStep() != null ? process.currentStep().name() : "",
+                reply.commandId(),
+                "",  // Will be looked up
+                null,
+                Instant.now(),  // Will be preserved
+                reply.outcome(),
+                reply.data(),
+                Instant.now()
         );
         processRepo.updateStepReply(process.domain(), process.processId(), reply.commandId(), entry, jdbc);
     }
@@ -1146,12 +1148,12 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
 ### ProcessReplyRouter Class
 
 ```java
-package com.commandbus.process;
+package com.ivamare.commandbus.process;
 
-import com.commandbus.domain.Reply;
-import com.commandbus.domain.ReplyOutcome;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.pgmq.PgmqMessage;
+import com.ivamare.commandbus.domain.Reply;
+import com.ivamare.commandbus.domain.ReplyOutcome;
+import pgmq.com.ivamare.commandbus.PgmqClient;
+import com.ivamare.commandbus.pgmq.PgmqMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -1336,9 +1338,9 @@ public class ProcessReplyRouter {
 
             // Read messages
             List<PgmqMessage> messages = pgmqClient.read(
-                replyQueue,
-                visibilityTimeout,
-                availableSlots
+                    replyQueue,
+                    visibilityTimeout,
+                    availableSlots
             );
 
             if (messages.isEmpty()) {
@@ -1372,16 +1374,16 @@ public class ProcessReplyRouter {
         try {
             // Wait for any task to complete
             CompletableFuture.anyOf(
-                inFlight.stream()
-                    .map(f -> CompletableFuture.supplyAsync(() -> {
-                        try {
-                            f.get();
-                        } catch (Exception e) {
-                            // Ignore
-                        }
-                        return null;
-                    }))
-                    .toArray(CompletableFuture[]::new)
+                    inFlight.stream()
+                            .map(f -> CompletableFuture.supplyAsync(() -> {
+                                try {
+                                    f.get();
+                                } catch (Exception e) {
+                                    // Ignore
+                                }
+                                return null;
+                            }))
+                            .toArray(CompletableFuture[]::new)
             ).get(1, TimeUnit.SECONDS);
         } catch (Exception e) {
             // Timeout or error, continue
@@ -1401,14 +1403,14 @@ public class ProcessReplyRouter {
         Map<String, Object> message = msg.message();
 
         Reply reply = new Reply(
-            UUID.fromString((String) message.get("command_id")),
-            message.get("correlation_id") != null
-                ? UUID.fromString((String) message.get("correlation_id"))
-                : null,
-            ReplyOutcome.valueOf((String) message.get("outcome")),
-            (Map<String, Object>) message.get("result"),
-            (String) message.get("error_code"),
-            (String) message.get("error_message")
+                UUID.fromString((String) message.get("command_id")),
+                message.get("correlation_id") != null
+                        ? UUID.fromString((String) message.get("correlation_id"))
+                        : null,
+                ReplyOutcome.valueOf((String) message.get("outcome")),
+                (Map<String, Object>) message.get("result"),
+                (String) message.get("error_code"),
+                (String) message.get("error_message")
         );
 
         if (reply.correlationId() == null) {
@@ -1419,9 +1421,9 @@ public class ProcessReplyRouter {
 
         // Look up process by correlation_id (which is process_id)
         Optional<ProcessMetadata<?, ?>> processOpt = processRepo.getById(
-            domain,
-            reply.correlationId(),
-            jdbcTemplate
+                domain,
+                reply.correlationId(),
+                jdbcTemplate
         );
 
         if (processOpt.isEmpty()) {
@@ -1446,7 +1448,7 @@ public class ProcessReplyRouter {
         pgmqClient.delete(replyQueue, msgId, jdbcTemplate);
 
         log.debug("Processed reply for process {} step {}",
-            process.processId(), process.currentStep());
+                process.processId(), process.currentStep());
     }
 }
 ```

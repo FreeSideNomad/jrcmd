@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>TSQ - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-exclamation-triangle"></i> Troubleshooting Queue</h2>
+        <form th:action="@{/tsq/retry-all}" method="post" th:if="${!commands.isEmpty()}">
+            <button type="submit" class="btn btn-warning"
+                    onclick="return confirm('Retry all commands?')">
+                <i class="bi bi-arrow-clockwise"></i> Retry All
+            </button>
+        </form>
+    </div>
+
+    <div th:if="${commands.isEmpty()}" class="alert alert-success">
+        <i class="bi bi-check-circle"></i> No commands in troubleshooting queue
+    </div>
+
+    <div th:unless="${commands.isEmpty()}" class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Command ID</th>
+                    <th>Type</th>
+                    <th>Error</th>
+                    <th>Retry Count</th>
+                    <th>Enqueued At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="cmd : ${commands}">
+                    <td>
+                        <code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code>
+                    </td>
+                    <td th:text="${cmd.commandType}">Type</td>
+                    <td>
+                        <span class="badge bg-danger" th:text="${cmd.errorCode}">ERR</span>
+                        <small th:text="${#strings.abbreviate(cmd.errorMessage, 50)}">message</small>
+                    </td>
+                    <td th:text="${cmd.attempts + '/' + cmd.maxAttempts}">0/3</td>
+                    <td th:text="${#temporals.format(cmd.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <form th:action="@{/tsq/{id}/retry(id=${cmd.commandId})}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-outline-primary" title="Retry">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </form>
+
+                            <button type="button" class="btn btn-outline-success"
+                                    data-bs-toggle="modal"
+                                    th:data-bs-target="'#completeModal' + ${cmd.commandId.toString().replace('-','')}"
+                                    title="Complete Manually">
+                                <i class="bi bi-check-lg"></i>
+                            </button>
+
+                            <button type="button" class="btn btn-outline-danger"
+                                    data-bs-toggle="modal"
+                                    th:data-bs-target="'#cancelModal' + ${cmd.commandId.toString().replace('-','')}"
+                                    title="Cancel">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+
+                        <!-- Complete Modal -->
+                        <div class="modal fade" th:id="'completeModal' + ${cmd.commandId.toString().replace('-','')}" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <form th:action="@{/tsq/{id}/complete(id=${cmd.commandId})}" method="post">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Complete Command Manually</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="mb-3">
+                                                <label class="form-label">Result Data (JSON)</label>
+                                                <textarea name="resultJson" class="form-control" rows="5">{}</textarea>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-success">Complete</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cancel Modal -->
+                        <div class="modal fade" th:id="'cancelModal' + ${cmd.commandId.toString().replace('-','')}" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <form th:action="@{/tsq/{id}/cancel(id=${cmd.commandId})}" method="post">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Cancel Command</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="mb-3">
+                                                <label class="form-label">Cancellation Reason</label>
+                                                <input type="text" name="reason" class="form-control" required
+                                                       placeholder="Enter reason for cancellation">
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            <button type="submit" class="btn btn-danger">Cancel Command</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

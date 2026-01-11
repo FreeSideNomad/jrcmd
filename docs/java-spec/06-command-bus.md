@@ -7,7 +7,7 @@ This specification defines the CommandBus interface and implementation for the J
 ## Package Structure
 
 ```
-com.commandbus.api/
+com.ivamare.commandbus.api/
 ├── CommandBus.java           # Interface
 └── impl/
     └── DefaultCommandBus.java # Implementation
@@ -20,9 +20,9 @@ com.commandbus.api/
 ### 1.1 CommandBus
 
 ```java
-package com.commandbus.api;
+package com.ivamare.commandbus.api;
 
-import com.commandbus.model.*;
+import com.ivamare.commandbus.model.*;
 
 import java.time.Instant;
 import java.util.List;
@@ -72,7 +72,7 @@ public interface CommandBus {
      * @param commandId Unique identifier for this command
      * @param data The command payload
      * @return SendResult with command_id and msg_id
-     * @throws com.commandbus.exception.DuplicateCommandException if command_id exists
+     * @throws exception.com.ivamare.commandbus.DuplicateCommandException if command_id exists
      */
     SendResult send(String domain, String commandType, UUID commandId, Map<String, Object> data);
 
@@ -87,16 +87,16 @@ public interface CommandBus {
      * @param replyTo Optional reply queue name (nullable)
      * @param maxAttempts Max retry attempts (nullable, uses default if null)
      * @return SendResult with command_id and msg_id
-     * @throws com.commandbus.exception.DuplicateCommandException if command_id exists
+     * @throws exception.com.ivamare.commandbus.DuplicateCommandException if command_id exists
      */
     SendResult send(
-        String domain,
-        String commandType,
-        UUID commandId,
-        Map<String, Object> data,
-        UUID correlationId,
-        String replyTo,
-        Integer maxAttempts
+            String domain,
+            String commandType,
+            UUID commandId,
+            Map<String, Object> data,
+            UUID correlationId,
+            String replyTo,
+            Integer maxAttempts
     );
 
     /**
@@ -108,15 +108,15 @@ public interface CommandBus {
      * @param data The command payload
      * @param batchId The batch to associate with
      * @return SendResult with command_id and msg_id
-     * @throws com.commandbus.exception.DuplicateCommandException if command_id exists
-     * @throws com.commandbus.exception.BatchNotFoundException if batch doesn't exist
+     * @throws exception.com.ivamare.commandbus.DuplicateCommandException if command_id exists
+     * @throws exception.com.ivamare.commandbus.BatchNotFoundException if batch doesn't exist
      */
     SendResult sendToBatch(
-        String domain,
-        String commandType,
-        UUID commandId,
-        Map<String, Object> data,
-        UUID batchId
+            String domain,
+            String commandType,
+            UUID commandId,
+            Map<String, Object> data,
+            UUID batchId
     );
 
     // --- Batch Send Operations ---
@@ -129,7 +129,7 @@ public interface CommandBus {
      *
      * @param requests List of SendRequest objects
      * @return BatchSendResult with all results and stats
-     * @throws com.commandbus.exception.DuplicateCommandException if any command_id exists
+     * @throws exception.com.ivamare.commandbus.DuplicateCommandException if any command_id exists
      */
     BatchSendResult sendBatch(List<SendRequest> requests);
 
@@ -154,7 +154,7 @@ public interface CommandBus {
      * @param commands List of BatchCommand objects
      * @return CreateBatchResult with batch_id and command results
      * @throws IllegalArgumentException if commands list is empty
-     * @throws com.commandbus.exception.DuplicateCommandException if any command_id exists
+     * @throws exception.com.ivamare.commandbus.DuplicateCommandException if any command_id exists
      */
     CreateBatchResult createBatch(String domain, List<BatchCommand> commands);
 
@@ -170,12 +170,12 @@ public interface CommandBus {
      * @return CreateBatchResult with batch_id and command results
      */
     CreateBatchResult createBatch(
-        String domain,
-        List<BatchCommand> commands,
-        UUID batchId,
-        String name,
-        Map<String, Object> customData,
-        Consumer<BatchMetadata> onComplete
+            String domain,
+            List<BatchCommand> commands,
+            UUID batchId,
+            String name,
+            Map<String, Object> customData,
+            Consumer<BatchMetadata> onComplete
     );
 
     /**
@@ -209,11 +209,11 @@ public interface CommandBus {
      * @return List of CommandMetadata in the batch
      */
     List<CommandMetadata> listBatchCommands(
-        String domain,
-        UUID batchId,
-        CommandStatus status,
-        int limit,
-        int offset
+            String domain,
+            UUID batchId,
+            CommandStatus status,
+            int limit,
+            int offset
     );
 
     // --- Query Operations ---
@@ -249,13 +249,13 @@ public interface CommandBus {
      * @return List of CommandMetadata matching filters
      */
     List<CommandMetadata> queryCommands(
-        CommandStatus status,
-        String domain,
-        String commandType,
-        Instant createdAfter,
-        Instant createdBefore,
-        int limit,
-        int offset
+            CommandStatus status,
+            String domain,
+            String commandType,
+            Instant createdAfter,
+            Instant createdBefore,
+            int limit,
+            int offset
     );
 
     /**
@@ -276,16 +276,16 @@ public interface CommandBus {
 ### 2.1 DefaultCommandBus
 
 ```java
-package com.commandbus.api.impl;
+package com.ivamare.commandbus.api.impl;
 
-import com.commandbus.api.CommandBus;
-import com.commandbus.exception.BatchNotFoundException;
-import com.commandbus.exception.DuplicateCommandException;
-import com.commandbus.model.*;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.repository.AuditRepository;
-import com.commandbus.repository.BatchRepository;
-import com.commandbus.repository.CommandRepository;
+import api.com.ivamare.commandbus.CommandBus;
+import exception.com.ivamare.commandbus.BatchNotFoundException;
+import exception.com.ivamare.commandbus.DuplicateCommandException;
+import com.ivamare.commandbus.model.*;
+import com.ivamare.commandbus.pgmq.PgmqClient;
+import repository.com.ivamare.commandbus.AuditRepository;
+import repository.com.ivamare.commandbus.BatchRepository;
+import repository.com.ivamare.commandbus.CommandRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -347,7 +347,7 @@ public class DefaultCommandBus implements CommandBus {
             Integer maxAttempts) {
 
         return sendInternal(domain, commandType, commandId, data,
-            correlationId, replyTo, maxAttempts, null);
+                correlationId, replyTo, maxAttempts, null);
     }
 
     @Override
@@ -365,7 +365,7 @@ public class DefaultCommandBus implements CommandBus {
         }
 
         return sendInternal(domain, commandType, commandId, data,
-            null, null, null, batchId);
+                null, null, null, batchId);
     }
 
     private SendResult sendInternal(
@@ -389,7 +389,7 @@ public class DefaultCommandBus implements CommandBus {
 
         // Build message payload
         Map<String, Object> message = buildMessage(
-            domain, commandType, commandId, data, effectiveCorrelationId, replyTo
+                domain, commandType, commandId, data, effectiveCorrelationId, replyTo
         );
 
         // Send to PGMQ
@@ -398,12 +398,12 @@ public class DefaultCommandBus implements CommandBus {
         // Create metadata
         Instant now = Instant.now();
         CommandMetadata metadata = new CommandMetadata(
-            domain, commandId, commandType,
-            CommandStatus.PENDING,
-            0, effectiveMaxAttempts,
-            msgId, effectiveCorrelationId, replyTo,
-            null, null, null,
-            now, now, batchId
+                domain, commandId, commandType,
+                CommandStatus.PENDING,
+                0, effectiveMaxAttempts,
+                msgId, effectiveCorrelationId, replyTo,
+                null, null, null,
+                now, now, batchId
         );
 
         // Save metadata
@@ -411,13 +411,13 @@ public class DefaultCommandBus implements CommandBus {
 
         // Log audit event
         auditRepository.log(domain, commandId, AuditEventType.SENT, Map.of(
-            "command_type", commandType,
-            "correlation_id", effectiveCorrelationId.toString(),
-            "msg_id", msgId
+                "command_type", commandType,
+                "correlation_id", effectiveCorrelationId.toString(),
+                "msg_id", msgId
         ));
 
         log.info("Sent command {}.{} (commandId={}, msgId={})",
-            domain, commandType, commandId, msgId);
+                domain, commandType, commandId, msgId);
 
         return new SendResult(commandId, msgId);
     }
@@ -470,8 +470,8 @@ public class DefaultCommandBus implements CommandBus {
 
             // Check for duplicates
             List<UUID> commandIds = domainRequests.stream()
-                .map(SendRequest::commandId)
-                .toList();
+                    .map(SendRequest::commandId)
+                    .toList();
             Set<UUID> existing = commandRepository.existsBatch(domain, commandIds);
             if (!existing.isEmpty()) {
                 UUID firstDup = existing.iterator().next();
@@ -483,7 +483,7 @@ public class DefaultCommandBus implements CommandBus {
             for (SendRequest req : domainRequests) {
                 UUID correlationId = req.correlationId() != null ? req.correlationId() : UUID.randomUUID();
                 messages.add(buildMessage(domain, req.commandType(), req.commandId(),
-                    req.data(), correlationId, req.replyTo()));
+                        req.data(), correlationId, req.replyTo()));
             }
 
             // Batch send to PGMQ (no NOTIFY yet)
@@ -500,17 +500,17 @@ public class DefaultCommandBus implements CommandBus {
                 UUID correlationId = req.correlationId() != null ? req.correlationId() : UUID.randomUUID();
 
                 metadataList.add(new CommandMetadata(
-                    domain, req.commandId(), req.commandType(),
-                    CommandStatus.PENDING,
-                    0, maxAttempts,
-                    msgId, correlationId, req.replyTo(),
-                    null, null, null,
-                    now, now, null
+                        domain, req.commandId(), req.commandType(),
+                        CommandStatus.PENDING,
+                        0, maxAttempts,
+                        msgId, correlationId, req.replyTo(),
+                        null, null, null,
+                        now, now, null
                 ));
 
                 auditEvents.add(new AuditRepository.AuditEventRecord(
-                    domain, req.commandId(), AuditEventType.SENT,
-                    Map.of("command_type", req.commandType(), "msg_id", msgId)
+                        domain, req.commandId(), AuditEventType.SENT,
+                        Map.of("command_type", req.commandType(), "msg_id", msgId)
                 ));
 
                 results.add(new SendResult(req.commandId(), msgId));
@@ -569,10 +569,10 @@ public class DefaultCommandBus implements CommandBus {
 
         // Create batch metadata
         BatchMetadata batchMetadata = new BatchMetadata(
-            domain, effectiveBatchId, name, customData,
-            BatchStatus.PENDING,
-            commands.size(), 0, 0, 0,
-            now, null, null
+                domain, effectiveBatchId, name, customData,
+                BatchStatus.PENDING,
+                commands.size(), 0, 0, 0,
+                now, null, null
         );
         batchRepository.save(batchMetadata);
 
@@ -581,7 +581,7 @@ public class DefaultCommandBus implements CommandBus {
         for (BatchCommand cmd : commands) {
             UUID correlationId = cmd.correlationId() != null ? cmd.correlationId() : UUID.randomUUID();
             messages.add(buildMessage(domain, cmd.commandType(), cmd.commandId(),
-                cmd.data(), correlationId, cmd.replyTo()));
+                    cmd.data(), correlationId, cmd.replyTo()));
         }
 
         // Batch send to PGMQ
@@ -599,17 +599,17 @@ public class DefaultCommandBus implements CommandBus {
             UUID correlationId = cmd.correlationId() != null ? cmd.correlationId() : UUID.randomUUID();
 
             metadataList.add(new CommandMetadata(
-                domain, cmd.commandId(), cmd.commandType(),
-                CommandStatus.PENDING,
-                0, maxAttempts,
-                msgId, correlationId, cmd.replyTo(),
-                null, null, null,
-                now, now, effectiveBatchId
+                    domain, cmd.commandId(), cmd.commandType(),
+                    CommandStatus.PENDING,
+                    0, maxAttempts,
+                    msgId, correlationId, cmd.replyTo(),
+                    null, null, null,
+                    now, now, effectiveBatchId
             ));
 
             auditEvents.add(new AuditRepository.AuditEventRecord(
-                domain, cmd.commandId(), AuditEventType.SENT,
-                Map.of("command_type", cmd.commandType(), "msg_id", msgId, "batch_id", effectiveBatchId.toString())
+                    domain, cmd.commandId(), AuditEventType.SENT,
+                    Map.of("command_type", cmd.commandType(), "msg_id", msgId, "batch_id", effectiveBatchId.toString())
             ));
 
             commandResults.add(new SendResult(cmd.commandId(), msgId));
@@ -628,7 +628,7 @@ public class DefaultCommandBus implements CommandBus {
         }
 
         log.info("Created batch {} in domain {} with {} commands",
-            effectiveBatchId, domain, commands.size());
+                effectiveBatchId, domain, commands.size());
 
         return new CreateBatchResult(effectiveBatchId, commandResults, commands.size());
     }
@@ -671,7 +671,7 @@ public class DefaultCommandBus implements CommandBus {
             int limit,
             int offset) {
         return commandRepository.query(status, domain, commandType,
-            createdAfter, createdBefore, limit, offset);
+                createdAfter, createdBefore, limit, offset);
     }
 
     @Override

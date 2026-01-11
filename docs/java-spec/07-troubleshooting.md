@@ -7,7 +7,7 @@ This specification defines the TroubleshootingQueue component for the Java Comma
 ## Package Structure
 
 ```
-com.commandbus.ops/
+com.ivamare.commandbus.ops/
 ├── TroubleshootingQueue.java      # Interface
 └── impl/
     └── DefaultTroubleshootingQueue.java # Implementation
@@ -20,9 +20,9 @@ com.commandbus.ops/
 ### 1.1 TroubleshootingQueue
 
 ```java
-package com.commandbus.ops;
+package com.ivamare.commandbus.ops;
 
-import com.commandbus.model.TroubleshootingItem;
+import com.ivamare.commandbus.model.TroubleshootingItem;
 
 import java.util.List;
 import java.util.Map;
@@ -72,10 +72,10 @@ public interface TroubleshootingQueue {
      * @return List of TroubleshootingItem objects ordered by updated_at DESC
      */
     List<TroubleshootingItem> listTroubleshooting(
-        String domain,
-        String commandType,
-        int limit,
-        int offset
+            String domain,
+            String commandType,
+            int limit,
+            int offset
     );
 
     /**
@@ -109,7 +109,7 @@ public interface TroubleshootingQueue {
      *
      * @param commandId The command ID
      * @return Domain name
-     * @throws com.commandbus.exception.CommandNotFoundException if not found
+     * @throws exception.com.ivamare.commandbus.CommandNotFoundException if not found
      */
     String getCommandDomain(UUID commandId);
 
@@ -123,8 +123,8 @@ public interface TroubleshootingQueue {
      * @param commandId The command ID to retry
      * @param operator Optional operator identity for audit trail (nullable)
      * @return New PGMQ message ID
-     * @throws com.commandbus.exception.CommandNotFoundException if command not found
-     * @throws com.commandbus.exception.InvalidOperationException if not in TSQ
+     * @throws exception.com.ivamare.commandbus.CommandNotFoundException if command not found
+     * @throws exception.com.ivamare.commandbus.InvalidOperationException if not in TSQ
      */
     long operatorRetry(String domain, UUID commandId, String operator);
 
@@ -137,8 +137,8 @@ public interface TroubleshootingQueue {
      * @param commandId The command ID to cancel
      * @param reason Reason for cancellation (required)
      * @param operator Optional operator identity for audit trail (nullable)
-     * @throws com.commandbus.exception.CommandNotFoundException if command not found
-     * @throws com.commandbus.exception.InvalidOperationException if not in TSQ
+     * @throws exception.com.ivamare.commandbus.CommandNotFoundException if command not found
+     * @throws exception.com.ivamare.commandbus.InvalidOperationException if not in TSQ
      */
     void operatorCancel(String domain, UUID commandId, String reason, String operator);
 
@@ -151,8 +151,8 @@ public interface TroubleshootingQueue {
      * @param commandId The command ID to complete
      * @param resultData Optional result data to include in reply (nullable)
      * @param operator Optional operator identity for audit trail (nullable)
-     * @throws com.commandbus.exception.CommandNotFoundException if command not found
-     * @throws com.commandbus.exception.InvalidOperationException if not in TSQ
+     * @throws exception.com.ivamare.commandbus.CommandNotFoundException if command not found
+     * @throws exception.com.ivamare.commandbus.InvalidOperationException if not in TSQ
      */
     void operatorComplete(String domain, UUID commandId, Map<String, Object> resultData, String operator);
 
@@ -164,10 +164,11 @@ public interface TroubleshootingQueue {
      * @param commandIds All command IDs in TSQ
      */
     record TroubleshootingListResult(
-        List<TroubleshootingItem> items,
-        int totalCount,
-        List<UUID> commandIds
-    ) {}
+            List<TroubleshootingItem> items,
+            int totalCount,
+            List<UUID> commandIds
+    ) {
+    }
 }
 ```
 
@@ -178,16 +179,16 @@ public interface TroubleshootingQueue {
 ### 2.1 DefaultTroubleshootingQueue
 
 ```java
-package com.commandbus.ops.impl;
+package com.ivamare.commandbus.ops.impl;
 
-import com.commandbus.exception.CommandNotFoundException;
-import com.commandbus.exception.InvalidOperationException;
-import com.commandbus.model.*;
-import com.commandbus.ops.TroubleshootingQueue;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.repository.AuditRepository;
-import com.commandbus.repository.BatchRepository;
-import com.commandbus.repository.CommandRepository;
+import exception.com.ivamare.commandbus.CommandNotFoundException;
+import exception.com.ivamare.commandbus.InvalidOperationException;
+import com.ivamare.commandbus.model.*;
+import com.ivamare.commandbus.ops.TroubleshootingQueue;
+import pgmq.com.ivamare.commandbus.PgmqClient;
+import repository.com.ivamare.commandbus.AuditRepository;
+import repository.com.ivamare.commandbus.BatchRepository;
+import repository.com.ivamare.commandbus.CommandRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -202,7 +203,8 @@ import java.util.*;
 public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultTroubleshootingQueue.class);
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
 
     private final JdbcTemplate jdbcTemplate;
     private final PgmqClient pgmqClient;
@@ -237,26 +239,26 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
         String archiveTable = "pgmq.a_" + queueName;
 
         StringBuilder sql = new StringBuilder("""
-            SELECT * FROM (
-                SELECT DISTINCT ON (c.command_id)
-                    c.domain,
-                    c.command_id,
-                    c.command_type,
-                    c.attempts,
-                    c.max_attempts,
-                    c.last_error_type,
-                    c.last_error_code,
-                    c.last_error_msg,
-                    c.correlation_id,
-                    c.reply_queue,
-                    a.message,
-                    c.created_at,
-                    c.updated_at
-                FROM commandbus.command c
-                LEFT JOIN %s a ON a.message->>'command_id' = c.command_id::text
-                WHERE c.domain = ?
-                  AND c.status = ?
-            """.formatted(archiveTable));
+                SELECT * FROM (
+                    SELECT DISTINCT ON (c.command_id)
+                        c.domain,
+                        c.command_id,
+                        c.command_type,
+                        c.attempts,
+                        c.max_attempts,
+                        c.last_error_type,
+                        c.last_error_code,
+                        c.last_error_msg,
+                        c.correlation_id,
+                        c.reply_queue,
+                        a.message,
+                        c.created_at,
+                        c.updated_at
+                    FROM commandbus.command c
+                    LEFT JOIN %s a ON a.message->>'command_id' = c.command_id::text
+                    WHERE c.domain = ?
+                      AND c.status = ?
+                """.formatted(archiveTable));
 
         List<Object> params = new ArrayList<>();
         params.add(domain);
@@ -268,11 +270,11 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
         }
 
         sql.append("""
-                ORDER BY c.command_id, a.archived_at DESC NULLS LAST
-            ) sub
-            ORDER BY updated_at DESC
-            LIMIT ? OFFSET ?
-            """);
+                    ORDER BY c.command_id, a.archived_at DESC NULLS LAST
+                ) sub
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+                """);
         params.add(limit);
         params.add(offset);
 
@@ -288,20 +290,20 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
             }
 
             return new TroubleshootingItem(
-                rs.getString("domain"),
-                UUID.fromString(rs.getString("command_id")),
-                rs.getString("command_type"),
-                rs.getInt("attempts"),
-                rs.getInt("max_attempts"),
-                rs.getString("last_error_type"),
-                rs.getString("last_error_code"),
-                rs.getString("last_error_msg"),
-                rs.getString("correlation_id") != null ?
-                    UUID.fromString(rs.getString("correlation_id")) : null,
-                rs.getString("reply_queue"),
-                payload,
-                rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("updated_at").toInstant()
+                    rs.getString("domain"),
+                    UUID.fromString(rs.getString("command_id")),
+                    rs.getString("command_type"),
+                    rs.getInt("attempts"),
+                    rs.getInt("max_attempts"),
+                    rs.getString("last_error_type"),
+                    rs.getString("last_error_code"),
+                    rs.getString("last_error_msg"),
+                    rs.getString("correlation_id") != null ?
+                            UUID.fromString(rs.getString("correlation_id")) : null,
+                    rs.getString("reply_queue"),
+                    payload,
+                    rs.getTimestamp("created_at").toInstant(),
+                    rs.getTimestamp("updated_at").toInstant()
             );
         }, params.toArray());
     }
@@ -309,10 +311,10 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
     @Override
     public int countTroubleshooting(String domain, String commandType) {
         StringBuilder sql = new StringBuilder("""
-            SELECT COUNT(*)
-            FROM commandbus.command
-            WHERE domain = ? AND status = ?
-            """);
+                SELECT COUNT(*)
+                FROM commandbus.command
+                WHERE domain = ? AND status = ?
+                """);
         List<Object> params = new ArrayList<>();
         params.add(domain);
         params.add(CommandStatus.IN_TROUBLESHOOTING_QUEUE.getValue());
@@ -329,13 +331,13 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
     @Override
     public List<String> listDomains() {
         return jdbcTemplate.queryForList("""
-            SELECT DISTINCT domain
-            FROM commandbus.command
-            WHERE status = ?
-            ORDER BY domain
-            """,
-            String.class,
-            CommandStatus.IN_TROUBLESHOOTING_QUEUE.getValue()
+                        SELECT DISTINCT domain
+                        FROM commandbus.command
+                        WHERE status = ?
+                        ORDER BY domain
+                        """,
+                String.class,
+                CommandStatus.IN_TROUBLESHOOTING_QUEUE.getValue()
         );
     }
 
@@ -379,10 +381,10 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
     private List<UUID> listCommandIds(String domain) {
         StringBuilder sql = new StringBuilder("""
-            SELECT command_id
-            FROM commandbus.command
-            WHERE status = ?
-            """);
+                SELECT command_id
+                FROM commandbus.command
+                WHERE status = ?
+                """);
         List<Object> params = new ArrayList<>();
         params.add(CommandStatus.IN_TROUBLESHOOTING_QUEUE.getValue());
 
@@ -394,17 +396,17 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
         sql.append(" ORDER BY created_at DESC");
 
         return jdbcTemplate.query(sql.toString(),
-            (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
-            params.toArray()
+                (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
+                params.toArray()
         );
     }
 
     @Override
     public String getCommandDomain(UUID commandId) {
         String domain = jdbcTemplate.queryForObject(
-            "SELECT domain FROM commandbus.command WHERE command_id = ?",
-            String.class,
-            commandId
+                "SELECT domain FROM commandbus.command WHERE command_id = ?",
+                String.class,
+                commandId
         );
 
         if (domain == null) {
@@ -421,20 +423,20 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
         // Get command metadata
         CommandMetadata metadata = commandRepository.get(domain, commandId)
-            .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
+                .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
 
         // Verify in TSQ
         if (metadata.status() != CommandStatus.IN_TROUBLESHOOTING_QUEUE) {
             throw new InvalidOperationException(
-                "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
+                    "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
             );
         }
 
         // Get payload from archive
         PgmqMessage archived = pgmqClient.getFromArchive(queueName, commandId.toString())
-            .orElseThrow(() -> new InvalidOperationException(
-                "Payload not found in archive for command " + commandId
-            ));
+                .orElseThrow(() -> new InvalidOperationException(
+                        "Payload not found in archive for command " + commandId
+                ));
 
         Map<String, Object> payload = archived.message();
 
@@ -443,19 +445,19 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
         // Reset command: status=PENDING, attempts=0, clear errors
         jdbcTemplate.update("""
-            UPDATE commandbus.command
-            SET status = ?, attempts = 0, msg_id = ?,
-                last_error_type = NULL, last_error_code = NULL,
-                last_error_msg = NULL, updated_at = NOW()
-            WHERE domain = ? AND command_id = ?
-            """,
-            CommandStatus.PENDING.getValue(), newMsgId, domain, commandId
+                        UPDATE commandbus.command
+                        SET status = ?, attempts = 0, msg_id = ?,
+                            last_error_type = NULL, last_error_code = NULL,
+                            last_error_msg = NULL, updated_at = NOW()
+                        WHERE domain = ? AND command_id = ?
+                        """,
+                CommandStatus.PENDING.getValue(), newMsgId, domain, commandId
         );
 
         // Record audit event
         auditRepository.log(domain, commandId, AuditEventType.OPERATOR_RETRY, Map.of(
-            "operator", operator != null ? operator : "unknown",
-            "new_msg_id", newMsgId
+                "operator", operator != null ? operator : "unknown",
+                "new_msg_id", newMsgId
         ));
 
         // Update batch counters
@@ -464,7 +466,7 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
         }
 
         log.info("Operator retry for {}.{}: newMsgId={}, operator={}",
-            domain, commandId, newMsgId, operator);
+                domain, commandId, newMsgId, operator);
 
         return newMsgId;
     }
@@ -474,22 +476,22 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
     public void operatorCancel(String domain, UUID commandId, String reason, String operator) {
         // Get command metadata
         CommandMetadata metadata = commandRepository.get(domain, commandId)
-            .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
+                .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
 
         // Verify in TSQ
         if (metadata.status() != CommandStatus.IN_TROUBLESHOOTING_QUEUE) {
             throw new InvalidOperationException(
-                "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
+                    "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
             );
         }
 
         // Update status to CANCELED
         jdbcTemplate.update("""
-            UPDATE commandbus.command
-            SET status = ?, updated_at = NOW()
-            WHERE domain = ? AND command_id = ?
-            """,
-            CommandStatus.CANCELED.getValue(), domain, commandId
+                        UPDATE commandbus.command
+                        SET status = ?, updated_at = NOW()
+                        WHERE domain = ? AND command_id = ?
+                        """,
+                CommandStatus.CANCELED.getValue(), domain, commandId
         );
 
         // Send reply if configured
@@ -507,9 +509,9 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
         // Record audit event
         auditRepository.log(domain, commandId, AuditEventType.OPERATOR_CANCEL, Map.of(
-            "operator", operator != null ? operator : "unknown",
-            "reason", reason,
-            "reply_to", metadata.replyTo() != null ? metadata.replyTo() : ""
+                "operator", operator != null ? operator : "unknown",
+                "reason", reason,
+                "reply_to", metadata.replyTo() != null ? metadata.replyTo() : ""
         ));
 
         // Update batch counters
@@ -519,7 +521,7 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
         }
 
         log.info("Operator cancel for {}.{}: reason={}, operator={}",
-            domain, commandId, reason, operator);
+                domain, commandId, reason, operator);
 
         // Invoke batch callback if complete
         if (isBatchComplete && metadata.batchId() != null) {
@@ -532,22 +534,22 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
     public void operatorComplete(String domain, UUID commandId, Map<String, Object> resultData, String operator) {
         // Get command metadata
         CommandMetadata metadata = commandRepository.get(domain, commandId)
-            .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
+                .orElseThrow(() -> new CommandNotFoundException(domain, commandId.toString()));
 
         // Verify in TSQ
         if (metadata.status() != CommandStatus.IN_TROUBLESHOOTING_QUEUE) {
             throw new InvalidOperationException(
-                "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
+                    "Command " + commandId + " is not in troubleshooting queue (status: " + metadata.status() + ")"
             );
         }
 
         // Update status to COMPLETED
         jdbcTemplate.update("""
-            UPDATE commandbus.command
-            SET status = ?, updated_at = NOW()
-            WHERE domain = ? AND command_id = ?
-            """,
-            CommandStatus.COMPLETED.getValue(), domain, commandId
+                        UPDATE commandbus.command
+                        SET status = ?, updated_at = NOW()
+                        WHERE domain = ? AND command_id = ?
+                        """,
+                CommandStatus.COMPLETED.getValue(), domain, commandId
         );
 
         // Send reply if configured
@@ -567,9 +569,9 @@ public class DefaultTroubleshootingQueue implements TroubleshootingQueue {
 
         // Record audit event
         auditRepository.log(domain, commandId, AuditEventType.OPERATOR_COMPLETE, Map.of(
-            "operator", operator != null ? operator : "unknown",
-            "has_result_data", resultData != null,
-            "reply_to", metadata.replyTo() != null ? metadata.replyTo() : ""
+                "operator", operator != null ? operator : "unknown",
+                "has_result_data", resultData != null,
+                "reply_to", metadata.replyTo() != null ? metadata.replyTo() : ""
         ));
 
         // Update batch counters

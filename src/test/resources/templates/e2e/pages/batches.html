@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Batches - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <h2><i class="bi bi-collection"></i> Batches</h2>
+
+    <form class="row g-3 mb-4" th:action="@{/batches}" method="get">
+        <div class="col-auto">
+            <select name="status" class="form-select">
+                <option value="">All Statuses</option>
+                <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                        th:selected="${s == status}"></option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a th:href="@{/batches}" class="btn btn-secondary">Clear</a>
+        </div>
+    </form>
+
+    <div th:if="${batches.isEmpty()}" class="alert alert-info">
+        No batches found.
+    </div>
+
+    <div th:unless="${batches.isEmpty()}" class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Batch ID</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Created At</th>
+                    <th>Completed At</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="batch : ${batches}" th:onclick="'window.location=\'/batches/' + ${batch.batchId} + '\''">
+                    <td><code class="uuid-short" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</code></td>
+                    <td>
+                        <span class="badge"
+                              th:classappend="${batch.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                              (${batch.status.name() == 'FAILED'} ? 'bg-danger' :
+                                              (${batch.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                              th:text="${batch.status}">STATUS</span>
+                    </td>
+                    <td>
+                        <div class="progress progress-sm" style="width: 100px">
+                            <div class="progress-bar" role="progressbar"
+                                 th:style="'width: ' + ${batch.progressPercent()} + '%'"
+                                 th:attr="aria-valuenow=${batch.progressPercent()}">
+                            </div>
+                        </div>
+                        <small th:text="${batch.completedCount + '/' + batch.totalCount}">0/0</small>
+                    </td>
+                    <td th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                    <td th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

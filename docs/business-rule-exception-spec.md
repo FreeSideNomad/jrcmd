@@ -37,7 +37,7 @@ CommandBusException (base)
 **File**: `src/main/java/com/commandbus/exception/BusinessRuleException.java`
 
 ```java
-package com.commandbus.exception;
+package com.ivamare.commandbus.exception;
 
 import java.util.Map;
 
@@ -76,9 +76,17 @@ public class BusinessRuleException extends CommandBusException {
         this.details = details != null ? Map.copyOf(details) : Map.of();
     }
 
-    public String getCode() { return code; }
-    public String getErrorMessage() { return errorMessage; }
-    public Map<String, Object> getDetails() { return details; }
+    public String getCode() {
+        return code;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public Map<String, Object> getDetails() {
+        return details;
+    }
 }
 ```
 

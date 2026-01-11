@@ -128,7 +128,7 @@ commandbus-spring/
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.commandbus</groupId>
+    <groupId>com.ivamare.commandbus</groupId>
     <artifactId>commandbus-spring</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
@@ -502,8 +502,9 @@ commandbus:
 ### 6.1 Add Dependency
 
 ```xml
+
 <dependency>
-    <groupId>com.commandbus</groupId>
+    <groupId>com.ivamare.commandbuscom.ivamare.commandbus</groupId>
     <artifactId>commandbus-spring</artifactId>
     <version>1.0.0</version>
 </dependency>

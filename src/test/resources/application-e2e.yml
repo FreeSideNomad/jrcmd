@@ -1,0 +1,36 @@
+# E2E Test Application Configuration (Base)
+# This is the base configuration. Use with additional profiles:
+#   e2e,ui    - UI only (no worker)
+#   e2e,worker - Worker only (no web server)
+#   e2e       - Both UI and worker (default)
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/commandbus_test
+    username: postgres
+    password: postgres
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  thymeleaf:
+    prefix: classpath:/templates/e2e/
+    cache: false
+
+commandbus:
+  enabled: true
+  domain: test
+  default-max-attempts: 3
+  backoff-schedule: [1, 2, 5]
+  worker:
+    visibility-timeout: 30
+    poll-interval-ms: 500
+    concurrency: 4
+    use-notify: true
+    auto-start: true
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.commandbus: DEBUG

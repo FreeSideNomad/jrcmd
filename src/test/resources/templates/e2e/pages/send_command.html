@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Send Command - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <h2><i class="bi bi-plus-circle"></i> Send Test Commands</h2>
+
+    <div th:if="${success}" class="alert alert-success alert-dismissible fade show">
+        <i class="bi bi-check-circle"></i> <span th:text="${message}">Command sent successfully</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <div th:if="${error}" class="alert alert-danger alert-dismissible fade show">
+        <i class="bi bi-exclamation-circle"></i> <span th:text="${message}">Error sending command</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <div class="row">
+        <!-- Single Commands -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Single Commands</h5>
+                </div>
+                <div class="card-body">
+                    <form th:action="@{/send/single}" method="post" class="mb-3">
+                        <div class="mb-3">
+                            <label class="form-label">Command Type</label>
+                            <select name="commandType" class="form-select" required>
+                                <option value="SuccessCommand">SuccessCommand (always succeeds)</option>
+                                <option value="TransientFailCommand">TransientFailCommand (fails then succeeds)</option>
+                                <option value="PermanentFailCommand">PermanentFailCommand (always fails)</option>
+                                <option value="SlowCommand">SlowCommand (takes 5 seconds)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Command Data (JSON)</label>
+                            <textarea name="data" class="form-control" rows="3" placeholder='{"key": "value"}'>{}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-send"></i> Send Command
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Commands -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Batch Commands</h5>
+                </div>
+                <div class="card-body">
+                    <form th:action="@{/send/batch}" method="post">
+                        <div class="mb-3">
+                            <label class="form-label">Command Type</label>
+                            <select name="commandType" class="form-select" required>
+                                <option value="SuccessCommand">SuccessCommand</option>
+                                <option value="TransientFailCommand">TransientFailCommand</option>
+                                <option value="PermanentFailCommand">PermanentFailCommand</option>
+                                <option value="SlowCommand">SlowCommand</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Number of Commands</label>
+                            <input type="number" name="count" class="form-control" value="10" min="1" max="100" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-collection"></i> Send Batch
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+        <div class="card-header">
+            <h5>Quick Actions</h5>
+        </div>
+        <div class="card-body">
+            <div class="btn-group" role="group">
+                <form th:action="@{/send/quick}" method="post" class="d-inline">
+                    <input type="hidden" name="action" value="success-batch">
+                    <button type="submit" class="btn btn-success me-2">
+                        <i class="bi bi-check-all"></i> 10 Success Commands
+                    </button>
+                </form>
+
+                <form th:action="@{/send/quick}" method="post" class="d-inline">
+                    <input type="hidden" name="action" value="mixed-batch">
+                    <button type="submit" class="btn btn-warning me-2">
+                        <i class="bi bi-shuffle"></i> Mixed Batch (success + fail)
+                    </button>
+                </form>
+
+                <form th:action="@{/send/quick}" method="post" class="d-inline">
+                    <input type="hidden" name="action" value="fail-batch">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> 5 Permanent Fail Commands
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

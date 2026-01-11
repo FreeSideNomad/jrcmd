@@ -7,7 +7,7 @@ This specification defines the testing utilities, Testcontainers setup, and fake
 ## Package Structure
 
 ```
-com.commandbus.testing/
+com.ivamare.commandbus.testing/
 ├── FakePgmqClient.java              # In-memory PGMQ for unit tests
 ├── CommandBusTestConfiguration.java # Test configuration
 └── TestContainerConfiguration.java  # Testcontainers setup
@@ -32,7 +32,7 @@ src/test/java/com/commandbus/
 ### 1.1 PostgreSQL with PGMQ Container
 
 ```java
-package com.commandbus.testing;
+package com.ivamare.commandbus.testing;
 
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -45,8 +45,8 @@ import org.testcontainers.utility.DockerImageName;
 public class PgmqPostgreSQLContainer extends PostgreSQLContainer<PgmqPostgreSQLContainer> {
 
     private static final DockerImageName IMAGE = DockerImageName
-        .parse("quay.io/tembo/pg16-pgmq:latest")
-        .asCompatibleSubstituteFor("postgres");
+            .parse("quay.io/tembo/pg16-pgmq:latest")
+            .asCompatibleSubstituteFor("postgres");
 
     public PgmqPostgreSQLContainer() {
         super(IMAGE);
@@ -74,7 +74,7 @@ public class PgmqPostgreSQLContainer extends PostgreSQLContainer<PgmqPostgreSQLC
 ### 1.2 TestContainerConfiguration
 
 ```java
-package com.commandbus.testing;
+package com.ivamare.commandbus.testing;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -111,10 +111,10 @@ public class TestContainerConfiguration {
 ### 2.1 FakePgmqClient
 
 ```java
-package com.commandbus.testing;
+package com.ivamare.commandbus.testing;
 
-import com.commandbus.model.PgmqMessage;
-import com.commandbus.pgmq.PgmqClient;
+import model.com.ivamare.commandbus.PgmqMessage;
+import pgmq.com.ivamare.commandbus.PgmqClient;
 
 import java.time.Instant;
 import java.util.*;
@@ -229,11 +229,11 @@ public class FakePgmqClient implements PgmqClient {
             msg.readCount++;
 
             result.add(new PgmqMessage(
-                msg.msgId,
-                msg.readCount,
-                msg.enqueuedAt,
-                msg.visibleAt,
-                msg.message
+                    msg.msgId,
+                    msg.readCount,
+                    msg.enqueuedAt,
+                    msg.visibleAt,
+                    msg.message
             ));
         }
 
@@ -295,11 +295,11 @@ public class FakePgmqClient implements PgmqClient {
             FakeMessage msg = archive.get(i);
             if (commandId.equals(msg.message.get("command_id"))) {
                 return Optional.of(new PgmqMessage(
-                    msg.msgId,
-                    msg.readCount,
-                    msg.enqueuedAt,
-                    msg.visibleAt,
-                    msg.message
+                        msg.msgId,
+                        msg.readCount,
+                        msg.enqueuedAt,
+                        msg.visibleAt,
+                        msg.message
                 ));
             }
         }
@@ -385,9 +385,9 @@ public class FakePgmqClient implements PgmqClient {
 ### 3.1 CommandBusTestConfiguration
 
 ```java
-package com.commandbus.testing;
+package com.ivamare.commandbus.testing;
 
-import com.commandbus.pgmq.PgmqClient;
+import pgmq.com.ivamare.commandbus.PgmqClient;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -434,15 +434,15 @@ public class CommandBusTestConfiguration {
 ### 4.1 Unit Test (No Database)
 
 ```java
-package com.commandbus.unit;
+package com.ivamare.commandbus.unit;
 
-import com.commandbus.handler.CommandHandler;
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.handler.impl.DefaultHandlerRegistry;
-import com.commandbus.exception.HandlerNotFoundException;
-import com.commandbus.exception.HandlerAlreadyRegisteredException;
-import com.commandbus.model.Command;
-import com.commandbus.model.HandlerContext;
+import handler.com.ivamare.commandbus.CommandHandler;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import impl.handler.com.ivamare.commandbus.DefaultHandlerRegistry;
+import exception.com.ivamare.commandbus.HandlerNotFoundException;
+import exception.com.ivamare.commandbus.HandlerAlreadyRegisteredException;
+import model.com.ivamare.commandbus.Command;
+import model.com.ivamare.commandbus.HandlerContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -468,8 +468,8 @@ class HandlerRegistryTest {
         registry.register("payments", "Debit", handler);
 
         Command command = new Command(
-            "payments", "Debit", UUID.randomUUID(),
-            Map.of("amount", 100), null, null, Instant.now()
+                "payments", "Debit", UUID.randomUUID(),
+                Map.of("amount", 100), null, null, Instant.now()
         );
         HandlerContext context = new HandlerContext(command, 1, 3, 1L, null);
 
@@ -489,21 +489,21 @@ class HandlerRegistryTest {
 
         // When/Then
         assertThrows(HandlerAlreadyRegisteredException.class,
-            () -> registry.register("payments", "Debit", handler));
+                () -> registry.register("payments", "Debit", handler));
     }
 
     @Test
     void shouldThrowOnMissingHandler() {
         // Given
         Command command = new Command(
-            "payments", "Unknown", UUID.randomUUID(),
-            Map.of(), null, null, Instant.now()
+                "payments", "Unknown", UUID.randomUUID(),
+                Map.of(), null, null, Instant.now()
         );
         HandlerContext context = new HandlerContext(command, 1, 3, 1L, null);
 
         // When/Then
         assertThrows(HandlerNotFoundException.class,
-            () -> registry.dispatch(command, context));
+                () -> registry.dispatch(command, context));
     }
 }
 ```
@@ -511,13 +511,13 @@ class HandlerRegistryTest {
 ### 4.2 Integration Test (Testcontainers)
 
 ```java
-package com.commandbus.integration;
+package com.ivamare.commandbus.integration;
 
-import com.commandbus.api.CommandBus;
-import com.commandbus.model.CommandMetadata;
-import com.commandbus.model.CommandStatus;
-import com.commandbus.model.SendResult;
-import com.commandbus.testing.TestContainerConfiguration;
+import api.com.ivamare.commandbus.CommandBus;
+import model.com.ivamare.commandbus.CommandMetadata;
+import model.com.ivamare.commandbus.CommandStatus;
+import model.com.ivamare.commandbus.SendResult;
+import com.ivamare.commandbus.testing.TestContainerConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -566,7 +566,7 @@ class CommandBusIntegrationTest {
 
         // When/Then
         assertThrows(DuplicateCommandException.class,
-            () -> commandBus.send("test", "TestCommand", commandId, Map.of()));
+                () -> commandBus.send("test", "TestCommand", commandId, Map.of()));
     }
 }
 ```
@@ -574,19 +574,21 @@ class CommandBusIntegrationTest {
 ### 4.3 Worker Integration Test
 
 ```java
-package com.commandbus.integration;
+package com.ivamare.commandbus.integration;
 
-import com.commandbus.api.CommandBus;
-import com.commandbus.handler.Handler;
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.model.*;
-import com.commandbus.testing.TestContainerConfiguration;
-import com.commandbus.worker.Worker;
+import api.com.ivamare.commandbus.CommandBus;
+import handler.com.ivamare.commandbus.Handler;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import com.ivamare.commandbus.testing.TestContainerConfiguration;
+import com.ivamare.commandbus.model.Command;
+import com.ivamare.commandbus.model.CommandMetadata;
+import com.ivamare.commandbus.model.CommandStatus;
+import com.ivamare.commandbus.model.HandlerContext;
+import com.ivamare.commandbus.worker.Worker;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -595,7 +597,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -623,11 +624,11 @@ class WorkerIntegrationTest {
         testHandlers.setCallback(cmd -> latch.countDown());
 
         Worker worker = Worker.builder()
-            .jdbcTemplate(jdbcTemplate)
-            .domain("test")
-            .handlerRegistry(handlerRegistry)
-            .concurrency(1)
-            .build();
+                .jdbcTemplate(jdbcTemplate)
+                .domain("test")
+                .handlerRegistry(handlerRegistry)
+                .concurrency(1)
+                .build();
 
         // When
         worker.start();
@@ -668,9 +669,10 @@ class WorkerIntegrationTest {
 ### 5.1 Test Categories
 
 ```java
-package com.commandbus.testing;
+package com.ivamare.commandbus.testing;
 
 import org.junit.jupiter.api.Tag;
+
 import java.lang.annotation.*;
 
 /**
@@ -679,7 +681,8 @@ import java.lang.annotation.*;
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Tag("integration")
-public @interface IntegrationTest {}
+public @interface IntegrationTest {
+}
 
 /**
  * Marker for end-to-end tests.
@@ -687,7 +690,8 @@ public @interface IntegrationTest {}
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Tag("e2e")
-public @interface E2ETest {}
+public @interface E2ETest {
+}
 
 /**
  * Marker for slow tests.
@@ -695,7 +699,8 @@ public @interface E2ETest {}
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Tag("slow")
-public @interface SlowTest {}
+public @interface SlowTest {
+}
 ```
 
 ### 5.2 Maven Surefire Configuration

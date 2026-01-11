@@ -7,7 +7,7 @@ This specification defines the PGMQ client interface and JdbcTemplate implementa
 ## Package Structure
 
 ```
-com.commandbus.pgmq/
+com.ivamare.commandbus.pgmq/
 ├── PgmqClient.java           # Interface
 └── impl/
     └── JdbcPgmqClient.java   # JdbcTemplate implementation
@@ -20,9 +20,10 @@ com.commandbus.pgmq/
 ### 1.1 PgmqClient Interface
 
 ```java
-package com.commandbus.pgmq;
+package com.ivamare.commandbus.pgmq;
 
-import com.commandbus.model.PgmqMessage;
+import model.com.ivamare.commandbus.PgmqMessage;
+
 import java.util.List;
 import java.util.Map;
 
@@ -162,10 +163,10 @@ public interface PgmqClient {
 ### 2.1 JdbcPgmqClient
 
 ```java
-package com.commandbus.pgmq.impl;
+package com.ivamare.commandbus.pgmq.impl;
 
-import com.commandbus.model.PgmqMessage;
-import com.commandbus.pgmq.PgmqClient;
+import model.com.ivamare.commandbus.PgmqMessage;
+import pgmq.com.ivamare.commandbus.PgmqClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -177,8 +178,6 @@ import org.springframework.stereotype.Component;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -191,7 +190,8 @@ public class JdbcPgmqClient implements PgmqClient {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcPgmqClient.class);
     private static final String NOTIFY_CHANNEL_PREFIX = "pgmq_notify";
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -217,9 +217,9 @@ public class JdbcPgmqClient implements PgmqClient {
         String json = toJson(message);
 
         Long msgId = jdbcTemplate.queryForObject(
-            "SELECT pgmq.send(?, ?::jsonb, ?)",
-            Long.class,
-            queueName, json, delaySeconds
+                "SELECT pgmq.send(?, ?::jsonb, ?)",
+                Long.class,
+                queueName, json, delaySeconds
         );
 
         if (msgId == null) {
@@ -247,8 +247,8 @@ public class JdbcPgmqClient implements PgmqClient {
 
         // Convert messages to JSON array
         String[] jsonArray = messages.stream()
-            .map(this::toJson)
-            .toArray(String[]::new);
+                .map(this::toJson)
+                .toArray(String[]::new);
 
         // Use ARRAY constructor for PostgreSQL array
         StringBuilder sql = new StringBuilder("SELECT * FROM pgmq.send_batch(?, ARRAY[");
@@ -279,18 +279,18 @@ public class JdbcPgmqClient implements PgmqClient {
     @Override
     public List<PgmqMessage> read(String queueName, int visibilityTimeoutSeconds, int batchSize) {
         return jdbcTemplate.query(
-            "SELECT * FROM pgmq.read(?, ?, ?)",
-            this::mapToPgmqMessage,
-            queueName, visibilityTimeoutSeconds, batchSize
+                "SELECT * FROM pgmq.read(?, ?, ?)",
+                this::mapToPgmqMessage,
+                queueName, visibilityTimeoutSeconds, batchSize
         );
     }
 
     @Override
     public boolean delete(String queueName, long msgId) {
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT pgmq.delete(?, ?)",
-            Boolean.class,
-            queueName, msgId
+                "SELECT pgmq.delete(?, ?)",
+                Boolean.class,
+                queueName, msgId
         );
         return Boolean.TRUE.equals(result);
     }
@@ -298,9 +298,9 @@ public class JdbcPgmqClient implements PgmqClient {
     @Override
     public boolean archive(String queueName, long msgId) {
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT pgmq.archive(?, ?)",
-            Boolean.class,
-            queueName, msgId
+                "SELECT pgmq.archive(?, ?)",
+                Boolean.class,
+                queueName, msgId
         );
         return Boolean.TRUE.equals(result);
     }
@@ -309,9 +309,9 @@ public class JdbcPgmqClient implements PgmqClient {
     public boolean setVisibilityTimeout(String queueName, long msgId, int visibilityTimeoutSeconds) {
         // pgmq.set_vt returns the updated message row if successful
         List<PgmqMessage> result = jdbcTemplate.query(
-            "SELECT * FROM pgmq.set_vt(?, ?, ?)",
-            this::mapToPgmqMessage,
-            queueName, msgId, visibilityTimeoutSeconds
+                "SELECT * FROM pgmq.set_vt(?, ?, ?)",
+                this::mapToPgmqMessage,
+                queueName, msgId, visibilityTimeoutSeconds
         );
         return !result.isEmpty();
     }
@@ -321,11 +321,11 @@ public class JdbcPgmqClient implements PgmqClient {
         String archiveTable = "pgmq.a_" + queueName;
 
         List<PgmqMessage> results = jdbcTemplate.query(
-            "SELECT * FROM " + archiveTable +
-            " WHERE message->>'command_id' = ?" +
-            " ORDER BY msg_id DESC LIMIT 1",
-            this::mapToPgmqMessage,
-            commandId
+                "SELECT * FROM " + archiveTable +
+                        " WHERE message->>'command_id' = ?" +
+                        " ORDER BY msg_id DESC LIMIT 1",
+                this::mapToPgmqMessage,
+                commandId
         );
 
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -344,11 +344,11 @@ public class JdbcPgmqClient implements PgmqClient {
         Map<String, Object> message = fromJson(messageJson);
 
         return new PgmqMessage(
-            msgId,
-            readCount,
-            enqueuedAt != null ? enqueuedAt.toInstant() : null,
-            vt != null ? vt.toInstant() : null,
-            message
+                msgId,
+                readCount,
+                enqueuedAt != null ? enqueuedAt.toInstant() : null,
+                vt != null ? vt.toInstant() : null,
+                message
         );
     }
 
