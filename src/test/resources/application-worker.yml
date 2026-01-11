@@ -1,0 +1,13 @@
+# Worker-only profile - disables web server
+# Use with: -Dspring-boot.run.profiles=e2e,worker
+
+spring:
+  main:
+    web-application-type: none
+    keep-alive: true  # Keep JVM running without web server
+  flyway:
+    enabled: false  # UI handles migrations
+
+commandbus:
+  worker:
+    auto-start: true

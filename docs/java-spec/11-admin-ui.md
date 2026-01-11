@@ -116,94 +116,99 @@ src/test/
 ### DashboardStats
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
 public record DashboardStats(
-    long pendingCommands,
-    long inProgressCommands,
-    long tsqCount,
-    long activeBatches,
-    long completedBatches,
-    long runningProcesses,
-    long waitingProcesses,
-    long totalQueues,
-    long totalMessages
-) {}
+        long pendingCommands,
+        long inProgressCommands,
+        long tsqCount,
+        long activeBatches,
+        long completedBatches,
+        long runningProcesses,
+        long waitingProcesses,
+        long totalQueues,
+        long totalMessages
+) {
+}
 ```
 
 ### CommandView
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
-import com.commandbus.domain.CommandStatus;
+import com.ivamare.commandbus.domain.CommandStatus;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
 public record CommandView(
-    UUID commandId,
-    String domain,
-    String commandType,
-    CommandStatus status,
-    Map<String, Object> data,
-    UUID correlationId,
-    String replyTo,
-    UUID batchId,
-    int retryCount,
-    int maxRetries,
-    Instant scheduledAt,
-    Instant createdAt,
-    Instant updatedAt,
-    Instant completedAt,
-    String errorCode,
-    String errorMessage
-) {}
+        UUID commandId,
+        String domain,
+        String commandType,
+        CommandStatus status,
+        Map<String, Object> data,
+        UUID correlationId,
+        String replyTo,
+        UUID batchId,
+        int retryCount,
+        int maxRetries,
+        Instant scheduledAt,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant completedAt,
+        String errorCode,
+        String errorMessage
+) {
+}
 ```
 
 ### TsqCommandView
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
 public record TsqCommandView(
-    long msgId,
-    UUID commandId,
-    String domain,
-    String commandType,
-    Map<String, Object> data,
-    String errorCode,
-    String errorMessage,
-    int retryCount,
-    Instant enqueuedAt,
-    Instant visibleAt
-) {}
+        long msgId,
+        UUID commandId,
+        String domain,
+        String commandType,
+        Map<String, Object> data,
+        String errorCode,
+        String errorMessage,
+        int retryCount,
+        Instant enqueuedAt,
+        Instant visibleAt
+) {
+}
 ```
 
 ### BatchView
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
-import com.commandbus.domain.BatchStatus;
+import com.ivamare.commandbus.domain.BatchStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 
 public record BatchView(
-    UUID batchId,
-    String domain,
-    BatchStatus status,
-    int totalCommands,
-    int completedCommands,
-    int failedCommands,
-    String callbackQueue,
-    Instant createdAt,
-    Instant completedAt,
-    int progressPercent
+        UUID batchId,
+        String domain,
+        BatchStatus status,
+        int totalCommands,
+        int completedCommands,
+        int failedCommands,
+        String callbackQueue,
+        Instant createdAt,
+        Instant completedAt,
+        int progressPercent
 ) {
     public int progressPercent() {
         if (totalCommands == 0) return 0;
@@ -215,40 +220,43 @@ public record BatchView(
 ### ProcessView
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
-import com.commandbus.process.ProcessStatus;
+import process.com.ivamare.commandbus.ProcessStatus;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
 public record ProcessView(
-    UUID processId,
-    String domain,
-    String processType,
-    ProcessStatus status,
-    String currentStep,
-    Map<String, Object> state,
-    String errorCode,
-    String errorMessage,
-    Instant createdAt,
-    Instant updatedAt,
-    Instant completedAt
-) {}
+        UUID processId,
+        String domain,
+        String processType,
+        ProcessStatus status,
+        String currentStep,
+        Map<String, Object> state,
+        String errorCode,
+        String errorMessage,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant completedAt
+) {
+}
 ```
 
 ### QueueStats
 
 ```java
-package com.commandbus.admin.dto;
+package com.ivamare.commandbus.admin.dto;
 
 public record QueueStats(
-    String queueName,
-    long queueDepth,
-    long archiveSize,
-    long messagesPerMinute,
-    Instant oldestMessageAt
-) {}
+        String queueName,
+        long queueDepth,
+        long archiveSize,
+        long messagesPerMinute,
+        Instant oldestMessageAt
+) {
+}
 ```
 
 ---
@@ -256,16 +264,14 @@ public record QueueStats(
 ## Admin Service
 
 ```java
-package com.commandbus.admin.service;
+package com.ivamare.commandbus.admin.service;
 
-import com.commandbus.admin.dto.*;
-import com.commandbus.domain.*;
-import com.commandbus.ops.TroubleshootingQueue;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.process.ProcessRepository;
-import com.commandbus.process.ProcessStatus;
-import com.commandbus.repository.BatchRepository;
-import com.commandbus.repository.CommandRepository;
+import ops.com.ivamare.commandbus.TroubleshootingQueue;
+import pgmq.com.ivamare.commandbus.PgmqClient;
+import process.com.ivamare.commandbus.ProcessRepository;
+import process.com.ivamare.commandbus.ProcessStatus;
+import repository.com.ivamare.commandbus.BatchRepository;
+import repository.com.ivamare.commandbus.CommandRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -274,7 +280,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -310,20 +315,20 @@ public class AdminService {
         long inProgress = countCommandsByStatus(domain, CommandStatus.IN_PROGRESS);
         long tsqCount = getTsqCount(domain);
         long activeBatches = countBatchesByStatus(domain, List.of(
-            BatchStatus.PENDING, BatchStatus.IN_PROGRESS));
+                BatchStatus.PENDING, BatchStatus.IN_PROGRESS));
         long completedBatches = countBatchesByStatus(domain, List.of(BatchStatus.COMPLETED));
         long runningProcesses = countProcessesByStatus(domain, List.of(
-            ProcessStatus.IN_PROGRESS, ProcessStatus.WAITING_FOR_REPLY));
+                ProcessStatus.IN_PROGRESS, ProcessStatus.WAITING_FOR_REPLY));
         long waitingProcesses = countProcessesByStatus(domain, List.of(
-            ProcessStatus.WAITING_FOR_TSQ));
+                ProcessStatus.WAITING_FOR_TSQ));
 
         List<QueueStats> queues = getQueueStats(domain);
         long totalQueues = queues.size();
         long totalMessages = queues.stream().mapToLong(QueueStats::queueDepth).sum();
 
         return new DashboardStats(
-            pending, inProgress, tsqCount, activeBatches, completedBatches,
-            runningProcesses, waitingProcesses, totalQueues, totalMessages
+                pending, inProgress, tsqCount, activeBatches, completedBatches,
+                runningProcesses, waitingProcesses, totalQueues, totalMessages
         );
     }
 
@@ -339,13 +344,13 @@ public class AdminService {
             Pageable pageable) {
 
         StringBuilder sql = new StringBuilder("""
-            SELECT command_id, domain, command_type, status, data,
-                   correlation_id, reply_to, batch_id, retry_count, max_retries,
-                   scheduled_at, created_at, updated_at, completed_at,
-                   error_code, error_message
-            FROM commandbus.command
-            WHERE domain = ?
-            """);
+                SELECT command_id, domain, command_type, status, data,
+                       correlation_id, reply_to, batch_id, retry_count, max_retries,
+                       scheduled_at, created_at, updated_at, completed_at,
+                       error_code, error_message
+                FROM commandbus.command
+                WHERE domain = ?
+                """);
 
         List<Object> params = new ArrayList<>();
         params.add(domain);
@@ -377,9 +382,9 @@ public class AdminService {
         params.add(pageable.getOffset());
 
         List<CommandView> commands = jdbcTemplate.query(
-            sql.toString(),
-            (rs, rowNum) -> mapToCommandView(rs),
-            params.toArray()
+                sql.toString(),
+                (rs, rowNum) -> mapToCommandView(rs),
+                params.toArray()
         );
 
         return new PageImpl<>(commands, pageable, total);
@@ -388,7 +393,7 @@ public class AdminService {
     @Transactional(readOnly = true)
     public Optional<CommandView> getCommandById(String domain, UUID commandId) {
         return commandRepository.getById(domain, commandId)
-            .map(this::toCommandView);
+                .map(this::toCommandView);
     }
 
     @Transactional(readOnly = true)
@@ -401,8 +406,8 @@ public class AdminService {
     @Transactional(readOnly = true)
     public List<TsqCommandView> getTsqCommands(String domain) {
         return tsq.list(domain).stream()
-            .map(this::toTsqView)
-            .toList();
+                .map(this::toTsqView)
+                .toList();
     }
 
     @Transactional
@@ -444,11 +449,11 @@ public class AdminService {
         }
 
         List<BatchView> views = batches.stream()
-            .map(this::toBatchView)
-            .toList();
+                .map(this::toBatchView)
+                .toList();
 
         long total = countBatchesByStatus(domain,
-            status != null ? List.of(status) : Arrays.asList(BatchStatus.values()));
+                status != null ? List.of(status) : Arrays.asList(BatchStatus.values()));
 
         return new PageImpl<>(views, pageable, total);
     }
@@ -456,17 +461,17 @@ public class AdminService {
     @Transactional(readOnly = true)
     public Optional<BatchView> getBatchById(String domain, UUID batchId) {
         return batchRepository.getById(domain, batchId)
-            .map(this::toBatchView);
+                .map(this::toBatchView);
     }
 
     @Transactional(readOnly = true)
     public Page<CommandView> getBatchCommands(String domain, UUID batchId, Pageable pageable) {
         List<CommandMetadata> commands = commandRepository.findByBatchId(domain, batchId);
         List<CommandView> views = commands.stream()
-            .map(this::toCommandView)
-            .skip(pageable.getOffset())
-            .limit(pageable.getPageSize())
-            .toList();
+                .map(this::toCommandView)
+                .skip(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .toList();
 
         return new PageImpl<>(views, pageable, commands.size());
     }
@@ -487,14 +492,14 @@ public class AdminService {
             processes = processRepository.findByType(domain, processType);
         } else {
             processes = processRepository.findByStatus(domain,
-                Arrays.asList(ProcessStatus.values()));
+                    Arrays.asList(ProcessStatus.values()));
         }
 
         List<ProcessView> views = processes.stream()
-            .map(this::toProcessView)
-            .skip(pageable.getOffset())
-            .limit(pageable.getPageSize())
-            .toList();
+                .map(this::toProcessView)
+                .skip(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .toList();
 
         return new PageImpl<>(views, pageable, processes.size());
     }
@@ -502,7 +507,7 @@ public class AdminService {
     @Transactional(readOnly = true)
     public Optional<ProcessView> getProcessById(String domain, UUID processId) {
         return processRepository.getById(domain, processId)
-            .map(this::toProcessView);
+                .map(this::toProcessView);
     }
 
     @Transactional(readOnly = true)
@@ -515,21 +520,21 @@ public class AdminService {
     @Transactional(readOnly = true)
     public List<QueueStats> getQueueStats(String domain) {
         String sql = """
-            SELECT queue_name,
-                   (SELECT count(*) FROM pgmq.q_{queue}) as depth,
-                   (SELECT count(*) FROM pgmq.a_{queue}) as archive_size
-            FROM pgmq.meta
-            WHERE queue_name LIKE ?
-            """;
+                SELECT queue_name,
+                       (SELECT count(*) FROM pgmq.q_{queue}) as depth,
+                       (SELECT count(*) FROM pgmq.a_{queue}) as archive_size
+                FROM pgmq.meta
+                WHERE queue_name LIKE ?
+                """;
 
         // Get all queues for domain
         return jdbcTemplate.query(
-            "SELECT queue_name FROM pgmq.meta WHERE queue_name LIKE ?",
-            (rs, rowNum) -> {
-                String queueName = rs.getString("queue_name");
-                return getQueueStatsForQueue(queueName);
-            },
-            domain + "_%"
+                "SELECT queue_name FROM pgmq.meta WHERE queue_name LIKE ?",
+                (rs, rowNum) -> {
+                    String queueName = rs.getString("queue_name");
+                    return getQueueStatsForQueue(queueName);
+                },
+                domain + "_%"
         );
     }
 
@@ -543,11 +548,11 @@ public class AdminService {
         java.sql.Timestamp oldest = jdbcTemplate.queryForObject(oldestSql, java.sql.Timestamp.class);
 
         return new QueueStats(
-            queueName,
-            depth,
-            archive,
-            0, // messagesPerMinute - would need metrics tracking
-            oldest != null ? oldest.toInstant() : null
+                queueName,
+                depth,
+                archive,
+                0, // messagesPerMinute - would need metrics tracking
+                oldest != null ? oldest.toInstant() : null
         );
     }
 
@@ -555,8 +560,8 @@ public class AdminService {
 
     private long countCommandsByStatus(String domain, CommandStatus status) {
         return jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM commandbus.command WHERE domain = ? AND status = ?",
-            Long.class, domain, status.name()
+                "SELECT COUNT(*) FROM commandbus.command WHERE domain = ? AND status = ?",
+                Long.class, domain, status.name()
         );
     }
 
@@ -564,8 +569,8 @@ public class AdminService {
         String tsqQueue = domain + "_tsq";
         try {
             return jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM pgmq.q_" + tsqQueue,
-                Long.class
+                    "SELECT count(*) FROM pgmq.q_" + tsqQueue,
+                    Long.class
             );
         } catch (Exception e) {
             return 0;
@@ -581,8 +586,8 @@ public class AdminService {
         }
 
         return jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM commandbus.batch WHERE domain = ? AND status IN (" + placeholders + ")",
-            Long.class, params
+                "SELECT COUNT(*) FROM commandbus.batch WHERE domain = ? AND status IN (" + placeholders + ")",
+                Long.class, params
         );
     }
 
@@ -595,51 +600,51 @@ public class AdminService {
         }
 
         return jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM commandbus.process WHERE domain = ? AND status IN (" + placeholders + ")",
-            Long.class, params
+                "SELECT COUNT(*) FROM commandbus.process WHERE domain = ? AND status IN (" + placeholders + ")",
+                Long.class, params
         );
     }
 
     private CommandView toCommandView(CommandMetadata cmd) {
         return new CommandView(
-            cmd.commandId(), cmd.domain(), cmd.commandType(), cmd.status(),
-            cmd.data(), cmd.correlationId(), cmd.replyTo(), cmd.batchId(),
-            cmd.retryCount(), cmd.maxRetries(), cmd.scheduledAt(),
-            cmd.createdAt(), cmd.updatedAt(), cmd.completedAt(),
-            cmd.errorCode(), cmd.errorMessage()
+                cmd.commandId(), cmd.domain(), cmd.commandType(), cmd.status(),
+                cmd.data(), cmd.correlationId(), cmd.replyTo(), cmd.batchId(),
+                cmd.retryCount(), cmd.maxRetries(), cmd.scheduledAt(),
+                cmd.createdAt(), cmd.updatedAt(), cmd.completedAt(),
+                cmd.errorCode(), cmd.errorMessage()
         );
     }
 
     private TsqCommandView toTsqView(TsqMessage msg) {
         return new TsqCommandView(
-            msg.msgId(), msg.commandId(), msg.domain(), msg.commandType(),
-            msg.data(), msg.errorCode(), msg.errorMessage(),
-            msg.retryCount(), msg.enqueuedAt(), msg.visibleAt()
+                msg.msgId(), msg.commandId(), msg.domain(), msg.commandType(),
+                msg.data(), msg.errorCode(), msg.errorMessage(),
+                msg.retryCount(), msg.enqueuedAt(), msg.visibleAt()
         );
     }
 
     private BatchView toBatchView(BatchMetadata batch) {
         return new BatchView(
-            batch.batchId(), batch.domain(), batch.status(),
-            batch.totalCommands(), batch.completedCommands(), batch.failedCommands(),
-            batch.callbackQueue(), batch.createdAt(), batch.completedAt(),
-            batch.totalCommands() > 0
-                ? (batch.completedCommands() * 100) / batch.totalCommands()
-                : 0
+                batch.batchId(), batch.domain(), batch.status(),
+                batch.totalCommands(), batch.completedCommands(), batch.failedCommands(),
+                batch.callbackQueue(), batch.createdAt(), batch.completedAt(),
+                batch.totalCommands() > 0
+                        ? (batch.completedCommands() * 100) / batch.totalCommands()
+                        : 0
         );
     }
 
     private ProcessView toProcessView(ProcessMetadata<?, ?> process) {
         Map<String, Object> stateMap = process.state() instanceof Map
-            ? (Map<String, Object>) process.state()
-            : process.state().toMap();
+                ? (Map<String, Object>) process.state()
+                : process.state().toMap();
 
         return new ProcessView(
-            process.processId(), process.domain(), process.processType(),
-            process.status(),
-            process.currentStep() != null ? process.currentStep().toString() : null,
-            stateMap, process.errorCode(), process.errorMessage(),
-            process.createdAt(), process.updatedAt(), process.completedAt()
+                process.processId(), process.domain(), process.processType(),
+                process.status(),
+                process.currentStep() != null ? process.currentStep().toString() : null,
+                stateMap, process.errorCode(), process.errorMessage(),
+                process.createdAt(), process.updatedAt(), process.completedAt()
         );
     }
 }
@@ -652,9 +657,9 @@ public class AdminService {
 ### DashboardController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
+import com.ivamare.commandbus.admin.service.AdminService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -687,10 +692,10 @@ public class DashboardController {
 ### CommandController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
-import com.commandbus.domain.CommandStatus;
+import com.ivamare.commandbus.admin.service.AdminService;
+import com.ivamare.commandbus.domain.CommandStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -726,8 +731,8 @@ public class CommandController {
             Model model) {
 
         var commands = adminService.getCommands(
-            domain, commandType, status, from, to,
-            PageRequest.of(page, size)
+                domain, commandType, status, from, to,
+                PageRequest.of(page, size)
         );
 
         model.addAttribute("commands", commands);
@@ -763,9 +768,9 @@ public class CommandController {
 ### TsqController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
+import com.ivamare.commandbus.admin.service.AdminService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -832,7 +837,8 @@ public class TsqController {
             // Parse JSON result
             var objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
             Map<String, Object> result = objectMapper.readValue(resultJson,
-                new com.fasterxml.jackson.core.type.TypeReference<>() {});
+                    new com.fasterxml.jackson.core.type.TypeReference<>() {
+                    });
 
             adminService.completeTsqCommand(domain, commandId, result);
             redirectAttributes.addFlashAttribute("success", "Command completed manually");
@@ -858,10 +864,10 @@ public class TsqController {
 ### BatchController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
-import com.commandbus.domain.BatchStatus;
+import com.ivamare.commandbus.admin.service.AdminService;
+import com.ivamare.commandbus.domain.BatchStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Controller;
@@ -927,10 +933,10 @@ public class BatchController {
 ### ProcessController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
-import com.commandbus.process.ProcessStatus;
+import com.ivamare.commandbus.admin.service.AdminService;
+import process.com.ivamare.commandbus.ProcessStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Controller;
@@ -962,7 +968,7 @@ public class ProcessController {
             Model model) {
 
         var processes = adminService.getProcesses(
-            domain, processType, status, PageRequest.of(page, size));
+                domain, processType, status, PageRequest.of(page, size));
 
         model.addAttribute("processes", processes);
         model.addAttribute("processType", processType);
@@ -995,9 +1001,9 @@ public class ProcessController {
 ### QueueController
 
 ```java
-package com.commandbus.admin.controller;
+package com.ivamare.commandbus.admin.controller;
 
-import com.commandbus.admin.service.AdminService;
+import com.ivamare.commandbus.admin.service.AdminService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -1605,7 +1611,7 @@ pre code {
 **This is a standalone Spring Boot application for testing, NOT an auto-configuration.**
 
 ```java
-package com.commandbus.e2e;
+package com.ivamare.commandbus.e2e;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -1632,13 +1638,13 @@ public class E2ETestApplication {
 ### Test Handlers
 
 ```java
-package com.commandbus.e2e.handlers;
+package com.ivamare.commandbus.e2e.handlers;
 
-import com.commandbus.domain.Command;
-import com.commandbus.domain.HandlerContext;
-import com.commandbus.exception.PermanentCommandError;
-import com.commandbus.exception.TransientCommandError;
-import com.commandbus.handler.Handler;
+import com.ivamare.commandbus.domain.Command;
+import com.ivamare.commandbus.domain.HandlerContext;
+import com.ivamare.commandbus.exception.PermanentCommandError;
+import com.ivamare.commandbus.exception.TransientCommandError;
+import handler.com.ivamare.commandbus.Handler;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -1653,8 +1659,8 @@ public class TestHandlers {
     public Map<String, Object> handleSuccess(Command command, HandlerContext context) {
         // Simulates successful processing
         return Map.of(
-            "status", "processed",
-            "input", command.data()
+                "status", "processed",
+                "input", command.data()
         );
     }
 

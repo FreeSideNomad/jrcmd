@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Processes - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <h2><i class="bi bi-diagram-3"></i> Processes</h2>
+
+    <form class="row g-3 mb-4" th:action="@{/processes}" method="get">
+        <div class="col-auto">
+            <input type="text" name="processType" class="form-control" placeholder="Process Type"
+                   th:value="${processType}">
+        </div>
+        <div class="col-auto">
+            <select name="status" class="form-select">
+                <option value="">All Statuses</option>
+                <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                        th:selected="${s == status}"></option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a th:href="@{/processes}" class="btn btn-secondary">Clear</a>
+        </div>
+    </form>
+
+    <div th:if="${processes.isEmpty()}" class="alert alert-info">
+        No processes found matching the criteria.
+    </div>
+
+    <div th:unless="${processes.isEmpty()}" class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Process ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Current Step</th>
+                    <th>Created At</th>
+                    <th>Updated At</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="proc : ${processes}" th:onclick="'window.location=\'/processes/' + ${proc.processId} + '\''">
+                    <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
+                    <td th:text="${proc.processType}">Type</td>
+                    <td>
+                        <span class="badge"
+                              th:classappend="${proc.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                              (${proc.status.name() == 'FAILED'} ? 'bg-danger' :
+                                              (${proc.status.name() == 'IN_PROGRESS' or proc.status.name() == 'WAITING_FOR_REPLY'} ? 'bg-primary' :
+                                              (${proc.status.name() == 'COMPENSATING' or proc.status.name() == 'COMPENSATED'} ? 'bg-warning' : 'bg-secondary')))"
+                              th:text="${proc.status}">STATUS</span>
+                    </td>
+                    <td th:text="${proc.currentStep != null ? proc.currentStep : 'N/A'}">Step</td>
+                    <td th:text="${#temporals.format(proc.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                    <td th:text="${#temporals.format(proc.updatedAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

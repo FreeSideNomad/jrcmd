@@ -7,7 +7,7 @@ This specification defines the repository interfaces and JdbcTemplate implementa
 ## Package Structure
 
 ```
-com.commandbus.repository/
+com.ivamare.commandbus.repository/
 ├── CommandRepository.java      # Interface
 ├── BatchRepository.java        # Interface
 ├── AuditRepository.java        # Interface
@@ -24,10 +24,10 @@ com.commandbus.repository/
 ### 1.1 Interface
 
 ```java
-package com.commandbus.repository;
+package com.ivamare.commandbus.repository;
 
-import com.commandbus.model.CommandMetadata;
-import com.commandbus.model.CommandStatus;
+import model.com.ivamare.commandbus.CommandMetadata;
+import model.com.ivamare.commandbus.CommandStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -105,13 +105,13 @@ public interface CommandRepository {
      * @return List of matching commands
      */
     List<CommandMetadata> query(
-        CommandStatus status,
-        String domain,
-        String commandType,
-        Instant createdAfter,
-        Instant createdBefore,
-        int limit,
-        int offset
+            CommandStatus status,
+            String domain,
+            String commandType,
+            Instant createdAfter,
+            Instant createdBefore,
+            int limit,
+            int offset
     );
 
     /**
@@ -125,11 +125,11 @@ public interface CommandRepository {
      * @return List of commands in the batch
      */
     List<CommandMetadata> listByBatch(
-        String domain,
-        UUID batchId,
-        CommandStatus status,
-        int limit,
-        int offset
+            String domain,
+            UUID batchId,
+            CommandStatus status,
+            int limit,
+            int offset
     );
 
     // --- Stored Procedure Wrappers ---
@@ -146,10 +146,10 @@ public interface CommandRepository {
      * @return Optional containing updated metadata if found and receivable
      */
     Optional<CommandMetadata> spReceiveCommand(
-        String domain,
-        UUID commandId,
-        Long msgId,
-        Integer maxAttempts
+            String domain,
+            UUID commandId,
+            Long msgId,
+            Integer maxAttempts
     );
 
     /**
@@ -169,15 +169,15 @@ public interface CommandRepository {
      * @return true if batch is now complete
      */
     boolean spFinishCommand(
-        String domain,
-        UUID commandId,
-        CommandStatus status,
-        String eventType,
-        String errorType,
-        String errorCode,
-        String errorMessage,
-        String details,
-        UUID batchId
+            String domain,
+            UUID commandId,
+            CommandStatus status,
+            String eventType,
+            String errorType,
+            String errorCode,
+            String errorMessage,
+            String details,
+            UUID batchId
     );
 
     /**
@@ -194,14 +194,14 @@ public interface CommandRepository {
      * @return true if recorded
      */
     boolean spFailCommand(
-        String domain,
-        UUID commandId,
-        String errorType,
-        String errorCode,
-        String errorMessage,
-        int attempt,
-        int maxAttempts,
-        long msgId
+            String domain,
+            UUID commandId,
+            String errorType,
+            String errorCode,
+            String errorMessage,
+            int attempt,
+            int maxAttempts,
+            long msgId
     );
 }
 ```
@@ -209,19 +209,16 @@ public interface CommandRepository {
 ### 1.2 Implementation
 
 ```java
-package com.commandbus.repository.impl;
+package com.ivamare.commandbus.repository.impl;
 
-import com.commandbus.model.CommandMetadata;
-import com.commandbus.model.CommandStatus;
-import com.commandbus.repository.CommandRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import model.com.ivamare.commandbus.CommandMetadata;
+import model.com.ivamare.commandbus.CommandStatus;
+import repository.com.ivamare.commandbus.CommandRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;
@@ -234,23 +231,23 @@ public class JdbcCommandRepository implements CommandRepository {
 
     private static final RowMapper<CommandMetadata> METADATA_MAPPER = (rs, rowNum) -> {
         return new CommandMetadata(
-            rs.getString("domain"),
-            UUID.fromString(rs.getString("command_id")),
-            rs.getString("command_type"),
-            CommandStatus.fromValue(rs.getString("status")),
-            rs.getInt("attempts"),
-            rs.getInt("max_attempts"),
-            rs.getObject("msg_id") != null ? rs.getLong("msg_id") : null,
-            rs.getString("correlation_id") != null ?
-                UUID.fromString(rs.getString("correlation_id")) : null,
-            rs.getString("reply_queue"),
-            rs.getString("last_error_type"),
-            rs.getString("last_error_code"),
-            rs.getString("last_error_msg"),
-            toInstant(rs.getTimestamp("created_at")),
-            toInstant(rs.getTimestamp("updated_at")),
-            rs.getString("batch_id") != null ?
-                UUID.fromString(rs.getString("batch_id")) : null
+                rs.getString("domain"),
+                UUID.fromString(rs.getString("command_id")),
+                rs.getString("command_type"),
+                CommandStatus.fromValue(rs.getString("status")),
+                rs.getInt("attempts"),
+                rs.getInt("max_attempts"),
+                rs.getObject("msg_id") != null ? rs.getLong("msg_id") : null,
+                rs.getString("correlation_id") != null ?
+                        UUID.fromString(rs.getString("correlation_id")) : null,
+                rs.getString("reply_queue"),
+                rs.getString("last_error_type"),
+                rs.getString("last_error_code"),
+                rs.getString("last_error_msg"),
+                toInstant(rs.getTimestamp("created_at")),
+                toInstant(rs.getTimestamp("updated_at")),
+                rs.getString("batch_id") != null ?
+                        UUID.fromString(rs.getString("batch_id")) : null
         );
     };
 
@@ -262,25 +259,25 @@ public class JdbcCommandRepository implements CommandRepository {
     @Override
     public void save(CommandMetadata metadata, String queueName) {
         jdbcTemplate.update("""
-            INSERT INTO commandbus.command (
-                domain, queue_name, msg_id, command_id, command_type,
-                status, attempts, max_attempts, correlation_id, reply_queue,
-                batch_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            metadata.domain(),
-            queueName,
-            metadata.msgId(),
-            metadata.commandId(),
-            metadata.commandType(),
-            metadata.status().getValue(),
-            metadata.attempts(),
-            metadata.maxAttempts(),
-            metadata.correlationId(),
-            metadata.replyTo(),
-            metadata.batchId(),
-            Timestamp.from(metadata.createdAt()),
-            Timestamp.from(metadata.updatedAt())
+                        INSERT INTO commandbus.command (
+                            domain, queue_name, msg_id, command_id, command_type,
+                            status, attempts, max_attempts, correlation_id, reply_queue,
+                            batch_id, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                metadata.domain(),
+                queueName,
+                metadata.msgId(),
+                metadata.commandId(),
+                metadata.commandType(),
+                metadata.status().getValue(),
+                metadata.attempts(),
+                metadata.maxAttempts(),
+                metadata.correlationId(),
+                metadata.replyTo(),
+                metadata.batchId(),
+                Timestamp.from(metadata.createdAt()),
+                Timestamp.from(metadata.updatedAt())
         );
     }
 
@@ -289,21 +286,21 @@ public class JdbcCommandRepository implements CommandRepository {
         if (metadataList.isEmpty()) return;
 
         String sql = """
-            INSERT INTO commandbus.command (
-                domain, queue_name, msg_id, command_id, command_type,
-                status, attempts, max_attempts, correlation_id, reply_queue,
-                batch_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+                INSERT INTO commandbus.command (
+                    domain, queue_name, msg_id, command_id, command_type,
+                    status, attempts, max_attempts, correlation_id, reply_queue,
+                    batch_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
 
         List<Object[]> batchArgs = metadataList.stream()
-            .map(m -> new Object[]{
-                m.domain(), queueName, m.msgId(), m.commandId(), m.commandType(),
-                m.status().getValue(), m.attempts(), m.maxAttempts(),
-                m.correlationId(), m.replyTo(), m.batchId(),
-                Timestamp.from(m.createdAt()), Timestamp.from(m.updatedAt())
-            })
-            .toList();
+                .map(m -> new Object[]{
+                        m.domain(), queueName, m.msgId(), m.commandId(), m.commandType(),
+                        m.status().getValue(), m.attempts(), m.maxAttempts(),
+                        m.correlationId(), m.replyTo(), m.batchId(),
+                        Timestamp.from(m.createdAt()), Timestamp.from(m.updatedAt())
+                })
+                .toList();
 
         jdbcTemplate.batchUpdate(sql, batchArgs);
     }
@@ -311,9 +308,9 @@ public class JdbcCommandRepository implements CommandRepository {
     @Override
     public Optional<CommandMetadata> get(String domain, UUID commandId) {
         List<CommandMetadata> results = jdbcTemplate.query(
-            "SELECT * FROM commandbus.command WHERE domain = ? AND command_id = ?",
-            METADATA_MAPPER,
-            domain, commandId
+                "SELECT * FROM commandbus.command WHERE domain = ? AND command_id = ?",
+                METADATA_MAPPER,
+                domain, commandId
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
@@ -321,9 +318,9 @@ public class JdbcCommandRepository implements CommandRepository {
     @Override
     public boolean exists(String domain, UUID commandId) {
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM commandbus.command WHERE domain = ? AND command_id = ?",
-            Integer.class,
-            domain, commandId
+                "SELECT COUNT(*) FROM commandbus.command WHERE domain = ? AND command_id = ?",
+                Integer.class,
+                domain, commandId
         );
         return count != null && count > 0;
     }
@@ -340,9 +337,9 @@ public class JdbcCommandRepository implements CommandRepository {
         }
 
         List<UUID> existing = jdbcTemplate.query(
-            "SELECT command_id FROM commandbus.command WHERE domain = ? AND command_id IN (" + placeholders + ")",
-            (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
-            params
+                "SELECT command_id FROM commandbus.command WHERE domain = ? AND command_id IN (" + placeholders + ")",
+                (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
+                params
         );
 
         return new HashSet<>(existing);
@@ -351,8 +348,8 @@ public class JdbcCommandRepository implements CommandRepository {
     @Override
     public void updateStatus(String domain, UUID commandId, CommandStatus status) {
         jdbcTemplate.update(
-            "UPDATE commandbus.command SET status = ?, updated_at = NOW() WHERE domain = ? AND command_id = ?",
-            status.getValue(), domain, commandId
+                "UPDATE commandbus.command SET status = ?, updated_at = NOW() WHERE domain = ? AND command_id = ?",
+                status.getValue(), domain, commandId
         );
     }
 
@@ -406,7 +403,7 @@ public class JdbcCommandRepository implements CommandRepository {
             int offset) {
 
         StringBuilder sql = new StringBuilder(
-            "SELECT * FROM commandbus.command WHERE domain = ? AND batch_id = ?"
+                "SELECT * FROM commandbus.command WHERE domain = ? AND batch_id = ?"
         );
         List<Object> params = new ArrayList<>(List.of(domain, batchId));
 
@@ -430,9 +427,9 @@ public class JdbcCommandRepository implements CommandRepository {
             Integer maxAttempts) {
 
         List<CommandMetadata> results = jdbcTemplate.query(
-            "SELECT * FROM commandbus.sp_receive_command(?, ?, 'IN_PROGRESS', ?, ?)",
-            METADATA_MAPPER,
-            domain, commandId, msgId, maxAttempts
+                "SELECT * FROM commandbus.sp_receive_command(?, ?, 'IN_PROGRESS', ?, ?)",
+                METADATA_MAPPER,
+                domain, commandId, msgId, maxAttempts
         );
 
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -451,10 +448,10 @@ public class JdbcCommandRepository implements CommandRepository {
             UUID batchId) {
 
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT commandbus.sp_finish_command(?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)",
-            Boolean.class,
-            domain, commandId, status.getValue(), eventType,
-            errorType, errorCode, errorMessage, details, batchId
+                "SELECT commandbus.sp_finish_command(?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)",
+                Boolean.class,
+                domain, commandId, status.getValue(), eventType,
+                errorType, errorCode, errorMessage, details, batchId
         );
 
         return Boolean.TRUE.equals(result);
@@ -472,10 +469,10 @@ public class JdbcCommandRepository implements CommandRepository {
             long msgId) {
 
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT commandbus.sp_fail_command(?, ?, ?, ?, ?, ?, ?, ?)",
-            Boolean.class,
-            domain, commandId, errorType, errorCode, errorMessage,
-            attempt, maxAttempts, msgId
+                "SELECT commandbus.sp_fail_command(?, ?, ?, ?, ?, ?, ?, ?)",
+                Boolean.class,
+                domain, commandId, errorType, errorCode, errorMessage,
+                attempt, maxAttempts, msgId
         );
 
         return Boolean.TRUE.equals(result);
@@ -494,10 +491,10 @@ public class JdbcCommandRepository implements CommandRepository {
 ### 2.1 Interface
 
 ```java
-package com.commandbus.repository;
+package com.ivamare.commandbus.repository;
 
-import com.commandbus.model.BatchMetadata;
-import com.commandbus.model.BatchStatus;
+import model.com.ivamare.commandbus.BatchMetadata;
+import model.com.ivamare.commandbus.BatchStatus;
 
 import java.util.List;
 import java.util.Optional;
@@ -576,11 +573,11 @@ public interface BatchRepository {
 ### 2.2 Implementation
 
 ```java
-package com.commandbus.repository.impl;
+package com.ivamare.commandbus.repository.impl;
 
-import com.commandbus.model.BatchMetadata;
-import com.commandbus.model.BatchStatus;
-import com.commandbus.repository.BatchRepository;
+import model.com.ivamare.commandbus.BatchMetadata;
+import model.com.ivamare.commandbus.BatchStatus;
+import repository.com.ivamare.commandbus.BatchRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -588,8 +585,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;
@@ -599,7 +594,8 @@ public class JdbcBatchRepository implements BatchRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
 
     private final RowMapper<BatchMetadata> BATCH_MAPPER = (rs, rowNum) -> {
         Map<String, Object> customData = null;
@@ -613,18 +609,18 @@ public class JdbcBatchRepository implements BatchRepository {
         }
 
         return new BatchMetadata(
-            rs.getString("domain"),
-            UUID.fromString(rs.getString("batch_id")),
-            rs.getString("name"),
-            customData,
-            BatchStatus.fromValue(rs.getString("status")),
-            rs.getInt("total_count"),
-            rs.getInt("completed_count"),
-            rs.getInt("canceled_count"),
-            rs.getInt("in_troubleshooting_count"),
-            toInstant(rs.getTimestamp("created_at")),
-            toInstant(rs.getTimestamp("started_at")),
-            toInstant(rs.getTimestamp("completed_at"))
+                rs.getString("domain"),
+                UUID.fromString(rs.getString("batch_id")),
+                rs.getString("name"),
+                customData,
+                BatchStatus.fromValue(rs.getString("status")),
+                rs.getInt("total_count"),
+                rs.getInt("completed_count"),
+                rs.getInt("canceled_count"),
+                rs.getInt("in_troubleshooting_count"),
+                toInstant(rs.getTimestamp("created_at")),
+                toInstant(rs.getTimestamp("started_at")),
+                toInstant(rs.getTimestamp("completed_at"))
         );
     };
 
@@ -645,33 +641,33 @@ public class JdbcBatchRepository implements BatchRepository {
         }
 
         jdbcTemplate.update("""
-            INSERT INTO commandbus.batch (
-                domain, batch_id, name, custom_data, status,
-                total_count, completed_count, canceled_count, in_troubleshooting_count,
-                created_at, started_at, completed_at
-            ) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            metadata.domain(),
-            metadata.batchId(),
-            metadata.name(),
-            customDataJson,
-            metadata.status().getValue(),
-            metadata.totalCount(),
-            metadata.completedCount(),
-            metadata.canceledCount(),
-            metadata.inTroubleshootingCount(),
-            Timestamp.from(metadata.createdAt()),
-            metadata.startedAt() != null ? Timestamp.from(metadata.startedAt()) : null,
-            metadata.completedAt() != null ? Timestamp.from(metadata.completedAt()) : null
+                        INSERT INTO commandbus.batch (
+                            domain, batch_id, name, custom_data, status,
+                            total_count, completed_count, canceled_count, in_troubleshooting_count,
+                            created_at, started_at, completed_at
+                        ) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                metadata.domain(),
+                metadata.batchId(),
+                metadata.name(),
+                customDataJson,
+                metadata.status().getValue(),
+                metadata.totalCount(),
+                metadata.completedCount(),
+                metadata.canceledCount(),
+                metadata.inTroubleshootingCount(),
+                Timestamp.from(metadata.createdAt()),
+                metadata.startedAt() != null ? Timestamp.from(metadata.startedAt()) : null,
+                metadata.completedAt() != null ? Timestamp.from(metadata.completedAt()) : null
         );
     }
 
     @Override
     public Optional<BatchMetadata> get(String domain, UUID batchId) {
         List<BatchMetadata> results = jdbcTemplate.query(
-            "SELECT * FROM commandbus.batch WHERE domain = ? AND batch_id = ?",
-            BATCH_MAPPER,
-            domain, batchId
+                "SELECT * FROM commandbus.batch WHERE domain = ? AND batch_id = ?",
+                BATCH_MAPPER,
+                domain, batchId
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
@@ -679,9 +675,9 @@ public class JdbcBatchRepository implements BatchRepository {
     @Override
     public boolean exists(String domain, UUID batchId) {
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM commandbus.batch WHERE domain = ? AND batch_id = ?",
-            Integer.class,
-            domain, batchId
+                "SELECT COUNT(*) FROM commandbus.batch WHERE domain = ? AND batch_id = ?",
+                Integer.class,
+                domain, batchId
         );
         return count != null && count > 0;
     }
@@ -690,15 +686,15 @@ public class JdbcBatchRepository implements BatchRepository {
     public List<BatchMetadata> listBatches(String domain, BatchStatus status, int limit, int offset) {
         if (status != null) {
             return jdbcTemplate.query(
-                "SELECT * FROM commandbus.batch WHERE domain = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                BATCH_MAPPER,
-                domain, status.getValue(), limit, offset
+                    "SELECT * FROM commandbus.batch WHERE domain = ? AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    BATCH_MAPPER,
+                    domain, status.getValue(), limit, offset
             );
         } else {
             return jdbcTemplate.query(
-                "SELECT * FROM commandbus.batch WHERE domain = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                BATCH_MAPPER,
-                domain, limit, offset
+                    "SELECT * FROM commandbus.batch WHERE domain = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    BATCH_MAPPER,
+                    domain, limit, offset
             );
         }
     }
@@ -706,9 +702,9 @@ public class JdbcBatchRepository implements BatchRepository {
     @Override
     public boolean tsqRetry(String domain, UUID batchId) {
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT commandbus.sp_tsq_retry(?, ?)",
-            Boolean.class,
-            domain, batchId
+                "SELECT commandbus.sp_tsq_retry(?, ?)",
+                Boolean.class,
+                domain, batchId
         );
         return Boolean.TRUE.equals(result);
     }
@@ -716,9 +712,9 @@ public class JdbcBatchRepository implements BatchRepository {
     @Override
     public boolean tsqCancel(String domain, UUID batchId) {
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT commandbus.sp_tsq_cancel(?, ?)",
-            Boolean.class,
-            domain, batchId
+                "SELECT commandbus.sp_tsq_cancel(?, ?)",
+                Boolean.class,
+                domain, batchId
         );
         return Boolean.TRUE.equals(result);
     }
@@ -726,9 +722,9 @@ public class JdbcBatchRepository implements BatchRepository {
     @Override
     public boolean tsqComplete(String domain, UUID batchId) {
         Boolean result = jdbcTemplate.queryForObject(
-            "SELECT commandbus.sp_tsq_complete(?, ?)",
-            Boolean.class,
-            domain, batchId
+                "SELECT commandbus.sp_tsq_complete(?, ?)",
+                Boolean.class,
+                domain, batchId
         );
         return Boolean.TRUE.equals(result);
     }
@@ -746,9 +742,9 @@ public class JdbcBatchRepository implements BatchRepository {
 ### 3.1 Interface
 
 ```java
-package com.commandbus.repository;
+package com.ivamare.commandbus.repository;
 
-import com.commandbus.model.AuditEvent;
+import model.com.ivamare.commandbus.AuditEvent;
 
 import java.util.List;
 import java.util.Map;
@@ -789,21 +785,22 @@ public interface AuditRepository {
      * Record for batch audit logging.
      */
     record AuditEventRecord(
-        String domain,
-        UUID commandId,
-        String eventType,
-        Map<String, Object> details
-    ) {}
+            String domain,
+            UUID commandId,
+            String eventType,
+            Map<String, Object> details
+    ) {
+    }
 }
 ```
 
 ### 3.2 Implementation
 
 ```java
-package com.commandbus.repository.impl;
+package com.ivamare.commandbus.repository.impl;
 
-import com.commandbus.model.AuditEvent;
-import com.commandbus.repository.AuditRepository;
+import model.com.ivamare.commandbus.AuditEvent;
+import repository.com.ivamare.commandbus.AuditRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -811,7 +808,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -821,7 +817,8 @@ public class JdbcAuditRepository implements AuditRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
 
     private final RowMapper<AuditEvent> AUDIT_MAPPER = (rs, rowNum) -> {
         Map<String, Object> details = null;
@@ -835,12 +832,12 @@ public class JdbcAuditRepository implements AuditRepository {
         }
 
         return new AuditEvent(
-            rs.getLong("audit_id"),
-            rs.getString("domain"),
-            UUID.fromString(rs.getString("command_id")),
-            rs.getString("event_type"),
-            rs.getTimestamp("ts").toInstant(),
-            details
+                rs.getLong("audit_id"),
+                rs.getString("domain"),
+                UUID.fromString(rs.getString("command_id")),
+                rs.getString("event_type"),
+                rs.getTimestamp("ts").toInstant(),
+                details
         );
     };
 
@@ -854,8 +851,8 @@ public class JdbcAuditRepository implements AuditRepository {
         String detailsJson = serializeDetails(details);
 
         jdbcTemplate.update(
-            "INSERT INTO commandbus.audit (domain, command_id, event_type, details_json) VALUES (?, ?, ?, ?::jsonb)",
-            domain, commandId, eventType, detailsJson
+                "INSERT INTO commandbus.audit (domain, command_id, event_type, details_json) VALUES (?, ?, ?, ?::jsonb)",
+                domain, commandId, eventType, detailsJson
         );
     }
 
@@ -866,13 +863,13 @@ public class JdbcAuditRepository implements AuditRepository {
         String sql = "INSERT INTO commandbus.audit (domain, command_id, event_type, details_json) VALUES (?, ?, ?, ?::jsonb)";
 
         List<Object[]> batchArgs = events.stream()
-            .map(e -> new Object[]{
-                e.domain(),
-                e.commandId(),
-                e.eventType(),
-                serializeDetails(e.details())
-            })
-            .toList();
+                .map(e -> new Object[]{
+                        e.domain(),
+                        e.commandId(),
+                        e.eventType(),
+                        serializeDetails(e.details())
+                })
+                .toList();
 
         jdbcTemplate.batchUpdate(sql, batchArgs);
     }
@@ -881,15 +878,15 @@ public class JdbcAuditRepository implements AuditRepository {
     public List<AuditEvent> getEvents(UUID commandId, String domain) {
         if (domain != null) {
             return jdbcTemplate.query(
-                "SELECT * FROM commandbus.audit WHERE command_id = ? AND domain = ? ORDER BY ts ASC",
-                AUDIT_MAPPER,
-                commandId, domain
+                    "SELECT * FROM commandbus.audit WHERE command_id = ? AND domain = ? ORDER BY ts ASC",
+                    AUDIT_MAPPER,
+                    commandId, domain
             );
         } else {
             return jdbcTemplate.query(
-                "SELECT * FROM commandbus.audit WHERE command_id = ? ORDER BY ts ASC",
-                AUDIT_MAPPER,
-                commandId
+                    "SELECT * FROM commandbus.audit WHERE command_id = ? ORDER BY ts ASC",
+                    AUDIT_MAPPER,
+                    commandId
             );
         }
     }

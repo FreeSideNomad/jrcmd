@@ -7,7 +7,7 @@ This specification defines the handler registration and dispatch system for the 
 ## Package Structure
 
 ```
-com.commandbus.handler/
+com.ivamare.commandbus.handler/
 ├── Handler.java                    # Annotation
 ├── HandlerRegistry.java            # Interface
 ├── CommandHandler.java             # Functional interface
@@ -22,7 +22,7 @@ com.commandbus.handler/
 ### 1.1 @Handler Annotation
 
 ```java
-package com.commandbus.handler;
+package com.ivamare.commandbus.handler;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -84,10 +84,10 @@ public @interface Handler {
 ### 2.1 CommandHandler
 
 ```java
-package com.commandbus.handler;
+package com.ivamare.commandbus.handler;
 
-import com.commandbus.model.Command;
-import com.commandbus.model.HandlerContext;
+import com.ivamare.commandbus.model.Command;
+import model.com.ivamare.commandbus.HandlerContext;
 
 /**
  * Functional interface for command handlers.
@@ -97,8 +97,8 @@ import com.commandbus.model.HandlerContext;
  *
  * <p>Handlers can throw:
  * <ul>
- *   <li>{@link com.commandbus.exception.TransientCommandException} - for retryable failures</li>
- *   <li>{@link com.commandbus.exception.PermanentCommandException} - for non-retryable failures</li>
+ *   <li>{@link exception.com.ivamare.commandbus.TransientCommandException} - for retryable failures</li>
+ *   <li>{@link exception.com.ivamare.commandbus.PermanentCommandException} - for non-retryable failures</li>
  *   <li>Any other exception - treated as transient failure</li>
  * </ul>
  */
@@ -124,10 +124,10 @@ public interface CommandHandler {
 ### 3.1 HandlerRegistry
 
 ```java
-package com.commandbus.handler;
+package com.ivamare.commandbus.handler;
 
-import com.commandbus.model.Command;
-import com.commandbus.model.HandlerContext;
+import com.ivamare.commandbus.model.Command;
+import model.com.ivamare.commandbus.HandlerContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -146,7 +146,7 @@ public interface HandlerRegistry {
      * @param domain The domain (e.g., "payments")
      * @param commandType The command type (e.g., "DebitAccount")
      * @param handler The handler function
-     * @throws com.commandbus.exception.HandlerAlreadyRegisteredException if handler exists
+     * @throws exception.com.ivamare.commandbus.HandlerAlreadyRegisteredException if handler exists
      */
     void register(String domain, String commandType, CommandHandler handler);
 
@@ -165,7 +165,7 @@ public interface HandlerRegistry {
      * @param domain The domain
      * @param commandType The command type
      * @return The handler
-     * @throws com.commandbus.exception.HandlerNotFoundException if not found
+     * @throws exception.com.ivamare.commandbus.HandlerNotFoundException if not found
      */
     CommandHandler getOrThrow(String domain, String commandType);
 
@@ -175,7 +175,7 @@ public interface HandlerRegistry {
      * @param command The command to dispatch
      * @param context Handler context
      * @return Result from handler (may be null)
-     * @throws com.commandbus.exception.HandlerNotFoundException if no handler registered
+     * @throws exception.com.ivamare.commandbus.HandlerNotFoundException if no handler registered
      * @throws Exception from handler execution
      */
     Object dispatch(Command command, HandlerContext context) throws Exception;
@@ -212,7 +212,8 @@ public interface HandlerRegistry {
     /**
      * Key for handler lookup.
      */
-    record HandlerKey(String domain, String commandType) {}
+    record HandlerKey(String domain, String commandType) {
+    }
 }
 ```
 
@@ -223,15 +224,15 @@ public interface HandlerRegistry {
 ### 4.1 DefaultHandlerRegistry
 
 ```java
-package com.commandbus.handler.impl;
+package com.ivamare.commandbus.handler.impl;
 
-import com.commandbus.exception.HandlerAlreadyRegisteredException;
-import com.commandbus.exception.HandlerNotFoundException;
-import com.commandbus.handler.CommandHandler;
-import com.commandbus.handler.Handler;
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.model.Command;
-import com.commandbus.model.HandlerContext;
+import exception.com.ivamare.commandbus.HandlerAlreadyRegisteredException;
+import exception.com.ivamare.commandbus.HandlerNotFoundException;
+import handler.com.ivamare.commandbus.CommandHandler;
+import handler.com.ivamare.commandbus.Handler;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import model.com.ivamare.commandbus.Command;
+import model.com.ivamare.commandbus.HandlerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -272,14 +273,14 @@ public class DefaultHandlerRegistry implements HandlerRegistry, BeanPostProcesso
     @Override
     public CommandHandler getOrThrow(String domain, String commandType) {
         return get(domain, commandType)
-            .orElseThrow(() -> new HandlerNotFoundException(domain, commandType));
+                .orElseThrow(() -> new HandlerNotFoundException(domain, commandType));
     }
 
     @Override
     public Object dispatch(Command command, HandlerContext context) throws Exception {
         var handler = getOrThrow(command.domain(), command.commandType());
         log.debug("Dispatching {}.{} (commandId={})",
-            command.domain(), command.commandType(), command.commandId());
+                command.domain(), command.commandType(), command.commandId());
         return handler.handle(command, context);
     }
 
@@ -323,7 +324,7 @@ public class DefaultHandlerRegistry implements HandlerRegistry, BeanPostProcesso
             registered.add(new HandlerKey(domain, commandType));
 
             log.info("Discovered handler {}.{}() for {}.{}",
-                bean.getClass().getSimpleName(), method.getName(), domain, commandType);
+                    bean.getClass().getSimpleName(), method.getName(), domain, commandType);
         }
 
         return registered;
@@ -336,7 +337,7 @@ public class DefaultHandlerRegistry implements HandlerRegistry, BeanPostProcesso
     public Object postProcessAfterInitialization(Object bean, String beanName) {
         // Check if bean has any @Handler annotated methods
         boolean hasHandlers = Arrays.stream(bean.getClass().getMethods())
-            .anyMatch(m -> m.isAnnotationPresent(Handler.class));
+                .anyMatch(m -> m.isAnnotationPresent(Handler.class));
 
         if (hasHandlers) {
             registerBean(bean);
@@ -348,12 +349,12 @@ public class DefaultHandlerRegistry implements HandlerRegistry, BeanPostProcesso
     private void validateHandlerMethod(Method method) {
         Class<?>[] params = method.getParameterTypes();
         if (params.length != 2 ||
-            !params[0].equals(Command.class) ||
-            !params[1].equals(HandlerContext.class)) {
+                !params[0].equals(Command.class) ||
+                !params[1].equals(HandlerContext.class)) {
 
             throw new IllegalArgumentException(
-                "Handler method " + method.getName() + " must have signature: " +
-                "Object methodName(Command command, HandlerContext context)"
+                    "Handler method " + method.getName() + " must have signature: " +
+                            "Object methodName(Command command, HandlerContext context)"
             );
         }
     }

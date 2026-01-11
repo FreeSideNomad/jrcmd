@@ -7,7 +7,7 @@ This specification defines the Worker component for the Java Command Bus library
 ## Package Structure
 
 ```
-com.commandbus.worker/
+com.ivamare.commandbus.worker/
 ├── Worker.java                # Interface
 ├── WorkerProperties.java      # Configuration
 ├── ReceivedCommand.java       # Internal command wrapper
@@ -22,7 +22,7 @@ com.commandbus.worker/
 ### 1.1 Worker
 
 ```java
-package com.commandbus.worker;
+package com.ivamare.commandbus.worker;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -108,11 +108,11 @@ public interface Worker {
 ### 1.2 WorkerBuilder
 
 ```java
-package com.commandbus.worker;
+package com.ivamare.commandbus.worker;
 
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.policy.RetryPolicy;
-import com.commandbus.worker.impl.DefaultWorker;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import policy.com.ivamare.commandbus.RetryPolicy;
+import impl.worker.com.ivamare.commandbus.DefaultWorker;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -209,14 +209,14 @@ public class WorkerBuilder {
         }
 
         return new DefaultWorker(
-            jdbcTemplate,
-            domain,
-            handlerRegistry,
-            visibilityTimeout,
-            pollIntervalMs,
-            concurrency,
-            useNotify,
-            retryPolicy
+                jdbcTemplate,
+                domain,
+                handlerRegistry,
+                visibilityTimeout,
+                pollIntervalMs,
+                concurrency,
+                useNotify,
+                retryPolicy
         );
     }
 }
@@ -229,11 +229,9 @@ public class WorkerBuilder {
 ### 2.1 WorkerProperties
 
 ```java
-package com.commandbus.worker;
+package com.ivamare.commandbus.worker;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-
-import java.util.List;
 
 /**
  * Configuration properties for workers.
@@ -263,24 +261,44 @@ public class WorkerProperties {
 
     // Getters and setters...
 
-    public int getVisibilityTimeout() { return visibilityTimeout; }
-    public void setVisibilityTimeout(int visibilityTimeout) { this.visibilityTimeout = visibilityTimeout; }
+    public int getVisibilityTimeout() {
+        return visibilityTimeout;
+    }
 
-    public int getPollIntervalMs() { return pollIntervalMs; }
-    public void setPollIntervalMs(int pollIntervalMs) { this.pollIntervalMs = pollIntervalMs; }
+    public void setVisibilityTimeout(int visibilityTimeout) {
+        this.visibilityTimeout = visibilityTimeout;
+    }
 
-    public int getConcurrency() { return concurrency; }
-    public void setConcurrency(int concurrency) { this.concurrency = concurrency; }
+    public int getPollIntervalMs() {
+        return pollIntervalMs;
+    }
 
-    public boolean isUseNotify() { return useNotify; }
-    public void setUseNotify(boolean useNotify) { this.useNotify = useNotify; }
+    public void setPollIntervalMs(int pollIntervalMs) {
+        this.pollIntervalMs = pollIntervalMs;
+    }
+
+    public int getConcurrency() {
+        return concurrency;
+    }
+
+    public void setConcurrency(int concurrency) {
+        this.concurrency = concurrency;
+    }
+
+    public boolean isUseNotify() {
+        return useNotify;
+    }
+
+    public void setUseNotify(boolean useNotify) {
+        this.useNotify = useNotify;
+    }
 }
 ```
 
 ### 2.2 RetryPolicy
 
 ```java
-package com.commandbus.policy;
+package com.ivamare.commandbus.policy;
 
 import java.util.List;
 
@@ -291,8 +309,8 @@ import java.util.List;
  * @param backoffSchedule List of visibility timeouts in seconds for each retry
  */
 public record RetryPolicy(
-    int maxAttempts,
-    List<Integer> backoffSchedule
+        int maxAttempts,
+        List<Integer> backoffSchedule
 ) {
     /**
      * Default retry policy: 3 attempts with backoff [10, 60, 300].
@@ -344,30 +362,28 @@ public record RetryPolicy(
 ### 3.1 DefaultWorker
 
 ```java
-package com.commandbus.worker.impl;
+package com.ivamare.commandbus.worker.impl;
 
-import com.commandbus.exception.PermanentCommandException;
-import com.commandbus.exception.TransientCommandException;
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.model.*;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.pgmq.impl.JdbcPgmqClient;
-import com.commandbus.policy.RetryPolicy;
-import com.commandbus.repository.AuditRepository;
-import com.commandbus.repository.BatchRepository;
-import com.commandbus.repository.CommandRepository;
-import com.commandbus.repository.impl.JdbcAuditRepository;
-import com.commandbus.repository.impl.JdbcBatchRepository;
-import com.commandbus.repository.impl.JdbcCommandRepository;
-import com.commandbus.worker.Worker;
+import exception.com.ivamare.commandbus.PermanentCommandException;
+import exception.com.ivamare.commandbus.TransientCommandException;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import com.ivamare.commandbus.model.*;
+import com.ivamare.commandbus.pgmq.PgmqClient;
+import impl.pgmq.com.ivamare.commandbus.JdbcPgmqClient;
+import policy.com.ivamare.commandbus.RetryPolicy;
+import repository.com.ivamare.commandbus.AuditRepository;
+import repository.com.ivamare.commandbus.BatchRepository;
+import repository.com.ivamare.commandbus.CommandRepository;
+import impl.repository.com.ivamare.commandbus.JdbcAuditRepository;
+import impl.repository.com.ivamare.commandbus.JdbcBatchRepository;
+import impl.repository.com.ivamare.commandbus.JdbcCommandRepository;
+import worker.com.ivamare.commandbus.Worker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.sql.Connection;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -446,7 +462,7 @@ public class DefaultWorker implements Worker {
         executor = Executors.newVirtualThreadPerTaskExecutor();
 
         log.info("Starting worker for domain={}, concurrency={}, useNotify={}",
-            domain, concurrency, useNotify);
+                domain, concurrency, useNotify);
 
         mainLoop = executor.submit(this::runLoop);
     }
@@ -459,7 +475,7 @@ public class DefaultWorker implements Worker {
 
         stopping.set(true);
         log.info("Stopping worker for {}, waiting for {} in-flight commands",
-            domain, inFlightCount.get());
+                domain, inFlightCount.get());
 
         return CompletableFuture.runAsync(() -> {
             try {
@@ -622,7 +638,7 @@ public class DefaultWorker implements Worker {
         try {
             // Atomically receive the command
             Optional<CommandMetadata> metadataOpt = commandRepository.spReceiveCommand(
-                domain, commandId, pgmqMessage.msgId(), null
+                    domain, commandId, pgmqMessage.msgId(), null
             );
 
             if (metadataOpt.isEmpty()) {
@@ -649,30 +665,30 @@ public class DefaultWorker implements Worker {
         } catch (Exception e) {
             // Treat unknown exceptions as transient
             handleTransientError(commandId, pgmqMessage.msgId(),
-                new TransientCommandException("INTERNAL_ERROR", e.getMessage()));
+                    new TransientCommandException("INTERNAL_ERROR", e.getMessage()));
         }
     }
 
     private Command buildCommand(Map<String, Object> payload, CommandMetadata metadata) {
         return new Command(
-            (String) payload.get("domain"),
-            (String) payload.get("command_type"),
-            UUID.fromString((String) payload.get("command_id")),
-            (Map<String, Object>) payload.getOrDefault("data", Map.of()),
-            payload.get("correlation_id") != null ?
-                UUID.fromString((String) payload.get("correlation_id")) : null,
-            (String) payload.get("reply_to"),
-            metadata.createdAt()
+                (String) payload.get("domain"),
+                (String) payload.get("command_type"),
+                UUID.fromString((String) payload.get("command_id")),
+                (Map<String, Object>) payload.getOrDefault("data", Map.of()),
+                payload.get("correlation_id") != null ?
+                        UUID.fromString((String) payload.get("correlation_id")) : null,
+                (String) payload.get("reply_to"),
+                metadata.createdAt()
         );
     }
 
     private HandlerContext buildContext(Command command, CommandMetadata metadata, long msgId) {
         return new HandlerContext(
-            command,
-            metadata.attempts(),
-            metadata.maxAttempts(),
-            msgId,
-            seconds -> pgmqClient.setVisibilityTimeout(queueName, msgId, seconds)
+                command,
+                metadata.attempts(),
+                metadata.maxAttempts(),
+                msgId,
+                seconds -> pgmqClient.setVisibilityTimeout(queueName, msgId, seconds)
         );
     }
 
@@ -687,13 +703,13 @@ public class DefaultWorker implements Worker {
         // Update status via stored procedure
         String details = result != null ? serializeResult(result) : null;
         boolean isBatchComplete = commandRepository.spFinishCommand(
-            domain,
-            metadata.commandId(),
-            CommandStatus.COMPLETED,
-            AuditEventType.COMPLETED,
-            null, null, null,
-            details,
-            metadata.batchId()
+                domain,
+                metadata.commandId(),
+                CommandStatus.COMPLETED,
+                AuditEventType.COMPLETED,
+                null, null, null,
+                details,
+                metadata.batchId()
         );
 
         // Send reply if configured
@@ -707,7 +723,7 @@ public class DefaultWorker implements Worker {
         }
 
         log.info("Completed command {}.{} (commandId={})",
-            domain, metadata.commandType(), metadata.commandId());
+                domain, metadata.commandType(), metadata.commandId());
     }
 
     private void handleTransientError(UUID commandId, long msgId, TransientCommandException e) {
@@ -721,16 +737,16 @@ public class DefaultWorker implements Worker {
         if (retryPolicy.shouldRetry(metadata.attempts())) {
             // Record failure and schedule retry
             commandRepository.spFailCommand(
-                domain, commandId,
-                "TRANSIENT", e.getCode(), e.getErrorMessage(),
-                metadata.attempts(), metadata.maxAttempts(), msgId
+                    domain, commandId,
+                    "TRANSIENT", e.getCode(), e.getErrorMessage(),
+                    metadata.attempts(), metadata.maxAttempts(), msgId
             );
 
             int backoff = retryPolicy.getBackoff(metadata.attempts());
             pgmqClient.setVisibilityTimeout(queueName, msgId, backoff);
 
             log.info("Scheduled retry for command {} in {}s (attempt {}/{})",
-                commandId, backoff, metadata.attempts(), metadata.maxAttempts());
+                    commandId, backoff, metadata.attempts(), metadata.maxAttempts());
         } else {
             // Retries exhausted - move to TSQ
             failExhausted(metadata, msgId, e);
@@ -750,12 +766,12 @@ public class DefaultWorker implements Worker {
 
         // Update status
         commandRepository.spFinishCommand(
-            domain, commandId,
-            CommandStatus.IN_TROUBLESHOOTING_QUEUE,
-            AuditEventType.MOVED_TO_TSQ,
-            "PERMANENT", e.getCode(), e.getErrorMessage(),
-            null,
-            metadata.batchId()
+                domain, commandId,
+                CommandStatus.IN_TROUBLESHOOTING_QUEUE,
+                AuditEventType.MOVED_TO_TSQ,
+                "PERMANENT", e.getCode(), e.getErrorMessage(),
+                null,
+                metadata.batchId()
         );
 
         // Send failure reply
@@ -764,7 +780,7 @@ public class DefaultWorker implements Worker {
         }
 
         log.warn("Command {} moved to TSQ (permanent error): {}",
-            commandId, e.getMessage());
+                commandId, e.getMessage());
     }
 
     private void failExhausted(CommandMetadata metadata, long msgId, TransientCommandException e) {
@@ -773,12 +789,12 @@ public class DefaultWorker implements Worker {
 
         // Update status
         commandRepository.spFinishCommand(
-            domain, metadata.commandId(),
-            CommandStatus.IN_TROUBLESHOOTING_QUEUE,
-            AuditEventType.MOVED_TO_TSQ,
-            "TRANSIENT", e.getCode(), e.getErrorMessage(),
-            null,
-            metadata.batchId()
+                domain, metadata.commandId(),
+                CommandStatus.IN_TROUBLESHOOTING_QUEUE,
+                AuditEventType.MOVED_TO_TSQ,
+                "TRANSIENT", e.getCode(), e.getErrorMessage(),
+                null,
+                metadata.batchId()
         );
 
         // Send failure reply
@@ -787,11 +803,11 @@ public class DefaultWorker implements Worker {
         }
 
         log.warn("Command {} moved to TSQ (retries exhausted): {}",
-            metadata.commandId(), e.getMessage());
+                metadata.commandId(), e.getMessage());
     }
 
     private void sendReply(CommandMetadata metadata, ReplyOutcome outcome,
-                          Object result, String errorCode, String errorMessage) {
+                           Object result, String errorCode, String errorMessage) {
         try {
             Map<String, Object> reply = new HashMap<>();
             reply.put("command_id", metadata.commandId().toString());

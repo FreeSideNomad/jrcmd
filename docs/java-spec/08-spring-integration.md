@@ -7,7 +7,7 @@ This specification defines the Spring Boot auto-configuration, properties, and h
 ## Package Structure
 
 ```
-com.commandbus/
+com.ivamare.commandbus/
 ├── CommandBusAutoConfiguration.java  # Auto-config
 ├── CommandBusProperties.java         # Config properties
 └── health/
@@ -22,23 +22,23 @@ com.commandbus/
 ### 1.1 CommandBusAutoConfiguration
 
 ```java
-package com.commandbus;
+package com.ivamare.commandbus;
 
-import com.commandbus.api.CommandBus;
-import com.commandbus.api.impl.DefaultCommandBus;
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.handler.impl.DefaultHandlerRegistry;
-import com.commandbus.ops.TroubleshootingQueue;
-import com.commandbus.ops.impl.DefaultTroubleshootingQueue;
-import com.commandbus.pgmq.PgmqClient;
-import com.commandbus.pgmq.impl.JdbcPgmqClient;
-import com.commandbus.policy.RetryPolicy;
-import com.commandbus.repository.AuditRepository;
-import com.commandbus.repository.BatchRepository;
-import com.commandbus.repository.CommandRepository;
-import com.commandbus.repository.impl.JdbcAuditRepository;
-import com.commandbus.repository.impl.JdbcBatchRepository;
-import com.commandbus.repository.impl.JdbcCommandRepository;
+import com.ivamare.commandbus.api.CommandBus;
+import impl.api.com.ivamare.commandbus.DefaultCommandBus;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import impl.handler.com.ivamare.commandbus.DefaultHandlerRegistry;
+import ops.com.ivamare.commandbus.TroubleshootingQueue;
+import impl.ops.com.ivamare.commandbus.DefaultTroubleshootingQueue;
+import pgmq.com.ivamare.commandbus.PgmqClient;
+import impl.pgmq.com.ivamare.commandbus.JdbcPgmqClient;
+import policy.com.ivamare.commandbus.RetryPolicy;
+import repository.com.ivamare.commandbus.AuditRepository;
+import repository.com.ivamare.commandbus.BatchRepository;
+import repository.com.ivamare.commandbus.CommandRepository;
+import impl.repository.com.ivamare.commandbus.JdbcAuditRepository;
+import impl.repository.com.ivamare.commandbus.JdbcBatchRepository;
+import impl.repository.com.ivamare.commandbus.JdbcCommandRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -125,8 +125,8 @@ public class CommandBusAutoConfiguration {
     @ConditionalOnMissingBean
     public RetryPolicy retryPolicy(CommandBusProperties properties) {
         return new RetryPolicy(
-            properties.getDefaultMaxAttempts(),
-            properties.getBackoffSchedule()
+                properties.getDefaultMaxAttempts(),
+                properties.getBackoffSchedule()
         );
     }
 
@@ -141,11 +141,11 @@ public class CommandBusAutoConfiguration {
             AuditRepository auditRepository,
             ObjectMapper objectMapper) {
         return new DefaultCommandBus(
-            pgmqClient,
-            commandRepository,
-            batchRepository,
-            auditRepository,
-            objectMapper
+                pgmqClient,
+                commandRepository,
+                batchRepository,
+                auditRepository,
+                objectMapper
         );
     }
 
@@ -161,12 +161,12 @@ public class CommandBusAutoConfiguration {
             AuditRepository auditRepository,
             ObjectMapper objectMapper) {
         return new DefaultTroubleshootingQueue(
-            jdbcTemplate,
-            pgmqClient,
-            commandRepository,
-            batchRepository,
-            auditRepository,
-            objectMapper
+                jdbcTemplate,
+                pgmqClient,
+                commandRepository,
+                batchRepository,
+                auditRepository,
+                objectMapper
         );
     }
 }
@@ -177,7 +177,7 @@ public class CommandBusAutoConfiguration {
 Create `src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`:
 
 ```
-com.commandbus.CommandBusAutoConfiguration
+com.ivamare.commandbus.CommandBusAutoConfiguration
 ```
 
 ---
@@ -187,7 +187,7 @@ com.commandbus.CommandBusAutoConfiguration
 ### 2.1 CommandBusProperties
 
 ```java
-package com.commandbus;
+package com.ivamare.commandbus;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -369,7 +369,7 @@ public class CommandBusProperties {
 ### 3.1 CommandBusHealthIndicator
 
 ```java
-package com.commandbus.health;
+package com.ivamare.commandbus.health;
 
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
@@ -393,50 +393,50 @@ public class CommandBusHealthIndicator implements HealthIndicator {
         try {
             // Check PGMQ extension is available
             Boolean pgmqAvailable = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq')",
-                Boolean.class
+                    "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq')",
+                    Boolean.class
             );
 
             if (!Boolean.TRUE.equals(pgmqAvailable)) {
                 return Health.down()
-                    .withDetail("error", "PGMQ extension not installed")
-                    .build();
+                        .withDetail("error", "PGMQ extension not installed")
+                        .build();
             }
 
             // Check commandbus schema exists
             Boolean schemaExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'commandbus')",
-                Boolean.class
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'commandbus')",
+                    Boolean.class
             );
 
             if (!Boolean.TRUE.equals(schemaExists)) {
                 return Health.down()
-                    .withDetail("error", "commandbus schema not found")
-                    .build();
+                        .withDetail("error", "commandbus schema not found")
+                        .build();
             }
 
             // Get some stats
             Integer pendingCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM commandbus.command WHERE status = 'PENDING'",
-                Integer.class
+                    "SELECT COUNT(*) FROM commandbus.command WHERE status = 'PENDING'",
+                    Integer.class
             );
 
             Integer tsqCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM commandbus.command WHERE status = 'IN_TROUBLESHOOTING_QUEUE'",
-                Integer.class
+                    "SELECT COUNT(*) FROM commandbus.command WHERE status = 'IN_TROUBLESHOOTING_QUEUE'",
+                    Integer.class
             );
 
             return Health.up()
-                .withDetail("pgmq", "available")
-                .withDetail("schema", "commandbus")
-                .withDetail("pendingCommands", pendingCount)
-                .withDetail("troubleshootingCommands", tsqCount)
-                .build();
+                    .withDetail("pgmq", "available")
+                    .withDetail("schema", "commandbus")
+                    .withDetail("pendingCommands", pendingCount)
+                    .withDetail("troubleshootingCommands", tsqCount)
+                    .build();
 
         } catch (Exception e) {
             return Health.down()
-                .withDetail("error", e.getMessage())
-                .build();
+                    .withDetail("error", e.getMessage())
+                    .build();
         }
     }
 }
@@ -445,9 +445,9 @@ public class CommandBusHealthIndicator implements HealthIndicator {
 ### 3.2 WorkerHealthIndicator
 
 ```java
-package com.commandbus.health;
+package com.ivamare.commandbus.health;
 
-import com.commandbus.worker.Worker;
+import worker.com.ivamare.commandbus.Worker;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
@@ -472,15 +472,15 @@ public class WorkerHealthIndicator implements HealthIndicator {
     public Health health() {
         if (workers.isEmpty()) {
             return Health.unknown()
-                .withDetail("message", "No workers registered")
-                .build();
+                    .withDetail("message", "No workers registered")
+                    .build();
         }
 
         Map<String, WorkerStatus> workerStatuses = workers.stream()
-            .collect(Collectors.toMap(
-                Worker::domain,
-                w -> new WorkerStatus(w.isRunning(), w.inFlightCount())
-            ));
+                .collect(Collectors.toMap(
+                        Worker::domain,
+                        w -> new WorkerStatus(w.isRunning(), w.inFlightCount())
+                ));
 
         boolean allRunning = workers.stream().allMatch(Worker::isRunning);
         int totalInFlight = workers.stream().mapToInt(Worker::inFlightCount).sum();
@@ -488,12 +488,13 @@ public class WorkerHealthIndicator implements HealthIndicator {
         Health.Builder builder = allRunning ? Health.up() : Health.down();
 
         return builder
-            .withDetail("workers", workerStatuses)
-            .withDetail("totalInFlight", totalInFlight)
-            .build();
+                .withDetail("workers", workerStatuses)
+                .withDetail("totalInFlight", totalInFlight)
+                .build();
     }
 
-    record WorkerStatus(boolean running, int inFlight) {}
+    record WorkerStatus(boolean running, int inFlight) {
+    }
 }
 ```
 
@@ -504,11 +505,11 @@ public class WorkerHealthIndicator implements HealthIndicator {
 ### 4.1 WorkerAutoStartConfiguration
 
 ```java
-package com.commandbus;
+package com.ivamare.commandbus;
 
-import com.commandbus.handler.HandlerRegistry;
-import com.commandbus.policy.RetryPolicy;
-import com.commandbus.worker.Worker;
+import handler.com.ivamare.commandbus.HandlerRegistry;
+import com.ivamare.commandbus.policy.RetryPolicy;
+import worker.com.ivamare.commandbus.Worker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -519,6 +520,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import jakarta.annotation.PreDestroy;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -561,9 +563,9 @@ public class WorkerAutoStartConfiguration {
     public void startWorkers() {
         // Get domains from registered handlers
         List<String> domains = handlerRegistry.registeredHandlers().stream()
-            .map(k -> k.domain())
-            .distinct()
-            .toList();
+                .map(k -> k.domain())
+                .distinct()
+                .toList();
 
         if (domains.isEmpty()) {
             log.warn("No handlers registered, no workers to start");
@@ -574,15 +576,15 @@ public class WorkerAutoStartConfiguration {
 
         for (String domain : domains) {
             Worker worker = Worker.builder()
-                .jdbcTemplate(jdbcTemplate)
-                .domain(domain)
-                .handlerRegistry(handlerRegistry)
-                .visibilityTimeout(wp.getVisibilityTimeout())
-                .pollIntervalMs(wp.getPollIntervalMs())
-                .concurrency(wp.getConcurrency())
-                .useNotify(wp.isUseNotify())
-                .retryPolicy(retryPolicy)
-                .build();
+                    .jdbcTemplate(jdbcTemplate)
+                    .domain(domain)
+                    .handlerRegistry(handlerRegistry)
+                    .visibilityTimeout(wp.getVisibilityTimeout())
+                    .pollIntervalMs(wp.getPollIntervalMs())
+                    .concurrency(wp.getConcurrency())
+                    .useNotify(wp.isUseNotify())
+                    .retryPolicy(retryPolicy)
+                    .build();
 
             worker.start();
             workers.add(worker);

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Queue Stats - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-bar-chart"></i> Queue Statistics</h2>
+        <button class="btn btn-outline-secondary" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-send"></i> Command Queue</h5>
+                </div>
+                <div class="card-body" th:if="${commandQueue != null}">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-6">Queue Name</dt>
+                        <dd class="col-sm-6"><code th:text="${commandQueue.queueName}">queue</code></dd>
+
+                        <dt class="col-sm-6">Queue Depth</dt>
+                        <dd class="col-sm-6">
+                            <span class="badge bg-primary" th:text="${commandQueue.queueDepth}">0</span>
+                        </dd>
+
+                        <dt class="col-sm-6">Messages in Archive</dt>
+                        <dd class="col-sm-6" th:text="${commandQueue.archiveSize}">0</dd>
+
+                        <dt class="col-sm-6">Oldest Message</dt>
+                        <dd class="col-sm-6" th:text="${commandQueue.oldestMessageAt != null ? #temporals.format(commandQueue.oldestMessageAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
+                    </dl>
+                </div>
+                <div class="card-body text-muted" th:if="${commandQueue == null}">
+                    Queue not created yet. Send a command to create it.
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-reply"></i> Reply Queue</h5>
+                </div>
+                <div class="card-body" th:if="${replyQueue != null}">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-6">Queue Name</dt>
+                        <dd class="col-sm-6"><code th:text="${replyQueue.queueName}">queue</code></dd>
+
+                        <dt class="col-sm-6">Queue Depth</dt>
+                        <dd class="col-sm-6">
+                            <span class="badge bg-primary" th:text="${replyQueue.queueDepth}">0</span>
+                        </dd>
+
+                        <dt class="col-sm-6">Messages in Archive</dt>
+                        <dd class="col-sm-6" th:text="${replyQueue.archiveSize}">0</dd>
+
+                        <dt class="col-sm-6">Oldest Message</dt>
+                        <dd class="col-sm-6" th:text="${replyQueue.oldestMessageAt != null ? #temporals.format(replyQueue.oldestMessageAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
+                    </dl>
+                </div>
+                <div class="card-body text-muted" th:if="${replyQueue == null}">
+                    Queue not created yet.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5>Command Statistics by Status</h5>
+        </div>
+        <div class="card-body">
+            <div class="row text-center">
+                <div class="col">
+                    <div class="display-4 text-secondary" th:text="${stats.pending}">0</div>
+                    <div class="text-muted">Pending</div>
+                </div>
+                <div class="col">
+                    <div class="display-4 text-primary" th:text="${stats.inProgress}">0</div>
+                    <div class="text-muted">In Progress</div>
+                </div>
+                <div class="col">
+                    <div class="display-4 text-success" th:text="${stats.completed}">0</div>
+                    <div class="text-muted">Completed</div>
+                </div>
+                <div class="col">
+                    <div class="display-4 text-danger" th:text="${stats.failed}">0</div>
+                    <div class="text-muted">Failed</div>
+                </div>
+                <div class="col">
+                    <div class="display-4 text-warning" th:text="${stats.tsqCount}">0</div>
+                    <div class="text-muted">In TSQ</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
