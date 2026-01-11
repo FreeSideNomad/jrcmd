@@ -33,4 +33,4 @@ server:
 
 logging:
   level:
-    com.commandbus: DEBUG
+    com.ivamare.commandbus: DEBUG
