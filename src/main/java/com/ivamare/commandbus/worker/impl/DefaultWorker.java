@@ -403,7 +403,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send reply if configured
-        if (metadata.replyTo() != null && !metadata.replyTo().isBlank()) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.SUCCESS, result, null, null);
         }
 
@@ -465,7 +465,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply
-        if (metadata.replyTo() != null) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.FAILED, null, e.getCode(), e.getErrorMessage());
         }
 
@@ -495,7 +495,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply with error_type=BUSINESS_RULE
-        if (metadata.replyTo() != null && !metadata.replyTo().isBlank()) {
+        if (hasReplyQueue(metadata)) {
             sendBusinessRuleReply(metadata, e);
         }
 
@@ -536,7 +536,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply
-        if (metadata.replyTo() != null) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.FAILED, null, e.getCode(), e.getErrorMessage());
         }
 
@@ -566,6 +566,13 @@ public class DefaultWorker implements Worker {
         } catch (Exception e) {
             log.error("Failed to send reply for command {}", metadata.commandId(), e);
         }
+    }
+
+    /**
+     * Check if the command has a valid reply queue configured.
+     */
+    private boolean hasReplyQueue(CommandMetadata metadata) {
+        return metadata.replyTo() != null && !metadata.replyTo().isBlank();
     }
 
     private void invokeBatchCallback(UUID batchId) {
