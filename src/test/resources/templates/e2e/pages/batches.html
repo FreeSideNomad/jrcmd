@@ -38,7 +38,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="batch : ${batches}" th:onclick="'window.location=\'/batches/' + ${batch.batchId} + '\''">
+                <tr th:each="batch : ${batches}" class="clickable-row" th:data-href="@{/batches/{id}(id=${batch.batchId})}">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</code></td>
                     <td>
                         <span class="badge"
@@ -62,6 +62,12 @@
             </tbody>
         </table>
     </div>
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+    </script>
 </div>
 </body>
 </html>

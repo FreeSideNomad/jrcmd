@@ -43,7 +43,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="proc : ${processes}" th:onclick="'window.location=\'/processes/' + ${proc.processId} + '\''">
+                <tr th:each="proc : ${processes}" class="clickable-row" th:data-href="@{/processes/{id}(id=${proc.processId})}">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
                     <td th:text="${proc.processType}">Type</td>
                     <td>
@@ -61,6 +61,12 @@
             </tbody>
         </table>
     </div>
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+    </script>
 </div>
 </body>
 </html>
