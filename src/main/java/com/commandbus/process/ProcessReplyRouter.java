@@ -321,8 +321,9 @@ public class ProcessReplyRouter {
         Map<String, Object> resultData = (Map<String, Object>) message.get("result");
         String errorCode = (String) message.get("error_code");
         String errorMessage = (String) message.get("error_message");
+        String errorType = (String) message.get("error_type");
 
-        return new Reply(commandId, correlationId, outcome, resultData, errorCode, errorMessage);
+        return new Reply(commandId, correlationId, outcome, resultData, errorCode, errorMessage, errorType);
     }
 
     private UUID parseUUID(Object value) {

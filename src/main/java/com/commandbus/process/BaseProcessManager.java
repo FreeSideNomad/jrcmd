@@ -236,9 +236,17 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
             process.errorMessage()
         );
 
-        // Handle failure (goes to TSQ, wait for operator)
+        // Handle failure
         if (reply.outcome() == ReplyOutcome.FAILED) {
-            handleFailure(updatedProcess, reply, jdbc);
+            if (reply.isBusinessRuleFailure()) {
+                // Business rule failures auto-compensate without TSQ intervention
+                log.info("Process {} command failed due to business rule, auto-compensating",
+                    process.processId());
+                runCompensations(updatedProcess, jdbc);
+            } else {
+                // Other failures go to TSQ, wait for operator
+                handleFailure(updatedProcess, reply, jdbc);
+            }
             return;
         }
 

@@ -78,4 +78,46 @@ class ReplyTest {
 
         assertNull(reply.correlationId());
     }
+
+    @Test
+    @DisplayName("should create business rule failed reply")
+    void shouldCreateBusinessRuleFailedReply() {
+        UUID commandId = UUID.randomUUID();
+        UUID correlationId = UUID.randomUUID();
+
+        Reply reply = Reply.businessRuleFailed(commandId, correlationId, "ACCOUNT_CLOSED", "Account is closed");
+
+        assertEquals(commandId, reply.commandId());
+        assertEquals(correlationId, reply.correlationId());
+        assertEquals(ReplyOutcome.FAILED, reply.outcome());
+        assertNull(reply.data());
+        assertEquals("ACCOUNT_CLOSED", reply.errorCode());
+        assertEquals("Account is closed", reply.errorMessage());
+        assertEquals("BUSINESS_RULE", reply.errorType());
+        assertTrue(reply.isBusinessRuleFailure());
+        assertTrue(reply.isFailed());
+        assertFalse(reply.isSuccess());
+        assertFalse(reply.isCanceled());
+    }
+
+    @Test
+    @DisplayName("should not be business rule failure for regular failed reply")
+    void shouldNotBeBusinessRuleFailureForRegularFailed() {
+        UUID commandId = UUID.randomUUID();
+
+        Reply reply = Reply.failed(commandId, null, "ERR001", "Error");
+
+        assertFalse(reply.isBusinessRuleFailure());
+        assertEquals("PERMANENT", reply.errorType());  // Regular failed defaults to PERMANENT
+    }
+
+    @Test
+    @DisplayName("should not be business rule failure for success reply")
+    void shouldNotBeBusinessRuleFailureForSuccess() {
+        UUID commandId = UUID.randomUUID();
+
+        Reply reply = Reply.success(commandId, null, Map.of());
+
+        assertFalse(reply.isBusinessRuleFailure());
+    }
 }
