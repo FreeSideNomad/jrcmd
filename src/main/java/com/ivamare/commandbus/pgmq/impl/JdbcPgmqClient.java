@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +69,12 @@ public class JdbcPgmqClient implements PgmqClient {
         return msgId;
     }
 
+    /**
+     * Maximum messages per batch to stay under PostgreSQL's 65,535 parameter limit.
+     * Each message uses 1 parameter, plus 2 for queue name and delay.
+     */
+    private static final int MAX_BATCH_SIZE = 10_000;
+
     @Override
     public List<Long> sendBatch(String queueName, List<Map<String, Object>> messages) {
         return sendBatch(queueName, messages, 0);
@@ -79,6 +86,23 @@ public class JdbcPgmqClient implements PgmqClient {
             return List.of();
         }
 
+        List<Long> allMsgIds = new ArrayList<>();
+
+        // Process in chunks to avoid PostgreSQL's 65,535 parameter limit
+        for (int i = 0; i < messages.size(); i += MAX_BATCH_SIZE) {
+            int end = Math.min(i + MAX_BATCH_SIZE, messages.size());
+            List<Map<String, Object>> chunk = messages.subList(i, end);
+
+            List<Long> chunkMsgIds = sendBatchChunk(queueName, chunk, delaySeconds);
+            allMsgIds.addAll(chunkMsgIds);
+        }
+
+        log.debug("Sent {} messages to {} in {} chunk(s)",
+            allMsgIds.size(), queueName, (messages.size() + MAX_BATCH_SIZE - 1) / MAX_BATCH_SIZE);
+        return allMsgIds;
+    }
+
+    private List<Long> sendBatchChunk(String queueName, List<Map<String, Object>> messages, int delaySeconds) {
         // Convert messages to JSON array
         String[] jsonArray = messages.stream()
             .map(this::toJson)
@@ -97,10 +121,7 @@ public class JdbcPgmqClient implements PgmqClient {
         System.arraycopy(jsonArray, 0, params, 1, jsonArray.length);
         params[params.length - 1] = delaySeconds;
 
-        List<Long> msgIds = jdbcTemplate.query(sql.toString(), (rs, rowNum) -> rs.getLong(1), params);
-
-        log.debug("Sent {} messages to {}", msgIds.size(), queueName);
-        return msgIds;
+        return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> rs.getLong(1), params);
     }
 
     @Override

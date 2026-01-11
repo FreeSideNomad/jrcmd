@@ -16,6 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import jakarta.annotation.PreDestroy;
+import javax.sql.DataSource;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +41,7 @@ public class WorkerAutoStartConfiguration {
 
     private final List<Worker> workers = new ArrayList<>();
     private final JdbcTemplate jdbcTemplate;
+    private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final HandlerRegistry handlerRegistry;
     private final RetryPolicy retryPolicy;
@@ -47,11 +49,13 @@ public class WorkerAutoStartConfiguration {
 
     public WorkerAutoStartConfiguration(
             JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
             ObjectMapper objectMapper,
             HandlerRegistry handlerRegistry,
             RetryPolicy retryPolicy,
             CommandBusProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
+        this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.handlerRegistry = handlerRegistry;
         this.retryPolicy = retryPolicy;
@@ -76,6 +80,7 @@ public class WorkerAutoStartConfiguration {
         for (String domain : domains) {
             Worker worker = Worker.builder()
                 .jdbcTemplate(jdbcTemplate)
+                .dataSource(dataSource)
                 .objectMapper(objectMapper)
                 .domain(domain)
                 .handlerRegistry(handlerRegistry)

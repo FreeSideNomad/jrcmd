@@ -21,12 +21,26 @@ public record BatchView(
     Instant startedAt,
     Instant completedAt
 ) {
+    /**
+     * Returns progress percentage based on processed commands (completed + canceled + TSQ).
+     */
     public int progressPercent() {
         if (totalCount == 0) return 0;
-        return (completedCount * 100) / totalCount;
+        int processed = completedCount + canceledCount + inTroubleshootingCount;
+        return (processed * 100) / totalCount;
     }
 
+    /**
+     * Returns count of commands that failed (canceled + in TSQ).
+     */
     public int failedCommands() {
         return canceledCount + inTroubleshootingCount;
+    }
+
+    /**
+     * Returns count of commands still pending processing.
+     */
+    public int pendingCount() {
+        return totalCount - completedCount - canceledCount - inTroubleshootingCount;
     }
 }

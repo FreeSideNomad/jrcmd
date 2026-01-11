@@ -9,6 +9,16 @@
     <h2><i class="bi bi-diagram-3"></i> Processes</h2>
 
     <form class="row g-3 mb-4" th:action="@{/processes}" method="get">
+        <!-- Domain dropdown -->
+        <div class="col-auto">
+            <label class="visually-hidden" for="domain">Domain</label>
+            <select name="domain" id="domain" class="form-select" onchange="this.form.submit()">
+                <option th:each="d : ${domains}"
+                        th:value="${d}"
+                        th:text="${d}"
+                        th:selected="${d == selectedDomain}"></option>
+            </select>
+        </div>
         <div class="col-auto">
             <input type="text" name="processType" class="form-control" placeholder="Process Type"
                    th:value="${processType}">
@@ -22,7 +32,7 @@
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">Filter</button>
-            <a th:href="@{/processes}" class="btn btn-secondary">Clear</a>
+            <a th:href="@{/processes(domain=${selectedDomain})}" class="btn btn-secondary">Clear</a>
         </div>
     </form>
 
@@ -43,7 +53,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="proc : ${processes}" th:onclick="'window.location=\'/processes/' + ${proc.processId} + '\''">
+                <tr th:each="proc : ${processes}" class="clickable-row" th:data-href="@{/processes/{id}(id=${proc.processId},domain=${selectedDomain})}">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
                     <td th:text="${proc.processType}">Type</td>
                     <td>
@@ -61,6 +71,12 @@
             </tbody>
         </table>
     </div>
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+    </script>
 </div>
 </body>
 </html>

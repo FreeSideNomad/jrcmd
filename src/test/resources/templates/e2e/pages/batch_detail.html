@@ -55,10 +55,23 @@
                         <dd class="col-sm-8 text-danger" th:text="${batch.failedCommands()}">0</dd>
 
                         <dt class="col-sm-4">Created At</dt>
-                        <dd class="col-sm-8" th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${#temporals.format(batch.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></dd>
+
+                        <dt class="col-sm-4">Started At</dt>
+                        <dd class="col-sm-8"><code th:text="${batch.startedAt != null ? #temporals.format(batch.startedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></dd>
 
                         <dt class="col-sm-4">Completed At</dt>
-                        <dd class="col-sm-8" th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></dd>
+
+                        <dt class="col-sm-4">Processing Time</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${batchDuration.durationFormatted() != null}" class="badge bg-info" th:text="${batchDuration.durationFormatted()}">0ms</span>
+                            <span th:if="${batchDuration.durationFormatted() == null}" class="text-muted">N/A</span>
+                            <small th:if="${batchDuration.firstReceived != null}" class="text-muted ms-2">
+                                (<code th:text="${#temporals.format(batchDuration.firstReceived, 'HH:mm:ss.SSSSSS')}">start</code>
+                                → <code th:text="${batchDuration.lastCompleted != null ? #temporals.format(batchDuration.lastCompleted, 'HH:mm:ss.SSSSSS') : '...'}">end</code>)
+                            </small>
+                        </dd>
                     </dl>
                 </div>
             </div>
@@ -78,10 +91,11 @@
                         <th>Type</th>
                         <th>Status</th>
                         <th>Created At</th>
+                        <th>Total Time</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr th:each="cmd : ${commands}" th:onclick="'window.location=\'/commands/' + ${cmd.commandId} + '\''">
+                    <tr th:each="cmd : ${commands}" class="clickable-row" th:data-href="@{/commands/{id}(id=${cmd.commandId})}">
                         <td><code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code></td>
                         <td th:text="${cmd.commandType}">Type</td>
                         <td>
@@ -91,12 +105,27 @@
                                                   (${cmd.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
                                   th:text="${cmd.status}">STATUS</span>
                         </td>
-                        <td th:text="${#temporals.format(cmd.createdAt, 'HH:mm:ss')}">time</td>
+                        <td><code th:text="${#temporals.format(cmd.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></td>
+                        <td><span class="badge bg-info" th:text="${cmd.durationFormatted()}">0ms</span></td>
                     </tr>
                 </tbody>
             </table>
         </div>
     </div>
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+
+        // Auto-refresh every 5 seconds while batch is not completed
+        (function() {
+            const status = '[[${batch.status.name()}]]';
+            if (status !== 'COMPLETED' && status !== 'FAILED') {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
+    </script>
 </div>
 </body>
 </html>

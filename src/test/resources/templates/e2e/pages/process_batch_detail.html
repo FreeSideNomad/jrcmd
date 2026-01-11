@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Process Batch Detail - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/process-batches}">Process Batches</a></li>
+            <li class="breadcrumb-item active" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">ID</li>
+        </ol>
+    </nav>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Process Batch Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Batch ID</dt>
+                        <dd class="col-sm-8"><code th:text="${batch.batchId}">uuid</code></dd>
+
+                        <dt class="col-sm-4">Name</dt>
+                        <dd class="col-sm-8" th:text="${batch.name}">Name</dd>
+
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge"
+                                  th:classappend="${batch.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                                  (${batch.status.name() == 'FAILED'} ? 'bg-danger' :
+                                                  (${batch.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
+                                  th:text="${batch.status}">STATUS</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Progress</dt>
+                        <dd class="col-sm-8">
+                            <div class="progress mb-1" style="height: 24px;">
+                                <div class="progress-bar bg-success" role="progressbar"
+                                     th:style="'width: ' + ${(batch.completedCount * 100.0 / batch.totalCount)} + '%'"
+                                     th:text="${batch.completedCount}">
+                                </div>
+                                <div class="progress-bar bg-danger" role="progressbar"
+                                     th:style="'width: ' + ${(batch.failedCount * 100.0 / batch.totalCount)} + '%'"
+                                     th:text="${batch.failedCount > 0 ? batch.failedCount : ''}">
+                                </div>
+                                <div class="progress-bar bg-warning" role="progressbar"
+                                     th:style="'width: ' + ${(batch.waitingForTsqCount * 100.0 / batch.totalCount)} + '%'"
+                                     th:text="${batch.waitingForTsqCount > 0 ? batch.waitingForTsqCount : ''}">
+                                </div>
+                                <div class="progress-bar bg-info" role="progressbar"
+                                     th:style="'width: ' + ${(batch.inProgressCount * 100.0 / batch.totalCount)} + '%'"
+                                     th:text="${batch.inProgressCount > 0 ? batch.inProgressCount : ''}">
+                                </div>
+                            </div>
+                            <small th:text="${batch.progressPercent() + '% complete (' + batch.completedCount + ' of ' + batch.totalCount + ')'}">0%</small>
+                        </dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl class="row">
+                        <dt class="col-sm-4">Completed</dt>
+                        <dd class="col-sm-8 text-success" th:text="${batch.completedCount}">0</dd>
+
+                        <dt class="col-sm-4">Failed</dt>
+                        <dd class="col-sm-8 text-danger" th:text="${batch.failedCount}">0</dd>
+
+                        <dt class="col-sm-4">In Progress</dt>
+                        <dd class="col-sm-8 text-info" th:text="${batch.inProgressCount}">0</dd>
+
+                        <dt class="col-sm-4">Waiting TSQ</dt>
+                        <dd class="col-sm-8 text-warning" th:text="${batch.waitingForTsqCount}">0</dd>
+
+                        <dt class="col-sm-4">Created At</dt>
+                        <dd class="col-sm-8"><code th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</code></dd>
+
+                        <dt class="col-sm-4">Completed At</dt>
+                        <dd class="col-sm-8">
+                            <code th:if="${batch.completedAt != null}"
+                                  th:text="${#temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss')}">time</code>
+                            <span th:if="${batch.completedAt == null}" class="text-muted">N/A</span>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Processes</h5>
+            <form class="d-flex gap-2">
+                <select name="status" class="form-select form-select-sm" style="width: auto;">
+                    <option value="">All Statuses</option>
+                    <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                            th:selected="${s == status}">Status</option>
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Filter</button>
+            </form>
+        </div>
+        <div class="card-body">
+            <div th:if="${processes.isEmpty()}" class="text-muted">No processes found.</div>
+            <table th:unless="${processes.isEmpty()}" class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Process ID</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Current Step</th>
+                        <th>Created At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="proc : ${processes}" class="clickable-row"
+                        th:data-href="@{/processes/{id}(id=${proc.processId})}">
+                        <td><code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code></td>
+                        <td th:text="${proc.processType}">Type</td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${proc.status.name() == 'COMPLETED'} ? 'bg-success' :
+                                                  (${proc.status.name() == 'FAILED' || proc.status.name() == 'COMPENSATED'} ? 'bg-danger' :
+                                                  (${proc.status.name() == 'IN_PROGRESS' || proc.status.name() == 'WAITING_FOR_REPLY'} ? 'bg-primary' :
+                                                  (${proc.status.name() == 'WAITING_FOR_TSQ'} ? 'bg-warning' : 'bg-secondary')))"
+                                  th:text="${proc.status}">STATUS</span>
+                        </td>
+                        <td th:text="${proc.currentStep != null ? proc.currentStep : '-'}">Step</td>
+                        <td><code th:text="${#temporals.format(proc.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+
+        // Auto-refresh every 5 seconds while batch is not complete
+        (function() {
+            const status = '[[${batch.status.name()}]]';
+            if (status !== 'COMPLETED' && status !== 'FAILED') {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
+    </script>
+</div>
+</body>
+</html>

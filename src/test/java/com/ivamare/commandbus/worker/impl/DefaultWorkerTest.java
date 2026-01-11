@@ -62,6 +62,7 @@ class DefaultWorkerTest {
         objectMapper = new ObjectMapper();
         worker = new DefaultWorker(
             jdbcTemplate,
+            null, // dataSource - not needed when useNotify is false
             objectMapper,
             DOMAIN,
             handlerRegistry,
@@ -852,6 +853,7 @@ class DefaultWorkerTest {
                 .visibilityTimeout(45)
                 .pollIntervalMs(500)
                 .concurrency(4)
+                .useNotify(false)
                 .build();
 
             assertEquals("payments", builderWorker.domain());
@@ -864,6 +866,7 @@ class DefaultWorkerTest {
                 .jdbcTemplate(jdbcTemplate)
                 .domain("payments")
                 .handlerRegistry(handlerRegistry)
+                .useNotify(false)
                 .build();
 
             assertNotNull(builderWorker);
@@ -877,9 +880,149 @@ class DefaultWorkerTest {
                 .domain("payments")
                 .handlerRegistry(handlerRegistry)
                 .retryPolicy(RetryPolicy.noRetry())
+                .useNotify(false)
                 .build();
 
             assertNotNull(builderWorker);
+        }
+    }
+
+    @Nested
+    @DisplayName("NOTIFY Mode Tests")
+    class NotifyModeTests {
+
+        @Mock
+        private javax.sql.DataSource dataSource;
+
+        @Mock
+        private java.sql.Connection connection;
+
+        @Mock
+        private java.sql.Statement statement;
+
+        @Mock
+        private org.postgresql.PGConnection pgConnection;
+
+        @Test
+        @DisplayName("should use NOTIFY mode when dataSource is provided and useNotify is true")
+        void shouldUseNotifyMode() throws Exception {
+            // Setup mocks
+            when(dataSource.getConnection()).thenReturn(connection);
+            when(connection.createStatement()).thenReturn(statement);
+            when(connection.unwrap(org.postgresql.PGConnection.class)).thenReturn(pgConnection);
+            when(pgConnection.getNotifications(anyInt())).thenReturn(null);
+
+            DefaultWorker notifyWorker = new DefaultWorker(
+                jdbcTemplate,
+                dataSource,
+                objectMapper,
+                DOMAIN,
+                handlerRegistry,
+                30,
+                50,
+                2,
+                true, // useNotify = true
+                RetryPolicy.defaultPolicy(),
+                pgmqClient,
+                commandRepository
+            );
+
+            // Start and immediately stop
+            notifyWorker.start();
+            Thread.sleep(100); // Allow time for worker to start
+            notifyWorker.stopNow();
+
+            // Verify LISTEN was executed
+            verify(statement).execute("LISTEN pgmq_notify_test__commands");
+        }
+
+        @Test
+        @DisplayName("should fall back to polling when dataSource is null")
+        void shouldFallbackToPollingWhenDataSourceNull() throws Exception {
+            DefaultWorker pollingWorker = new DefaultWorker(
+                jdbcTemplate,
+                null, // no dataSource
+                objectMapper,
+                DOMAIN,
+                handlerRegistry,
+                30,
+                50,
+                2,
+                true, // useNotify = true, but no dataSource
+                RetryPolicy.defaultPolicy(),
+                pgmqClient,
+                commandRepository
+            );
+
+            pollingWorker.start();
+            Thread.sleep(100);
+            pollingWorker.stopNow();
+
+            // Should not throw and should work in polling mode
+            assertFalse(pollingWorker.isRunning());
+        }
+
+        @Test
+        @DisplayName("should handle connection error gracefully")
+        void shouldHandleConnectionErrorGracefully() throws Exception {
+            when(dataSource.getConnection()).thenThrow(new java.sql.SQLException("Connection failed"));
+
+            DefaultWorker notifyWorker = new DefaultWorker(
+                jdbcTemplate,
+                dataSource,
+                objectMapper,
+                DOMAIN,
+                handlerRegistry,
+                30,
+                50,
+                2,
+                true,
+                RetryPolicy.defaultPolicy(),
+                pgmqClient,
+                commandRepository
+            );
+
+            notifyWorker.start();
+            Thread.sleep(100);
+            notifyWorker.stopNow();
+
+            // Should not throw, worker should have stopped
+            assertFalse(notifyWorker.isRunning());
+        }
+
+        @Test
+        @DisplayName("should drain queue while running in notify mode")
+        void shouldDrainQueueInNotifyMode() throws Exception {
+            // Setup mocks
+            when(dataSource.getConnection()).thenReturn(connection);
+            when(connection.createStatement()).thenReturn(statement);
+            when(connection.unwrap(org.postgresql.PGConnection.class)).thenReturn(pgConnection);
+            when(pgConnection.getNotifications(anyInt())).thenReturn(null);
+
+            // Return empty messages (queue drained)
+            when(pgmqClient.read(anyString(), anyInt(), anyInt())).thenReturn(List.of());
+
+            DefaultWorker notifyWorker = new DefaultWorker(
+                jdbcTemplate,
+                dataSource,
+                objectMapper,
+                DOMAIN,
+                handlerRegistry,
+                30,
+                50,
+                2,
+                true,
+                RetryPolicy.defaultPolicy(),
+                pgmqClient,
+                commandRepository
+            );
+
+            notifyWorker.start();
+            Thread.sleep(150); // Allow time for worker to run a few iterations
+            notifyWorker.stop(Duration.ofSeconds(1)).join();
+
+            // Verify queue was checked
+            verify(pgmqClient, atLeastOnce()).read(eq(QUEUE_NAME), anyInt(), anyInt());
         }
     }
 }

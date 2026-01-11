@@ -9,7 +9,7 @@
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
-            <li class="breadcrumb-item"><a th:href="@{/processes}">Processes</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/processes(domain=${domain})}">Processes</a></li>
             <li class="breadcrumb-item active" th:text="${#strings.abbreviate(process.processId.toString(), 12)}">ID</li>
         </ol>
     </nav>
@@ -70,7 +70,7 @@
             <h5>Process State</h5>
         </div>
         <div class="card-body">
-            <pre class="bg-light p-3"><code th:text="${process.state}">state</code></pre>
+            <pre class="bg-light p-3 mb-0"><code th:text="${stateJson}">state</code></pre>
         </div>
     </div>
 
@@ -92,20 +92,20 @@
                 </thead>
                 <tbody>
                     <tr th:each="entry : ${auditTrail}">
-                        <td th:text="${#temporals.format(entry.occurredAt, 'HH:mm:ss')}">time</td>
-                        <td th:text="${entry.step}">step</td>
+                        <td th:text="${#temporals.format(entry.sentAt, 'HH:mm:ss')}">time</td>
+                        <td th:text="${entry.stepName}">step</td>
                         <td>
                             <span class="badge"
-                                  th:classappend="${entry.status == 'COMPLETED'} ? 'bg-success' :
-                                                  (${entry.status == 'FAILED'} ? 'bg-danger' : 'bg-secondary')"
-                                  th:text="${entry.status}">status</span>
+                                  th:classappend="${entry.replyOutcome != null and entry.replyOutcome.name() == 'SUCCESS'} ? 'bg-success' :
+                                                  (${entry.replyOutcome != null and entry.replyOutcome.name() == 'FAILED'} ? 'bg-danger' : 'bg-secondary')"
+                                  th:text="${entry.replyOutcome != null ? entry.replyOutcome : 'PENDING'}">status</span>
                         </td>
                         <td>
                             <code class="uuid-short" th:if="${entry.commandId}"
                                   th:text="${#strings.abbreviate(entry.commandId.toString(), 12)}">uuid</code>
                             <span th:unless="${entry.commandId}">-</span>
                         </td>
-                        <td><small th:text="${entry.details}">details</small></td>
+                        <td><small th:text="${entry.commandType}">details</small></td>
                     </tr>
                 </tbody>
             </table>

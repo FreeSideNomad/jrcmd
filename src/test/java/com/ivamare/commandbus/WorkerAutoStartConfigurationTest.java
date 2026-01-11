@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +22,7 @@ import static org.mockito.Mockito.*;
 class WorkerAutoStartConfigurationTest {
 
     private JdbcTemplate jdbcTemplate;
+    private DataSource dataSource;
     private ObjectMapper objectMapper;
     private HandlerRegistry handlerRegistry;
     private RetryPolicy retryPolicy;
@@ -30,6 +32,7 @@ class WorkerAutoStartConfigurationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate = mock(JdbcTemplate.class);
+        dataSource = mock(DataSource.class);
         objectMapper = new ObjectMapper();
         handlerRegistry = new DefaultHandlerRegistry();
         retryPolicy = RetryPolicy.defaultPolicy();
@@ -37,6 +40,7 @@ class WorkerAutoStartConfigurationTest {
 
         configuration = new WorkerAutoStartConfiguration(
             jdbcTemplate,
+            dataSource,
             objectMapper,
             handlerRegistry,
             retryPolicy,
@@ -103,5 +107,37 @@ class WorkerAutoStartConfigurationTest {
     @DisplayName("should create health indicator for workers")
     void shouldCreateHealthIndicatorForWorkers() {
         assertNotNull(configuration.workerHealthIndicator());
+    }
+
+    @Test
+    @DisplayName("should start and stop workers with registered handlers")
+    void shouldStartAndStopWorkersWithHandlers() {
+        // Register a handler
+        handlerRegistry.register("test_domain", "TestCommand", (cmd, ctx) -> Map.of("status", "ok"));
+
+        // Configure to use polling mode (no NOTIFY) for simpler testing
+        properties.getWorker().setUseNotify(false);
+        properties.getWorker().setPollIntervalMs(100);
+
+        // Create fresh configuration with useNotify=false
+        WorkerAutoStartConfiguration config = new WorkerAutoStartConfiguration(
+            jdbcTemplate,
+            dataSource,
+            objectMapper,
+            handlerRegistry,
+            retryPolicy,
+            properties
+        );
+
+        // Start workers - this will create a worker for test_domain
+        config.startWorkers();
+
+        // Should have one worker
+        List<Worker> workers = config.commandBusWorkers();
+        assertEquals(1, workers.size());
+        assertEquals("test_domain", workers.get(0).domain());
+
+        // Stop workers
+        config.stopWorkers();
     }
 }

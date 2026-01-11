@@ -6,16 +6,21 @@ import com.ivamare.commandbus.exception.TransientCommandException;
 import com.ivamare.commandbus.handler.HandlerRegistry;
 import com.ivamare.commandbus.model.*;
 import com.ivamare.commandbus.pgmq.PgmqClient;
+import com.ivamare.commandbus.pgmq.QueueNames;
 import com.ivamare.commandbus.pgmq.impl.JdbcPgmqClient;
 import com.ivamare.commandbus.policy.RetryPolicy;
 import com.ivamare.commandbus.repository.CommandRepository;
 import com.ivamare.commandbus.repository.impl.JdbcCommandRepository;
 import com.ivamare.commandbus.worker.Worker;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.postgresql.PGConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -30,6 +35,7 @@ public class DefaultWorker implements Worker {
     private static final Logger log = LoggerFactory.getLogger(DefaultWorker.class);
 
     private final JdbcTemplate jdbcTemplate;
+    private final DataSource dataSource;
     private final String domain;
     private final String queueName;
     private final HandlerRegistry handlerRegistry;
@@ -54,6 +60,7 @@ public class DefaultWorker implements Worker {
      * Creates a new DefaultWorker.
      *
      * @param jdbcTemplate JDBC template for database operations
+     * @param dataSource DataSource for LISTEN connection (can be null if useNotify is false)
      * @param objectMapper Object mapper for JSON serialization
      * @param domain Domain to process commands for
      * @param handlerRegistry Registry of command handlers
@@ -65,6 +72,7 @@ public class DefaultWorker implements Worker {
      */
     public DefaultWorker(
             JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
             ObjectMapper objectMapper,
             String domain,
             HandlerRegistry handlerRegistry,
@@ -75,6 +83,7 @@ public class DefaultWorker implements Worker {
             RetryPolicy retryPolicy) {
         this(
             jdbcTemplate,
+            dataSource,
             objectMapper,
             domain,
             handlerRegistry,
@@ -92,6 +101,7 @@ public class DefaultWorker implements Worker {
      * Creates a new DefaultWorker with injectable dependencies (for testing).
      *
      * @param jdbcTemplate JDBC template for database operations
+     * @param dataSource DataSource for LISTEN connection (can be null if useNotify is false)
      * @param objectMapper Object mapper for JSON serialization
      * @param domain Domain to process commands for
      * @param handlerRegistry Registry of command handlers
@@ -105,6 +115,7 @@ public class DefaultWorker implements Worker {
      */
     public DefaultWorker(
             JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
             ObjectMapper objectMapper,
             String domain,
             HandlerRegistry handlerRegistry,
@@ -117,6 +128,7 @@ public class DefaultWorker implements Worker {
             CommandRepository commandRepository) {
 
         this.jdbcTemplate = jdbcTemplate;
+        this.dataSource = dataSource;
         this.objectMapper = objectMapper;
         this.domain = domain;
         this.queueName = domain + "__commands";
@@ -214,14 +226,54 @@ public class DefaultWorker implements Worker {
     private void runLoop() {
         log.debug("Worker loop started for {}", domain);
 
+        try {
+            if (useNotify && dataSource != null) {
+                runWithNotify();
+            } else {
+                runWithPolling();
+            }
+        } catch (Exception e) {
+            if (!stopping.get()) {
+                log.error("Worker loop crashed for {}", domain, e);
+            }
+        } finally {
+            running.set(false);
+            log.debug("Worker loop ended for {}", domain);
+        }
+    }
+
+    private void runWithNotify() throws SQLException, InterruptedException {
+        String channel = QueueNames.notifyChannel(queueName);
+
+        try (Connection listenConn = dataSource.getConnection()) {
+            listenConn.setAutoCommit(true);
+
+            try (var stmt = listenConn.createStatement()) {
+                stmt.execute("LISTEN " + channel);
+            }
+            log.info("Worker for {} using NOTIFY mode, listening on channel {}", domain, channel);
+
+            PGConnection pgConn = listenConn.unwrap(PGConnection.class);
+
+            while (running.get() && !stopping.get()) {
+                drainQueue();
+                if (stopping.get()) return;
+
+                // Wait for notification or timeout (pollIntervalMs as max wait)
+                pgConn.getNotifications(pollIntervalMs);
+            }
+        }
+    }
+
+    private void runWithPolling() {
+        log.info("Worker for {} using POLLING mode (interval={}ms)", domain, pollIntervalMs);
+
         while (running.get() && !stopping.get()) {
             try {
                 drainQueue();
+                if (stopping.get()) return;
 
-                // Wait for new messages or poll interval
-                if (!stopping.get()) {
-                    waitForMessages();
-                }
+                sleep(pollIntervalMs);
             } catch (Exception e) {
                 if (!stopping.get()) {
                     log.error("Error in worker loop for {}", domain, e);
@@ -229,8 +281,6 @@ public class DefaultWorker implements Worker {
                 }
             }
         }
-
-        log.debug("Worker loop ended for {}", domain);
     }
 
     private void drainQueue() {
@@ -265,12 +315,6 @@ public class DefaultWorker implements Worker {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private void waitForMessages() {
-        // TODO: Implement PostgreSQL LISTEN/NOTIFY for instant wake
-        // For now, fall back to polling
-        sleep(pollIntervalMs);
     }
 
     private void sleep(long ms) {
@@ -403,7 +447,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send reply if configured
-        if (metadata.replyTo() != null && !metadata.replyTo().isBlank()) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.SUCCESS, result, null, null);
         }
 
@@ -465,7 +509,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply
-        if (metadata.replyTo() != null) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.FAILED, null, e.getCode(), e.getErrorMessage());
         }
 
@@ -495,7 +539,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply with error_type=BUSINESS_RULE
-        if (metadata.replyTo() != null && !metadata.replyTo().isBlank()) {
+        if (hasReplyQueue(metadata)) {
             sendBusinessRuleReply(metadata, e);
         }
 
@@ -536,7 +580,7 @@ public class DefaultWorker implements Worker {
         );
 
         // Send failure reply
-        if (metadata.replyTo() != null) {
+        if (hasReplyQueue(metadata)) {
             sendReply(metadata, ReplyOutcome.FAILED, null, e.getCode(), e.getErrorMessage());
         }
 
@@ -566,6 +610,13 @@ public class DefaultWorker implements Worker {
         } catch (Exception e) {
             log.error("Failed to send reply for command {}", metadata.commandId(), e);
         }
+    }
+
+    /**
+     * Check if the command has a valid reply queue configured.
+     */
+    private boolean hasReplyQueue(CommandMetadata metadata) {
+        return metadata.replyTo() != null && !metadata.replyTo().isBlank();
     }
 
     private void invokeBatchCallback(UUID batchId) {

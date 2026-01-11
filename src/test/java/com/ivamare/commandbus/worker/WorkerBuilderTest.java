@@ -11,6 +11,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -19,6 +21,9 @@ class WorkerBuilderTest {
 
     @Mock
     private JdbcTemplate jdbcTemplate;
+
+    @Mock
+    private DataSource dataSource;
 
     @Mock
     private HandlerRegistry handlerRegistry;
@@ -38,6 +43,7 @@ class WorkerBuilderTest {
     void shouldBuildWorkerWithRequiredParameters() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .build();
@@ -90,6 +96,7 @@ class WorkerBuilderTest {
     void shouldSetVisibilityTimeout() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .visibilityTimeout(60)
@@ -103,6 +110,7 @@ class WorkerBuilderTest {
     void shouldSetPollInterval() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .pollIntervalMs(2000)
@@ -116,6 +124,7 @@ class WorkerBuilderTest {
     void shouldSetConcurrency() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .concurrency(8)
@@ -144,6 +153,7 @@ class WorkerBuilderTest {
 
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .retryPolicy(customPolicy)
@@ -157,6 +167,7 @@ class WorkerBuilderTest {
     void shouldSetObjectMapper() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .objectMapper(objectMapper)
@@ -170,6 +181,7 @@ class WorkerBuilderTest {
     void shouldUseDefaultRetryPolicyWhenNotSet() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
             .build();
@@ -182,6 +194,7 @@ class WorkerBuilderTest {
     void shouldAllowFluentChaining() {
         Worker worker = builder
             .jdbcTemplate(jdbcTemplate)
+            .dataSource(dataSource)
             .objectMapper(objectMapper)
             .domain("payments")
             .handlerRegistry(handlerRegistry)
@@ -194,5 +207,33 @@ class WorkerBuilderTest {
 
         assertNotNull(worker);
         assertEquals("payments", worker.domain());
+    }
+
+    @Test
+    @DisplayName("should throw when dataSource is missing and useNotify is true")
+    void shouldThrowWhenDataSourceMissingAndUseNotifyTrue() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class, () ->
+            builder
+                .jdbcTemplate(jdbcTemplate)
+                .domain("payments")
+                .handlerRegistry(handlerRegistry)
+                .useNotify(true)
+                .build()
+        );
+
+        assertEquals("dataSource is required when useNotify is enabled", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("should allow building without dataSource when useNotify is false")
+    void shouldAllowBuildingWithoutDataSourceWhenUseNotifyFalse() {
+        Worker worker = builder
+            .jdbcTemplate(jdbcTemplate)
+            .domain("payments")
+            .handlerRegistry(handlerRegistry)
+            .useNotify(false)
+            .build();
+
+        assertNotNull(worker);
     }
 }

@@ -40,7 +40,13 @@ public class JdbcProcessRepository implements ProcessRepository {
     private RowMapper<ProcessMetadata<?, ?>> createProcessMapper() {
         return (rs, rowNum) -> {
             Map<String, Object> stateMap = deserializeJson(rs.getString("state"));
-            ProcessState state = new MapProcessState(stateMap);
+            // Store current_step in state map for later retrieval by process manager
+            String currentStepName = rs.getString("current_step");
+            if (currentStepName != null) {
+                stateMap = new java.util.HashMap<>(stateMap != null ? stateMap : Map.of());
+                stateMap.put("__current_step__", currentStepName);
+            }
+            ProcessState state = new MapProcessState(stateMap != null ? stateMap : Map.of());
 
             Timestamp completedAt = rs.getTimestamp("completed_at");
 
@@ -50,7 +56,7 @@ public class JdbcProcessRepository implements ProcessRepository {
                 rs.getString("process_type"),
                 state,
                 ProcessStatus.valueOf(rs.getString("status")),
-                null,  // currentStep - stored as string, needs to be cast by caller
+                null,  // currentStep - retrieved from state map via __current_step__ key
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant(),
                 completedAt != null ? completedAt.toInstant() : null,

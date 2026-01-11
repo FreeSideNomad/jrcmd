@@ -29,11 +29,13 @@
                     <th>Error</th>
                     <th>Retry Count</th>
                     <th>Enqueued At</th>
-                    <th>Actions</th>
+                    <th class="text-end">Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="cmd : ${commands}">
+                <tr th:each="cmd : ${commands}"
+                    class="clickable-row"
+                    th:data-href="@{/commands/{id}(id=${cmd.commandId})}">
                     <td>
                         <code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code>
                     </td>
@@ -44,10 +46,11 @@
                     </td>
                     <td th:text="${cmd.attempts + '/' + cmd.maxAttempts}">0/3</td>
                     <td th:text="${#temporals.format(cmd.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
-                    <td>
+                    <td class="text-end" onclick="event.stopPropagation()">
                         <div class="btn-group btn-group-sm">
                             <form th:action="@{/tsq/{id}/retry(id=${cmd.commandId})}" method="post" class="d-inline">
-                                <button type="submit" class="btn btn-outline-primary" title="Retry">
+                                <button type="submit" class="btn btn-outline-primary"
+                                        data-bs-toggle="tooltip" data-bs-placement="top" title="Retry">
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </form>
@@ -120,6 +123,19 @@
             </tbody>
         </table>
     </div>
+    <script>
+        // Initialize Bootstrap tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+
+        // Clickable rows
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+    </script>
 </div>
 </body>
 </html>

@@ -1,6 +1,8 @@
-# UI-only profile - disables worker auto-start
+# UI-only profile - disables worker and process auto-start
 # Use with: -Dspring-boot.run.profiles=e2e,ui
 
 commandbus:
   worker:
+    auto-start: false
+  process:
     auto-start: false

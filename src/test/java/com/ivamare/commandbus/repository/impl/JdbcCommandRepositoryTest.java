@@ -59,7 +59,30 @@ class JdbcCommandRepositoryTest {
                 eq(metadata.attempts()),
                 eq(metadata.maxAttempts()),
                 eq(metadata.correlationId()),
-                eq(metadata.replyTo()),
+                eq(""),  // null replyTo converted to empty string
+                eq(metadata.batchId()),
+                any(), any()
+            );
+        }
+
+        @Test
+        void shouldPreserveReplyToWhenNotNull() {
+            CommandMetadata metadata = createTestMetadata().withReplyTo("payments__replies");
+
+            repository.save(metadata, "payments__commands");
+
+            verify(jdbcTemplate).update(
+                contains("INSERT INTO commandbus.command"),
+                eq(metadata.domain()),
+                eq("payments__commands"),
+                eq(metadata.msgId()),
+                eq(metadata.commandId()),
+                eq(metadata.commandType()),
+                eq(metadata.status().getValue()),
+                eq(metadata.attempts()),
+                eq(metadata.maxAttempts()),
+                eq(metadata.correlationId()),
+                eq("payments__replies"),
                 eq(metadata.batchId()),
                 any(), any()
             );

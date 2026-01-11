@@ -58,6 +58,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link" th:href="@{/process-batches}"
+                               th:classappend="${currentPath.startsWith('/process-batches')} ? 'active'">
+                                <i class="bi bi-stack"></i> Process Batches
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link" th:href="@{/queues}"
                                th:classappend="${currentPath.startsWith('/queues')} ? 'active'">
                                 <i class="bi bi-inbox"></i> Queues
