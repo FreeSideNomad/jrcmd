@@ -7,6 +7,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   # Job 1: Build and create draft release when tag is pushed
   build-release:
