@@ -55,10 +55,13 @@
                         <dd class="col-sm-8 text-danger" th:text="${batch.failedCommands()}">0</dd>
 
                         <dt class="col-sm-4">Created At</dt>
-                        <dd class="col-sm-8" th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${#temporals.format(batch.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></dd>
+
+                        <dt class="col-sm-4">Started At</dt>
+                        <dd class="col-sm-8"><code th:text="${batch.startedAt != null ? #temporals.format(batch.startedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></dd>
 
                         <dt class="col-sm-4">Completed At</dt>
-                        <dd class="col-sm-8" th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></dd>
                     </dl>
                 </div>
             </div>
@@ -78,6 +81,7 @@
                         <th>Type</th>
                         <th>Status</th>
                         <th>Created At</th>
+                        <th>Duration</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -91,7 +95,8 @@
                                                   (${cmd.status.name() == 'IN_PROGRESS'} ? 'bg-primary' : 'bg-secondary'))"
                                   th:text="${cmd.status}">STATUS</span>
                         </td>
-                        <td th:text="${#temporals.format(cmd.createdAt, 'HH:mm:ss')}">time</td>
+                        <td><code th:text="${#temporals.format(cmd.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></td>
+                        <td><span class="badge bg-info" th:text="${cmd.durationFormatted()}">0ms</span></td>
                     </tr>
                 </tbody>
             </table>
@@ -102,6 +107,14 @@
             row.style.cursor = 'pointer';
             row.addEventListener('click', () => window.location = row.dataset.href);
         });
+
+        // Auto-refresh every 5 seconds while batch is not completed
+        (function() {
+            const status = '[[${batch.status.name()}]]';
+            if (status !== 'COMPLETED' && status !== 'FAILED') {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
     </script>
 </div>
 </body>

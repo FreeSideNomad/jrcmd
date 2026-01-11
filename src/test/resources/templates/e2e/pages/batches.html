@@ -53,25 +53,42 @@
                               th:text="${batch.status}">STATUS</span>
                     </td>
                     <td>
-                        <div class="progress progress-sm" style="width: 100px">
-                            <div class="progress-bar" role="progressbar"
-                                 th:style="'width: ' + ${batch.progressPercent()} + '%'"
-                                 th:attr="aria-valuenow=${batch.progressPercent()}">
+                        <div class="progress progress-sm" style="width: 120px">
+                            <div class="progress-bar bg-success" role="progressbar"
+                                 th:style="'width: ' + ${(batch.completedCount * 100) / (batch.totalCount > 0 ? batch.totalCount : 1)} + '%'"
+                                 th:title="${batch.completedCount + ' completed'}">
+                            </div>
+                            <div class="progress-bar bg-danger" role="progressbar"
+                                 th:style="'width: ' + ${(batch.failedCommands() * 100) / (batch.totalCount > 0 ? batch.totalCount : 1)} + '%'"
+                                 th:title="${batch.failedCommands() + ' failed/tsq'}">
                             </div>
                         </div>
-                        <small th:text="${batch.completedCount + '/' + batch.totalCount}">0/0</small>
+                        <small>
+                            <span class="text-success" th:text="${batch.completedCount}">0</span>/<span
+                            class="text-danger" th:if="${batch.failedCommands() > 0}" th:text="${batch.failedCommands()}">0</span><span
+                            th:if="${batch.failedCommands() > 0}">/</span><span th:text="${batch.totalCount}">0</span>
+                        </small>
                     </td>
-                    <td th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
-                    <td th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'yyyy-MM-dd HH:mm:ss') : 'N/A'}">time</td>
+                    <td><code th:text="${#temporals.format(batch.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></td>
+                    <td><code th:text="${batch.completedAt != null ? #temporals.format(batch.completedAt, 'HH:mm:ss.SSSSSS') : 'N/A'}">time</code></td>
                 </tr>
             </tbody>
         </table>
     </div>
-    <script>
+    <script th:inline="javascript">
         document.querySelectorAll('.clickable-row').forEach(row => {
             row.style.cursor = 'pointer';
             row.addEventListener('click', () => window.location = row.dataset.href);
         });
+
+        // Auto-refresh every 5 seconds if any batch is in progress
+        (function() {
+            const batches = /*[[${batches}]]*/ [];
+            const hasInProgress = batches.some(b => b.status === 'PENDING' || b.status === 'IN_PROGRESS');
+            if (hasInProgress) {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
     </script>
 </div>
 </body>

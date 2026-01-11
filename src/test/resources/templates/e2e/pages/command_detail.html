@@ -44,10 +44,13 @@
                 <div class="col-md-6">
                     <dl class="row">
                         <dt class="col-sm-4">Created At</dt>
-                        <dd class="col-sm-8" th:text="${#temporals.format(command.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${#temporals.format(command.createdAt, 'HH:mm:ss.SSSSSS')}">time</code></dd>
 
                         <dt class="col-sm-4">Updated At</dt>
-                        <dd class="col-sm-8" th:text="${#temporals.format(command.updatedAt, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+                        <dd class="col-sm-8"><code th:text="${#temporals.format(command.updatedAt, 'HH:mm:ss.SSSSSS')}">time</code></dd>
+
+                        <dt class="col-sm-4">Duration</dt>
+                        <dd class="col-sm-8"><span class="badge bg-info" th:text="${command.durationFormatted()}">0ms</span></dd>
 
                         <dt class="col-sm-4" th:if="${command.correlationId}">Correlation ID</dt>
                         <dd class="col-sm-8" th:if="${command.correlationId}"><code th:text="${command.correlationId}">uuid</code></dd>
@@ -78,7 +81,7 @@
                 </thead>
                 <tbody>
                     <tr th:each="event : ${auditTrail}">
-                        <td th:text="${#temporals.format(event.timestamp, 'HH:mm:ss')}">time</td>
+                        <td><code th:text="${#temporals.format(event.timestamp, 'HH:mm:ss.SSSSSS')}">time</code></td>
                         <td><span class="badge bg-secondary" th:text="${event.eventType}">event</span></td>
                         <td><small th:text="${event.details}">details</small></td>
                     </tr>
