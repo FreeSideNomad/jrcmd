@@ -247,8 +247,8 @@ public class E2EService {
     public BatchDuration getBatchDuration(String domain, UUID batchId) {
         String sql = """
             SELECT
-                MIN(CASE WHEN event_type = 'RECEIVED' THEN timestamp END) as first_received,
-                MAX(CASE WHEN event_type IN ('COMPLETED', 'FAILED', 'MOVED_TO_TSQ', 'BUSINESS_RULE_FAILED') THEN timestamp END) as last_completed
+                MIN(CASE WHEN event_type = 'RECEIVED' THEN ts END) as first_received,
+                MAX(CASE WHEN event_type IN ('COMPLETED', 'FAILED', 'MOVED_TO_TSQ', 'BUSINESS_RULE_FAILED') THEN ts END) as last_completed
             FROM commandbus.audit a
             JOIN commandbus.command c ON a.command_id = c.command_id AND a.domain = c.domain
             WHERE c.batch_id = ? AND a.domain = ?
