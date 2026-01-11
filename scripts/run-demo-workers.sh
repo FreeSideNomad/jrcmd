@@ -49,10 +49,12 @@ trap cleanup EXIT INT TERM
 # Start workers
 for i in $(seq 1 $NUM_WORKERS); do
     echo "Starting worker $i..."
+    # Use Spring's environment variable binding (COMMANDBUS_WORKER_CONCURRENCY)
+    # which is more reliable than JVM args with spring-boot:test-run
+    COMMANDBUS_WORKER_CONCURRENCY=$CONCURRENCY \
     mvn spring-boot:test-run \
         -Dspring-boot.run.main-class=com.ivamare.commandbus.e2e.E2ETestApplication \
         -Dspring-boot.run.profiles=e2e,worker \
-        -Dcommandbus.worker.concurrency=$CONCURRENCY \
         -q &
     PIDS+=($!)
     sleep 2  # Stagger startup

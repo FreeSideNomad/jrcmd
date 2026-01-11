@@ -2,6 +2,9 @@ package com.ivamare.commandbus.e2e.service;
 
 import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.dto.*;
+import com.ivamare.commandbus.e2e.process.OutputType;
+import com.ivamare.commandbus.e2e.process.StatementReportProcessManager;
+import com.ivamare.commandbus.e2e.process.StepBehavior;
 import com.ivamare.commandbus.model.*;
 import com.ivamare.commandbus.ops.TroubleshootingQueue;
 import com.ivamare.commandbus.process.ProcessRepository;
@@ -10,6 +13,7 @@ import com.ivamare.commandbus.repository.AuditRepository;
 import com.ivamare.commandbus.repository.BatchRepository;
 import com.ivamare.commandbus.repository.CommandRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +33,7 @@ public class E2EService {
     private final ProcessRepository processRepository;
     private final AuditRepository auditRepository;
     private final TroubleshootingQueue tsq;
+    private final StatementReportProcessManager statementReportProcessManager;
 
     public E2EService(
             JdbcTemplate jdbcTemplate,
@@ -37,7 +42,8 @@ public class E2EService {
             BatchRepository batchRepository,
             ProcessRepository processRepository,
             AuditRepository auditRepository,
-            TroubleshootingQueue tsq) {
+            TroubleshootingQueue tsq,
+            @Nullable StatementReportProcessManager statementReportProcessManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.commandBus = commandBus;
         this.commandRepository = commandRepository;
@@ -45,6 +51,7 @@ public class E2EService {
         this.processRepository = processRepository;
         this.auditRepository = auditRepository;
         this.tsq = tsq;
+        this.statementReportProcessManager = statementReportProcessManager;
     }
 
     // ========== Dashboard ==========
@@ -122,6 +129,14 @@ public class E2EService {
     @Transactional(readOnly = true)
     public List<String> getDistinctCommandTypes(String domain) {
         return commandRepository.getDistinctCommandTypes(domain);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getDistinctProcessDomains() {
+        return jdbcTemplate.queryForList(
+            "SELECT DISTINCT domain FROM commandbus.process ORDER BY domain",
+            String.class
+        );
     }
 
     // ========== TSQ ==========
@@ -355,6 +370,238 @@ public class E2EService {
             );
         } catch (Exception e) {
             return new QueueStats(queueName, 0, 0, 0, null);
+        }
+    }
+
+    // ========== Process Batches ==========
+
+    /**
+     * Create a batch of statement report processes.
+     */
+    @Transactional
+    public UUID createProcessBatch(String domain, ProcessBatchCreateRequest request) {
+        if (statementReportProcessManager == null) {
+            throw new IllegalStateException("StatementReportProcessManager not configured");
+        }
+
+        UUID batchId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        // Create batch metadata with batch_type = 'PROCESS'
+        BatchMetadata batchMetadata = new BatchMetadata(
+            domain, batchId, request.name(), null,
+            BatchStatus.PENDING, request.count(), 0, 0, 0,
+            now, null, null,
+            "PROCESS"
+        );
+        batchRepository.save(batchMetadata);
+
+        // Create processes
+        Random random = new Random();
+        for (int i = 0; i < request.count(); i++) {
+            // Generate random accounts for each process
+            List<String> accounts = new ArrayList<>();
+            for (int j = 0; j < request.accountCount(); j++) {
+                accounts.add("ACC" + String.format("%06d", random.nextInt(999999)));
+            }
+
+            Map<String, Object> initialData = new HashMap<>();
+            initialData.put("from_date", request.fromDate().toString());
+            initialData.put("to_date", request.toDate().toString());
+            initialData.put("account_list", accounts);
+            initialData.put("output_type", request.outputType().name());
+            if (request.behavior() != null) {
+                initialData.put("behavior", request.behavior().toMap());
+            }
+
+            // Start the process - it will be linked to batch via batch_id column
+            UUID processId = statementReportProcessManager.start(initialData);
+
+            // Update process with batch_id
+            jdbcTemplate.update(
+                "UPDATE commandbus.process SET batch_id = ? WHERE domain = ? AND process_id = ?",
+                batchId, "reporting", processId
+            );
+        }
+
+        return batchId;
+    }
+
+    /**
+     * Get process batches (batches with batch_type = 'PROCESS').
+     */
+    @Transactional(readOnly = true)
+    public List<ProcessBatchView> getProcessBatches(String domain, int limit, int offset) {
+        String sql = """
+            SELECT b.*,
+                   COALESCE(ps.completed_count, 0) as proc_completed,
+                   COALESCE(ps.failed_count, 0) as proc_failed,
+                   COALESCE(ps.in_progress_count, 0) as proc_in_progress,
+                   COALESCE(ps.waiting_for_tsq_count, 0) as proc_waiting_tsq
+            FROM commandbus.batch b
+            LEFT JOIN (
+                SELECT batch_id,
+                       COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed_count,
+                       COUNT(*) FILTER (WHERE status IN ('FAILED', 'COMPENSATED')) as failed_count,
+                       COUNT(*) FILTER (WHERE status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY')) as in_progress_count,
+                       COUNT(*) FILTER (WHERE status = 'WAITING_FOR_TSQ') as waiting_for_tsq_count
+                FROM commandbus.process
+                WHERE batch_id IS NOT NULL
+                GROUP BY batch_id
+            ) ps ON b.batch_id = ps.batch_id
+            WHERE b.domain = ? AND b.batch_type = 'PROCESS'
+            ORDER BY b.created_at DESC
+            LIMIT ? OFFSET ?
+            """;
+
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new ProcessBatchView(
+            UUID.fromString(rs.getString("batch_id")),
+            rs.getString("domain"),
+            rs.getString("name"),
+            BatchStatus.valueOf(rs.getString("status")),
+            rs.getInt("total_count"),
+            rs.getInt("proc_completed"),
+            rs.getInt("proc_failed"),
+            rs.getInt("proc_in_progress"),
+            rs.getInt("proc_waiting_tsq"),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null
+        ), domain, limit, offset);
+    }
+
+    /**
+     * Get a single process batch by ID.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ProcessBatchView> getProcessBatchById(String domain, UUID batchId) {
+        List<ProcessBatchView> batches = getProcessBatches(domain, 1000, 0);
+        return batches.stream()
+            .filter(b -> b.batchId().equals(batchId))
+            .findFirst();
+    }
+
+    /**
+     * Get processes belonging to a batch.
+     */
+    @Transactional(readOnly = true)
+    public List<ProcessView> getProcessBatchProcesses(String domain, UUID batchId, ProcessStatus status, int limit, int offset) {
+        StringBuilder sql = new StringBuilder("""
+            SELECT * FROM commandbus.process
+            WHERE batch_id = ?
+            """);
+        List<Object> params = new ArrayList<>();
+        params.add(batchId);
+
+        if (status != null) {
+            sql.append(" AND status = ?");
+            params.add(status.name());
+        }
+
+        sql.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        params.add(limit);
+        params.add(offset);
+
+        return jdbcTemplate.query(sql.toString(), (rs, rowNum) -> {
+            String stateJson = rs.getString("state");
+            Map<String, Object> stateMap = stateJson != null ? parseJson(stateJson) : Map.of();
+
+            return new ProcessView(
+                UUID.fromString(rs.getString("process_id")),
+                rs.getString("domain"),
+                rs.getString("process_type"),
+                ProcessStatus.valueOf(rs.getString("status")),
+                rs.getString("current_step"),
+                stateMap,
+                rs.getString("error_code"),
+                rs.getString("error_message"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant(),
+                rs.getTimestamp("completed_at") != null ? rs.getTimestamp("completed_at").toInstant() : null
+            );
+        }, params.toArray());
+    }
+
+    /**
+     * Count processes in a batch.
+     */
+    @Transactional(readOnly = true)
+    public int countProcessBatchProcesses(UUID batchId, ProcessStatus status) {
+        String sql = status != null
+            ? "SELECT COUNT(*) FROM commandbus.process WHERE batch_id = ? AND status = ?"
+            : "SELECT COUNT(*) FROM commandbus.process WHERE batch_id = ?";
+
+        Integer count = status != null
+            ? jdbcTemplate.queryForObject(sql, Integer.class, batchId, status.name())
+            : jdbcTemplate.queryForObject(sql, Integer.class, batchId);
+
+        return count != null ? count : 0;
+    }
+
+    /**
+     * Refresh process batch stats and update batch status.
+     */
+    @Transactional
+    public void refreshProcessBatchStats(String domain, UUID batchId) {
+        // Get current process counts
+        String countSql = """
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed,
+                COUNT(*) FILTER (WHERE status IN ('FAILED', 'COMPENSATED')) as failed,
+                COUNT(*) FILTER (WHERE status = 'WAITING_FOR_TSQ') as in_tsq
+            FROM commandbus.process
+            WHERE batch_id = ?
+            """;
+
+        jdbcTemplate.query(countSql, (rs, rowNum) -> {
+            int completed = rs.getInt("completed");
+            int failed = rs.getInt("failed");
+            int inTsq = rs.getInt("in_tsq");
+
+            // Get total count from batch
+            Integer totalCount = jdbcTemplate.queryForObject(
+                "SELECT total_count FROM commandbus.batch WHERE domain = ? AND batch_id = ?",
+                Integer.class, domain, batchId
+            );
+
+            if (totalCount == null) return null;
+
+            // Determine batch status
+            int terminal = completed + failed + inTsq;
+            BatchStatus newStatus;
+            Instant completedAt = null;
+
+            if (terminal == 0) {
+                newStatus = BatchStatus.PENDING;
+            } else if (terminal >= totalCount) {
+                newStatus = BatchStatus.COMPLETED;
+                completedAt = Instant.now();
+            } else {
+                newStatus = BatchStatus.IN_PROGRESS;
+            }
+
+            // Update batch
+            jdbcTemplate.update("""
+                UPDATE commandbus.batch
+                SET status = ?, completed_count = ?, canceled_count = ?,
+                    in_troubleshooting_count = ?, completed_at = ?,
+                    started_at = COALESCE(started_at, NOW())
+                WHERE domain = ? AND batch_id = ?
+                """,
+                newStatus.name(), completed, failed, inTsq,
+                completedAt != null ? java.sql.Timestamp.from(completedAt) : null,
+                domain, batchId
+            );
+
+            return null;
+        }, batchId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJson(String json) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json, Map.class);
+        } catch (Exception e) {
+            return Map.of();
         }
     }
 

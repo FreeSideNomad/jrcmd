@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>New Process Batch - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/process-batches}">Process Batches</a></li>
+            <li class="breadcrumb-item active">New</li>
+        </ol>
+    </nav>
+
+    <h2 class="mb-4">Create Process Batch</h2>
+
+    <form th:action="@{/process-batches}" method="post">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Basic Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Batch Name</label>
+                        <input type="text" name="name" class="form-control" required
+                               th:value="${request.name()}" placeholder="My Process Batch">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Process Count</label>
+                        <input type="number" name="count" class="form-control" min="1" max="10000"
+                               th:value="${request.count()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Accounts per Process</label>
+                        <input type="number" name="accountCount" class="form-control" min="1" max="100"
+                               th:value="${request.accountCount()}">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label">From Date</label>
+                        <input type="date" name="fromDate" class="form-control"
+                               th:value="${request.fromDate()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">To Date</label>
+                        <input type="date" name="toDate" class="form-control"
+                               th:value="${request.toDate()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Output Type</label>
+                        <select name="outputType" class="form-select">
+                            <option th:each="type : ${outputTypes}" th:value="${type}" th:text="${type}"
+                                    th:selected="${type == request.outputType()}">Type</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Step Behavior Configuration</h5>
+                <small class="text-muted">Configure failure rates and durations for each process step</small>
+            </div>
+            <div class="card-body">
+                <!-- Query Step -->
+                <h6 class="border-bottom pb-2">Step 1: Query</h6>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Perm Fail %</label>
+                        <input type="number" name="queryFailPerm" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Trans Fail %</label>
+                        <input type="number" name="queryFailTrans" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Biz Rule %</label>
+                        <input type="number" name="queryFailBiz" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Timeout %</label>
+                        <input type="number" name="queryTimeout" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="queryMinMs" class="form-control"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="queryMaxMs" class="form-control"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+
+                <!-- Aggregation Step -->
+                <h6 class="border-bottom pb-2 mt-4">Step 2: Aggregation</h6>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Perm Fail %</label>
+                        <input type="number" name="aggFailPerm" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Trans Fail %</label>
+                        <input type="number" name="aggFailTrans" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Biz Rule %</label>
+                        <input type="number" name="aggFailBiz" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Timeout %</label>
+                        <input type="number" name="aggTimeout" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="aggMinMs" class="form-control"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="aggMaxMs" class="form-control"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+
+                <!-- Render Step -->
+                <h6 class="border-bottom pb-2 mt-4">Step 3: Render</h6>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Perm Fail %</label>
+                        <input type="number" name="renderFailPerm" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Trans Fail %</label>
+                        <input type="number" name="renderFailTrans" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Biz Rule %</label>
+                        <input type="number" name="renderFailBiz" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Timeout %</label>
+                        <input type="number" name="renderTimeout" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="renderMinMs" class="form-control"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="renderMaxMs" class="form-control"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a th:href="@{/process-batches}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Process Batch</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>

@@ -27,6 +27,11 @@ commandbus:
     concurrency: 4
     use-notify: true
     auto-start: true
+  process:
+    enabled: true
+    domain: reporting
+    reply-queue: reporting__process_replies
+    auto-start: true
 
 server:
   port: 8080

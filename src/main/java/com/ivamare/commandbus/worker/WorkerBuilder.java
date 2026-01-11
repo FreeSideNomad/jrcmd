@@ -6,12 +6,15 @@ import com.ivamare.commandbus.worker.impl.DefaultWorker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
+
 /**
  * Builder for creating Worker instances.
  */
 public class WorkerBuilder {
 
     private JdbcTemplate jdbcTemplate;
+    private DataSource dataSource;
     private ObjectMapper objectMapper;
     private String domain;
     private HandlerRegistry handlerRegistry;
@@ -29,6 +32,18 @@ public class WorkerBuilder {
      */
     public WorkerBuilder jdbcTemplate(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        return this;
+    }
+
+    /**
+     * Set the DataSource for LISTEN connection.
+     * Required when useNotify is true.
+     *
+     * @param dataSource The data source
+     * @return this builder
+     */
+    public WorkerBuilder dataSource(DataSource dataSource) {
+        this.dataSource = dataSource;
         return this;
     }
 
@@ -136,6 +151,9 @@ public class WorkerBuilder {
         if (handlerRegistry == null) {
             throw new IllegalStateException("handlerRegistry is required");
         }
+        if (useNotify && dataSource == null) {
+            throw new IllegalStateException("dataSource is required when useNotify is enabled");
+        }
 
         if (objectMapper == null) {
             objectMapper = new ObjectMapper();
@@ -147,6 +165,7 @@ public class WorkerBuilder {
 
         return new DefaultWorker(
             jdbcTemplate,
+            dataSource,
             objectMapper,
             domain,
             handlerRegistry,

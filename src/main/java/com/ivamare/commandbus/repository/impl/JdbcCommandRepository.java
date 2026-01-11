@@ -114,24 +114,41 @@ public class JdbcCommandRepository implements CommandRepository {
         return count != null && count > 0;
     }
 
+    /**
+     * Maximum number of parameters in a single SQL IN clause.
+     * PostgreSQL has a limit of 65,535 parameters per prepared statement.
+     * We use a conservative chunk size to stay well under that limit.
+     */
+    private static final int MAX_IN_CLAUSE_SIZE = 10_000;
+
     @Override
     public Set<UUID> existsBatch(String domain, List<UUID> commandIds) {
         if (commandIds.isEmpty()) return Set.of();
 
-        String placeholders = String.join(",", Collections.nCopies(commandIds.size(), "?"));
-        Object[] params = new Object[commandIds.size() + 1];
-        params[0] = domain;
-        for (int i = 0; i < commandIds.size(); i++) {
-            params[i + 1] = commandIds.get(i);
+        Set<UUID> result = new HashSet<>();
+
+        // Process in chunks to avoid PostgreSQL's 65,535 parameter limit
+        for (int i = 0; i < commandIds.size(); i += MAX_IN_CLAUSE_SIZE) {
+            int end = Math.min(i + MAX_IN_CLAUSE_SIZE, commandIds.size());
+            List<UUID> chunk = commandIds.subList(i, end);
+
+            String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+            Object[] params = new Object[chunk.size() + 1];
+            params[0] = domain;
+            for (int j = 0; j < chunk.size(); j++) {
+                params[j + 1] = chunk.get(j);
+            }
+
+            List<UUID> existing = jdbcTemplate.query(
+                "SELECT command_id FROM commandbus.command WHERE domain = ? AND command_id IN (" + placeholders + ")",
+                (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
+                params
+            );
+
+            result.addAll(existing);
         }
 
-        List<UUID> existing = jdbcTemplate.query(
-            "SELECT command_id FROM commandbus.command WHERE domain = ? AND command_id IN (" + placeholders + ")",
-            (rs, rowNum) -> UUID.fromString(rs.getString("command_id")),
-            params
-        );
-
-        return new HashSet<>(existing);
+        return result;
     }
 
     @Override
@@ -159,11 +176,11 @@ public class JdbcCommandRepository implements CommandRepository {
             sql.append(" AND status = ?");
             params.add(status.getValue());
         }
-        if (domain != null) {
+        if (domain != null && !domain.isBlank()) {
             sql.append(" AND domain = ?");
             params.add(domain);
         }
-        if (commandType != null) {
+        if (commandType != null && !commandType.isBlank()) {
             sql.append(" AND command_type = ?");
             params.add(commandType);
         }

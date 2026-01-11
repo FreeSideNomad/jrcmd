@@ -176,19 +176,30 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
     private void handleReplyInternal(Reply reply, ProcessMetadata<?, ?> rawProcess, JdbcTemplate jdbc) {
         // Deserialize state from map if needed
         TState state;
-        if (rawProcess.state() instanceof MapProcessState mapState) {
-            state = deserializeState(mapState.toMap());
-        } else {
-            state = (TState) rawProcess.state();
+        TStep currentStep = null;
+
+        // First, check if currentStep is directly available (e.g., in tests)
+        if (rawProcess.currentStep() != null) {
+            currentStep = (TStep) rawProcess.currentStep();
         }
 
-        // Deserialize current step
-        TStep currentStep = null;
-        if (rawProcess.currentStep() != null) {
-            // The currentStep from DB comes as a string via MapProcessState pattern
-            // But ProcessMetadata stores it as the enum, which may be null from DB
-            String stepName = rawProcess.currentStep().toString();
-            currentStep = Enum.valueOf(getStepClass(), stepName);
+        if (rawProcess.state() instanceof MapProcessState mapState) {
+            Map<String, Object> stateMap = mapState.toMap();
+
+            // Extract current step from state map if not already set (stored by JdbcProcessRepository)
+            if (currentStep == null) {
+                String stepName = (String) stateMap.get("__current_step__");
+                if (stepName != null) {
+                    currentStep = Enum.valueOf(getStepClass(), stepName);
+                }
+            }
+
+            // Remove the internal key before deserializing state
+            Map<String, Object> cleanStateMap = new java.util.HashMap<>(stateMap);
+            cleanStateMap.remove("__current_step__");
+            state = deserializeState(cleanStateMap);
+        } else {
+            state = (TState) rawProcess.state();
         }
 
         ProcessMetadata<TState, TStep> process = new ProcessMetadata<>(

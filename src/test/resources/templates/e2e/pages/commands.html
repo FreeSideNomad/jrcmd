@@ -65,7 +65,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr th:each="cmd : ${commands}" class="clickable-row" th:data-href="@{/commands/{id}(id=${cmd.commandId})}">
+                <tr th:each="cmd : ${commands}" class="clickable-row" th:data-href="@{/commands/{id}(id=${cmd.commandId},domain=${selectedDomain})}">
                     <td><code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code></td>
                     <td th:text="${cmd.commandType}">Type</td>
                     <td>

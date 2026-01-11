@@ -11,6 +11,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -18,8 +19,10 @@ import java.util.Random;
 
 /**
  * Sample handlers for E2E testing scenarios.
+ * Only active when running with the 'worker' profile.
  */
 @Component
+@Profile("worker")
 public class TestHandlers {
 
     private static final Logger log = LoggerFactory.getLogger(TestHandlers.class);
