@@ -63,7 +63,8 @@ class ProcessReplyRouterTest {
             30,   // visibilityTimeout
             4,    // concurrency
             100,  // pollIntervalMs - short for tests
-            false // useNotify
+            false, // useNotify
+            false  // archiveMessages
         );
     }
 

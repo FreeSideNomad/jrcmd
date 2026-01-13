@@ -107,7 +107,8 @@ public class ProcessAutoConfiguration {
             processProps.getVisibilityTimeout(),
             processProps.getConcurrency(),
             processProps.getPollIntervalMs(),
-            processProps.isUseNotify()
+            processProps.isUseNotify(),
+            processProps.isArchiveMessages()
         );
     }
 

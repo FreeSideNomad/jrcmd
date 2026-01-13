@@ -932,21 +932,23 @@ public class E2EService {
     }
 
     /**
-     * Get payments in a batch.
+     * Get payments in a batch, filtered by display status.
+     * Display status values: PROCESSING, COMPLETE, FAILED, CANCELLED, NEEDS_ATTENTION
      */
     @Transactional(readOnly = true)
-    public List<PaymentView> getPaymentsByBatchId(UUID batchId, PaymentStatus status, int limit, int offset) {
+    public List<PaymentView> getPaymentsByBatchId(UUID batchId, String displayStatus, int limit, int offset) {
         if (paymentRepository == null) {
             return List.of();
         }
 
         List<Payment> payments = paymentRepository.findByBatchId(batchId, jdbcTemplate);
 
+        // Convert to views first, then filter by display status (which includes process status)
         return payments.stream()
-            .filter(p -> status == null || p.status() == status)
+            .map(this::toPaymentView)
+            .filter(pv -> displayStatus == null || displayStatus.isBlank() || pv.displayStatus().equals(displayStatus))
             .skip(offset)
             .limit(limit)
-            .map(this::toPaymentView)
             .toList();
     }
 

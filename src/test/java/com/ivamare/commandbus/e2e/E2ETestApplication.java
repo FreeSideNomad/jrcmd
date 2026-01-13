@@ -77,7 +77,8 @@ public class E2ETestApplication {
             30,   // visibilityTimeout
             20,   // concurrency - increased from 2 for better throughput
             500,  // pollIntervalMs
-            true  // useNotify
+            true, // useNotify
+            true  // archiveMessages - archive for debugging
         );
     }
 

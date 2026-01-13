@@ -139,10 +139,8 @@ public record PaymentProcessState(
         map.put("l4_reference", l4Reference);
         map.put("l4_error_code", l4ErrorCode);
         map.put("l4_error_message", l4ErrorMessage);
-        // Computed fields
-        map.put("completedLevel", completedLevel());
-        map.put("hasAnyError", hasAnyError());
-        map.put("isL4Success", isL4Success());
+        // NOTE: Computed fields (completedLevel, hasAnyError, isL4Success) are NOT stored.
+        // They must be computed dynamically to avoid stale values from concurrent updates.
         if (behavior != null) {
             map.put("behavior", behavior.toMap());
         }

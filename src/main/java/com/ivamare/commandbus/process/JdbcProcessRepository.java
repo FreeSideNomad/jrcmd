@@ -325,7 +325,8 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public void updateStepReply(String domain, UUID processId, UUID commandId,
                                 ProcessAuditEntry entry, JdbcTemplate jdbc) {
-        String sql = """
+        // First try to update existing audit row (for replies to commands we sent)
+        String updateSql = """
             UPDATE commandbus.process_audit SET
                 reply_outcome = ?,
                 reply_data = ?::jsonb,
@@ -333,7 +334,7 @@ public class JdbcProcessRepository implements ProcessRepository {
             WHERE domain = ? AND process_id = ? AND command_id = ?
             """;
 
-        jdbc.update(sql,
+        int updated = jdbc.update(updateSql,
             entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
             serializeMap(entry.replyData()),
             entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null,
@@ -341,6 +342,29 @@ public class JdbcProcessRepository implements ProcessRepository {
             processId,
             commandId
         );
+
+        // If no row was updated, this is an external reply (e.g., L1-L4 confirmations).
+        // Insert a new audit entry to track it.
+        if (updated == 0) {
+            String insertSql = """
+                INSERT INTO commandbus.process_audit (domain, process_id, step_name, command_id,
+                    command_type, command_data, sent_at, reply_outcome, reply_data, received_at)
+                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
+                """;
+
+            jdbc.update(insertSql,
+                domain,
+                processId,
+                entry.stepName(),
+                commandId,
+                entry.commandType(),
+                serializeMap(entry.commandData()),
+                entry.sentAt() != null ? Timestamp.from(entry.sentAt()) : null,
+                entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
+                serializeMap(entry.replyData()),
+                entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null
+            );
+        }
     }
 
     @Override
@@ -398,5 +422,28 @@ public class JdbcProcessRepository implements ProcessRepository {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize JSON", e);
         }
+    }
+
+    @Override
+    public void updateStateAtomic(String domain, UUID processId, String statePatch,
+                                   String newStep, String newStatus,
+                                   String errorCode, String errorMessage,
+                                   JdbcTemplate jdbc) {
+        // Use queryForObject to handle the VOID return from the function
+        // SELECT on a VOID function returns a single row with null
+        String sql = "SELECT commandbus.sp_update_process_state(?, ?, ?::jsonb, ?, ?, ?, ?)";
+
+        jdbc.queryForObject(sql, (rs, rowNum) -> null,
+            domain,
+            processId,
+            statePatch,
+            newStep,
+            newStatus,
+            errorCode,
+            errorMessage
+        );
+
+        log.debug("Atomic state update for process {}.{} - step={}, status={}",
+            domain, processId, newStep, newStatus);
     }
 }

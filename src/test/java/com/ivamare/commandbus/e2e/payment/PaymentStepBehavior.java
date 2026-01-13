@@ -46,6 +46,9 @@ public record PaymentStepBehavior(
             case AWAIT_RISK_APPROVAL -> ProbabilisticBehavior.defaults();  // Wait-only, no behavior needed
             case AWAIT_CONFIRMATIONS -> ProbabilisticBehavior.defaults();  // L1-L4 behaviors used by simulator
             case UNWIND_RISK, UNWIND_FX -> ProbabilisticBehavior.defaults();
+            // Status update steps have no probabilistic behavior - always succeed instantly
+            case UPDATE_STATUS_PROCESSING, UPDATE_STATUS_COMPLETE,
+                 UPDATE_STATUS_FAILED, UPDATE_STATUS_CANCELLED -> ProbabilisticBehavior.defaults();
         };
     }
 

@@ -226,7 +226,7 @@ public class PaymentController {
     @GetMapping("/batch/{batchId}")
     public String paymentBatchDetail(
             @PathVariable UUID batchId,
-            @RequestParam(required = false) PaymentStatus status,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             Model model) {
@@ -243,7 +243,8 @@ public class PaymentController {
         model.addAttribute("payments", payments);
         model.addAttribute("stats", stats);
         model.addAttribute("status", status);
-        model.addAttribute("statuses", PaymentStatus.values());
+        // Display statuses for filtering: PROCESSING, COMPLETE, FAILED, CANCELLED, NEEDS_ATTENTION
+        model.addAttribute("statuses", java.util.List.of("PROCESSING", "COMPLETE", "FAILED", "CANCELLED", "NEEDS_ATTENTION"));
         model.addAttribute("page", page);
         model.addAttribute("size", size);
 

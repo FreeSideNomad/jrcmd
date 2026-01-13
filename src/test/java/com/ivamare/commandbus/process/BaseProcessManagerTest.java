@@ -247,11 +247,17 @@ class BaseProcessManagerTest {
             isNull()
         );
 
-        // Verify process was updated to WAITING_FOR_REPLY
-        verify(processRepo).update(argThat(process ->
-            process.status() == ProcessStatus.WAITING_FOR_REPLY &&
-            process.currentStep() == OrderStep.RESERVE_INVENTORY
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called with WAITING_FOR_REPLY status
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),  // state JSON
+            eq("RESERVE_INVENTORY"),
+            eq("WAITING_FOR_REPLY"),
+            isNull(),
+            isNull(),
+            eq(jdbcTemplate)
+        );
 
         // Verify audit entry was created
         verify(processRepo).logStep(
@@ -293,11 +299,17 @@ class BaseProcessManagerTest {
             isNull()
         );
 
-        // Verify process was updated with new step
-        verify(processRepo).update(argThat(p ->
-            p.status() == ProcessStatus.WAITING_FOR_REPLY &&
-            p.currentStep() == OrderStep.PROCESS_PAYMENT
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called for new step
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),  // state JSON
+            eq("PROCESS_PAYMENT"),
+            eq("WAITING_FOR_REPLY"),
+            isNull(),
+            isNull(),
+            eq(jdbcTemplate)
+        );
     }
 
     @Test
@@ -322,11 +334,17 @@ class BaseProcessManagerTest {
         // Verify no more commands sent
         verify(commandBus, never()).send(anyString(), anyString(), any(UUID.class), any(), any(), anyString(), any());
 
-        // Verify process marked as completed
-        verify(processRepo).update(argThat(p ->
-            p.status() == ProcessStatus.COMPLETED &&
-            p.completedAt() != null
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called with COMPLETED status
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),  // state JSON
+            isNull(),     // step doesn't change on completion
+            eq("COMPLETED"),
+            isNull(),
+            isNull(),
+            eq(jdbcTemplate)
+        );
     }
 
     @Test
@@ -348,12 +366,17 @@ class BaseProcessManagerTest {
 
         processManager.handleReply(reply, process, jdbcTemplate);
 
-        // Verify process marked as waiting for TSQ
-        verify(processRepo).update(argThat(p ->
-            p.status() == ProcessStatus.WAITING_FOR_TSQ &&
-            "PAYMENT_DECLINED".equals(p.errorCode()) &&
-            "Insufficient funds".equals(p.errorMessage())
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called with WAITING_FOR_TSQ status and error info
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),  // state JSON
+            eq("PROCESS_PAYMENT"),
+            eq("WAITING_FOR_TSQ"),
+            eq("PAYMENT_DECLINED"),
+            eq("Insufficient funds"),
+            eq(jdbcTemplate)
+        );
     }
 
     @Test
@@ -380,10 +403,17 @@ class BaseProcessManagerTest {
 
         processManager.handleReply(reply, process, jdbcTemplate);
 
-        // Verify status changed to COMPENSATING (not WAITING_FOR_TSQ)
-        verify(processRepo, atLeastOnce()).update(argThat(p ->
-            p.status() == ProcessStatus.COMPENSATING
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called with COMPENSATING status
+        verify(processRepo, atLeastOnce()).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),
+            any(),  // step may vary
+            eq("COMPENSATING"),
+            any(),
+            any(),
+            eq(jdbcTemplate)
+        );
 
         // Verify compensation command sent (RELEASE_INVENTORY for RESERVE_INVENTORY)
         verify(commandBus).send(
@@ -420,10 +450,17 @@ class BaseProcessManagerTest {
 
         processManager.handleReply(reply, process, jdbcTemplate);
 
-        // Verify status changed to COMPENSATING
-        verify(processRepo, atLeastOnce()).update(argThat(p ->
-            p.status() == ProcessStatus.COMPENSATING
-        ), eq(jdbcTemplate));
+        // Verify atomic update was called with COMPENSATING status
+        verify(processRepo, atLeastOnce()).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),
+            any(),  // step may vary
+            eq("COMPENSATING"),
+            any(),
+            any(),
+            eq(jdbcTemplate)
+        );
 
         // Verify compensation command sent (REFUND_PAYMENT for PROCESS_PAYMENT)
         verify(commandBus).send(
@@ -554,9 +591,16 @@ class BaseProcessManagerTest {
         processManager.handleReply(reply, process, jdbcTemplate);
 
         // Should mark as COMPENSATED since there's nothing to compensate
-        verify(processRepo, atLeastOnce()).update(argThat(p ->
-            p.status() == ProcessStatus.COMPENSATED
-        ), eq(jdbcTemplate));
+        verify(processRepo, atLeastOnce()).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),
+            any(),  // step may be null
+            eq("COMPENSATED"),
+            any(),
+            any(),
+            eq(jdbcTemplate)
+        );
     }
 
     @Test

@@ -22,11 +22,15 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Timestamp;
+import java.time.Instant;
+
 /**
  * Command handlers for the payments domain.
  *
  * <p>Handles the payment processing workflow:
  * <ul>
+ *   <li>UpdatePaymentStatus - Update payment status (no probabilistic behavior)</li>
  *   <li>BookTransactionRisk - Risk assessment and approval</li>
  *   <li>BookFx - Foreign exchange booking</li>
  *   <li>SubmitPayment - Submit payment to network</li>
@@ -46,6 +50,7 @@ public class PaymentHandlers {
     private final HandlerRegistry handlerRegistry;
     private final PaymentNetworkSimulator networkSimulator;
     private final PendingApprovalRepository pendingApprovalRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final Random random = new Random();
 
     // Simulated FX rates (base currency USD)
@@ -62,20 +67,55 @@ public class PaymentHandlers {
     public PaymentHandlers(
             HandlerRegistry handlerRegistry,
             PaymentNetworkSimulator networkSimulator,
-            PendingApprovalRepository pendingApprovalRepository) {
+            PendingApprovalRepository pendingApprovalRepository,
+            JdbcTemplate jdbcTemplate) {
         this.handlerRegistry = handlerRegistry;
         this.networkSimulator = networkSimulator;
         this.pendingApprovalRepository = pendingApprovalRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @PostConstruct
     public void registerHandlers() {
+        handlerRegistry.register(DOMAIN, "UpdatePaymentStatus", this::handleUpdatePaymentStatus);
         handlerRegistry.register(DOMAIN, "BookTransactionRisk", this::handleBookTransactionRisk);
         handlerRegistry.register(DOMAIN, "BookFx", this::handleBookFx);
         handlerRegistry.register(DOMAIN, "SubmitPayment", this::handleSubmitPayment);
         handlerRegistry.register(DOMAIN, "UnwindTransactionRisk", this::handleUnwindTransactionRisk);
         handlerRegistry.register(DOMAIN, "UnwindFx", this::handleUnwindFx);
-        log.info("Registered payments domain handlers: BookTransactionRisk, BookFx, SubmitPayment, UnwindTransactionRisk, UnwindFx");
+        log.info("Registered payments domain handlers: UpdatePaymentStatus, BookTransactionRisk, BookFx, SubmitPayment, UnwindTransactionRisk, UnwindFx");
+    }
+
+    /**
+     * Handle UpdatePaymentStatus command - update payment status directly.
+     *
+     * <p>This handler does NOT have probabilistic behavior - it always succeeds instantly.
+     * Used for status transitions at the start and end of process workflow.
+     */
+    public Map<String, Object> handleUpdatePaymentStatus(Command command, HandlerContext context) {
+        Map<String, Object> data = command.data();
+        String paymentIdStr = (String) data.get("payment_id");
+        String targetStatus = (String) data.get("target_status");
+
+        UUID paymentId = UUID.fromString(paymentIdStr);
+        PaymentStatus status = PaymentStatus.valueOf(targetStatus);
+
+        log.info("Updating payment {} status to {}", paymentId, status);
+
+        jdbcTemplate.update(
+            "UPDATE e2e.payment SET status = ?, updated_at = ? WHERE payment_id = ?",
+            status.name(),
+            Timestamp.from(Instant.now()),
+            paymentId
+        );
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("payment_id", paymentIdStr);
+        result.put("status", status.name());
+        result.put("updated_at", Instant.now().toString());
+
+        log.info("Payment {} status updated to {}", paymentId, status);
+        return result;
     }
 
     /**
@@ -206,10 +246,11 @@ public class PaymentHandlers {
 
         String submissionReference = "SUB-" + System.currentTimeMillis();
 
-        // Get behavior for L1-L4 simulation
-        Map<String, Object> behaviorMap = (Map<String, Object>) data.get("behavior");
-        PaymentStepBehavior stepBehavior = behaviorMap != null
-            ? PaymentStepBehavior.fromMap(behaviorMap)
+        // Get full step behavior for L1-L4 simulation (includes await_l1-l4 settings)
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stepBehaviorMap = (Map<String, Object>) data.get("step_behavior");
+        PaymentStepBehavior stepBehavior = stepBehaviorMap != null
+            ? PaymentStepBehavior.fromMap(stepBehaviorMap)
             : PaymentStepBehavior.defaults();
 
         // Trigger network simulator to send L1-L4 replies asynchronously

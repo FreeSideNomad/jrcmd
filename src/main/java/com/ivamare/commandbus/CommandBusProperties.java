@@ -242,6 +242,12 @@ public class CommandBusProperties {
          */
         private boolean autoStart = false;
 
+        /**
+         * Archive messages instead of deleting them after processing.
+         * Useful for debugging to trace which messages were processed.
+         */
+        private boolean archiveMessages = false;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -304,6 +310,14 @@ public class CommandBusProperties {
 
         public void setAutoStart(boolean autoStart) {
             this.autoStart = autoStart;
+        }
+
+        public boolean isArchiveMessages() {
+            return archiveMessages;
+        }
+
+        public void setArchiveMessages(boolean archiveMessages) {
+            this.archiveMessages = archiveMessages;
         }
     }
 }
