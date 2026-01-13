@@ -34,4 +34,23 @@ class ProcessStatusTest {
             assertEquals(status, parsed);
         }
     }
+
+    @Test
+    @DisplayName("isTerminal should return true for terminal statuses")
+    void isTerminalShouldReturnTrueForTerminalStatuses() {
+        assertTrue(ProcessStatus.COMPLETED.isTerminal());
+        assertTrue(ProcessStatus.COMPENSATED.isTerminal());
+        assertTrue(ProcessStatus.FAILED.isTerminal());
+        assertTrue(ProcessStatus.CANCELED.isTerminal());
+    }
+
+    @Test
+    @DisplayName("isTerminal should return false for non-terminal statuses")
+    void isTerminalShouldReturnFalseForNonTerminalStatuses() {
+        assertFalse(ProcessStatus.PENDING.isTerminal());
+        assertFalse(ProcessStatus.IN_PROGRESS.isTerminal());
+        assertFalse(ProcessStatus.WAITING_FOR_REPLY.isTerminal());
+        assertFalse(ProcessStatus.WAITING_FOR_TSQ.isTerminal());
+        assertFalse(ProcessStatus.COMPENSATING.isTerminal());
+    }
 }

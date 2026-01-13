@@ -638,4 +638,234 @@ class BaseProcessManagerTest {
             isNull()
         );
     }
+
+    @Test
+    @DisplayName("startBatch should return empty list for empty input")
+    void startBatchShouldReturnEmptyListForEmptyInput() {
+        List<UUID> result = processManager.startBatch(List.of());
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    @DisplayName("startBatch should start multiple processes")
+    void startBatchShouldStartMultipleProcesses() {
+        // Use JdbcProcessRepository mock for batch operations
+        JdbcProcessRepository jdbcProcessRepo = mock(JdbcProcessRepository.class);
+        TestOrderProcess batchManager = new TestOrderProcess(commandBus, jdbcProcessRepo, jdbcTemplate, transactionTemplate);
+
+        List<Map<String, Object>> initialDataList = List.of(
+            Map.of("orderId", "ORD-001", "customerId", "CUST-A", "amount", 100),
+            Map.of("orderId", "ORD-002", "customerId", "CUST-B", "amount", 200),
+            Map.of("orderId", "ORD-003", "customerId", "CUST-C", "amount", 300)
+        );
+
+        List<UUID> processIds = batchManager.startBatch(initialDataList);
+
+        assertEquals(3, processIds.size());
+
+        // Verify batch save was called
+        verify(jdbcProcessRepo).saveBatch(anyList(), eq(jdbcTemplate));
+
+        // Verify batch send was called
+        verify(commandBus).sendBatch(anyList());
+
+        // Verify batch audit log was called
+        verify(jdbcProcessRepo).logBatchSteps(eq("orders"), anyList(), eq(jdbcTemplate));
+    }
+
+    @Test
+    @DisplayName("startBatch should fallback to individual saves for non-JDBC repository")
+    void startBatchShouldFallbackToIndividualSavesForNonJdbcRepository() {
+        List<Map<String, Object>> initialDataList = List.of(
+            Map.of("orderId", "ORD-001", "customerId", "CUST-A", "amount", 100),
+            Map.of("orderId", "ORD-002", "customerId", "CUST-B", "amount", 200)
+        );
+
+        List<UUID> processIds = processManager.startBatch(initialDataList);
+
+        assertEquals(2, processIds.size());
+
+        // Verify individual saves were called (fallback path)
+        verify(processRepo, times(2)).save(any(), eq(jdbcTemplate));
+
+        // Verify individual audit logs were called (fallback path)
+        verify(processRepo, times(2)).logStep(eq("orders"), any(UUID.class), any(), eq(jdbcTemplate));
+    }
+
+    @Test
+    @DisplayName("updateStateOnly should update state for terminal process")
+    void updateStateOnlyShouldUpdateStateForTerminalProcess() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, "RES-789", null, null);
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(state.toMap()),
+            ProcessStatus.COMPLETED,  // Terminal status
+            OrderStep.SHIP_ORDER,
+            Instant.now(), Instant.now(), Instant.now(), null, null
+        );
+
+        Reply reply = Reply.success(commandId, processId, Map.of("shipmentId", "SHIP-999"));
+
+        processManager.updateStateOnly(reply, process, jdbcTemplate);
+
+        // Verify state was updated atomically
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),  // state JSON
+            isNull(),     // step - null to preserve
+            isNull(),     // status - null to preserve
+            any(),        // completedAt
+            any(),        // updatedAt
+            eq(jdbcTemplate)
+        );
+    }
+
+    @Test
+    @DisplayName("updateStateOnly should skip update if state unchanged")
+    void updateStateOnlyShouldSkipUpdateIfStateUnchanged() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        // State that won't change from reply
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, null, null, null);
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(state.toMap()),
+            ProcessStatus.COMPLETED,
+            OrderStep.RESERVE_INVENTORY,  // This step expects reservationId, but reply has wrong key
+            Instant.now(), Instant.now(), Instant.now(), null, null
+        );
+
+        // Reply with data that doesn't match expected update pattern
+        Reply reply = Reply.success(commandId, processId, Map.of("someOtherKey", "value"));
+
+        processManager.updateStateOnly(reply, process, jdbcTemplate);
+
+        // Verify no update was called since state didn't change
+        verify(processRepo, never()).updateStateAtomic(
+            anyString(), any(UUID.class), anyString(), anyString(), anyString(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("updateStateOnly should handle process with no current step")
+    void updateStateOnlyShouldHandleProcessWithNoCurrentStep() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, null, null, null);
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(state.toMap()),
+            ProcessStatus.COMPLETED,
+            null,  // No current step
+            Instant.now(), Instant.now(), Instant.now(), null, null
+        );
+
+        Reply reply = Reply.success(commandId, processId, Map.of("reservationId", "RES-123"));
+
+        // Should not throw, just log warning
+        processManager.updateStateOnly(reply, process, jdbcTemplate);
+
+        // Verify no update was called
+        verify(processRepo, never()).updateStateAtomic(
+            anyString(), any(UUID.class), anyString(), anyString(), anyString(), any(), any(), any()
+        );
+    }
+
+    @Test
+    @DisplayName("updateStateOnly should handle typed state directly")
+    void updateStateOnlyShouldHandleTypedStateDirectly() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, "RES-789", null, null);
+        // Use typed state directly instead of MapProcessState
+        ProcessMetadata<OrderState, OrderStep> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            state,  // Typed state
+            ProcessStatus.COMPLETED,
+            OrderStep.SHIP_ORDER,
+            Instant.now(), Instant.now(), Instant.now(), null, null
+        );
+
+        Reply reply = Reply.success(commandId, processId, Map.of("shipmentId", "SHIP-999"));
+
+        processManager.updateStateOnly(reply, process, jdbcTemplate);
+
+        // Verify state was updated
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),
+            isNull(),
+            isNull(),
+            any(),
+            any(),
+            eq(jdbcTemplate)
+        );
+    }
+
+    @Test
+    @DisplayName("handleReply without JdbcTemplate should use transaction template")
+    void handleReplyWithoutJdbcTemplateShouldUseTransactionTemplate() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, "RES-789", null, null);
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(state.toMap()),
+            ProcessStatus.WAITING_FOR_REPLY,
+            OrderStep.PROCESS_PAYMENT,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        Reply reply = Reply.success(commandId, processId, Map.of("paymentId", "PAY-123"));
+
+        // Call the version without JdbcTemplate
+        processManager.handleReply(reply, process);
+
+        // Verify transaction template was used
+        verify(transactionTemplate).executeWithoutResult(any());
+    }
+
+    @Test
+    @DisplayName("updateStateOnly should extract step from state map when step is null")
+    void updateStateOnlyShouldExtractStepFromStateMapWhenStepIsNull() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        OrderState state = new OrderState("ORD-123", "CUST-456", 500, "RES-789", null, null);
+        Map<String, Object> stateMapWithStep = new java.util.HashMap<>(state.toMap());
+        stateMapWithStep.put("__current_step__", "SHIP_ORDER");
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "orders", processId, "ORDER_FULFILLMENT",
+            new MapProcessState(stateMapWithStep),
+            ProcessStatus.COMPLETED,
+            null,  // No current step set directly - should be extracted from state map
+            Instant.now(), Instant.now(), Instant.now(), null, null
+        );
+
+        Reply reply = Reply.success(commandId, processId, Map.of("shipmentId", "SHIP-999"));
+
+        processManager.updateStateOnly(reply, process, jdbcTemplate);
+
+        // Should extract step from state map and update state
+        verify(processRepo).updateStateAtomic(
+            eq("orders"),
+            eq(processId),
+            anyString(),
+            isNull(),
+            isNull(),
+            any(),
+            any(),
+            eq(jdbcTemplate)
+        );
+    }
 }

@@ -385,4 +385,124 @@ class JdbcProcessRepositoryTest {
         Object[] args = argsCaptor.getValue();
         assertEquals("{}", args[5]);  // Should serialize to empty JSON
     }
+
+    @Test
+    @DisplayName("should save batch of processes")
+    void shouldSaveBatchOfProcesses() {
+        UUID processId1 = UUID.randomUUID();
+        UUID processId2 = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        List<ProcessMetadata<?, ?>> processes = List.of(
+            new ProcessMetadata<>("orders", processId1, "ORDER", new TestState("state1"),
+                ProcessStatus.WAITING_FOR_REPLY, TestStep.STEP_ONE, now, now, null, null, null),
+            new ProcessMetadata<>("orders", processId2, "ORDER", new TestState("state2"),
+                ProcessStatus.WAITING_FOR_REPLY, TestStep.STEP_TWO, now, now, null, null, null)
+        );
+
+        repository.saveBatch(processes, jdbcTemplate);
+
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO commandbus.process"), anyList());
+    }
+
+    @Test
+    @DisplayName("should not call batchUpdate for empty process list")
+    void shouldNotCallBatchUpdateForEmptyProcessList() {
+        repository.saveBatch(List.of(), jdbcTemplate);
+
+        verify(jdbcTemplate, never()).batchUpdate(anyString(), anyList());
+    }
+
+    @Test
+    @DisplayName("should log batch of steps")
+    void shouldLogBatchOfSteps() {
+        UUID processId1 = UUID.randomUUID();
+        UUID processId2 = UUID.randomUUID();
+        UUID commandId1 = UUID.randomUUID();
+        UUID commandId2 = UUID.randomUUID();
+
+        ProcessAuditEntry entry1 = ProcessAuditEntry.forCommand("STEP_ONE", commandId1, "Command1", Map.of("key", "val1"));
+        ProcessAuditEntry entry2 = ProcessAuditEntry.forCommand("STEP_TWO", commandId2, "Command2", Map.of("key", "val2"));
+
+        List<JdbcProcessRepository.ProcessAuditBatchEntry> entries = List.of(
+            new JdbcProcessRepository.ProcessAuditBatchEntry(processId1, entry1),
+            new JdbcProcessRepository.ProcessAuditBatchEntry(processId2, entry2)
+        );
+
+        repository.logBatchSteps("orders", entries, jdbcTemplate);
+
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO commandbus.process_audit"), anyList());
+    }
+
+    @Test
+    @DisplayName("should not call batchUpdate for empty audit entry list")
+    void shouldNotCallBatchUpdateForEmptyAuditEntryList() {
+        repository.logBatchSteps("orders", List.of(), jdbcTemplate);
+
+        verify(jdbcTemplate, never()).batchUpdate(contains("process_audit"), anyList());
+    }
+
+    @Test
+    @DisplayName("should get process by id using row mapper")
+    void shouldGetProcessByIdUsingRowMapper() {
+        UUID processId = UUID.randomUUID();
+        Instant now = Instant.now();
+        Timestamp timestamp = Timestamp.from(now);
+
+        // Capture the row mapper that gets passed to query()
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<RowMapper<ProcessMetadata<?, ?>>> mapperCaptor =
+            ArgumentCaptor.forClass(RowMapper.class);
+
+        when(jdbcTemplate.query(contains("SELECT"), mapperCaptor.capture(), eq("orders"), eq(processId)))
+            .thenReturn(List.of());
+
+        repository.getById("orders", processId, jdbcTemplate);
+
+        // Verify query was called with correct parameters
+        verify(jdbcTemplate).query(contains("SELECT"), any(RowMapper.class), eq("orders"), eq(processId));
+    }
+
+    @Test
+    @DisplayName("should get audit trail using row mapper")
+    void shouldGetAuditTrailUsingRowMapper() {
+        UUID processId = UUID.randomUUID();
+
+        when(jdbcTemplate.query(contains("process_audit"), any(RowMapper.class), eq("orders"), eq(processId)))
+            .thenReturn(List.of());
+
+        repository.getAuditTrail("orders", processId);
+
+        verify(jdbcTemplate).query(contains("process_audit"), any(RowMapper.class), eq("orders"), eq(processId));
+    }
+
+    @Test
+    @DisplayName("should call sp_update_process_state for atomic update")
+    void shouldCallSpUpdateProcessStateForAtomicUpdate() {
+        UUID processId = UUID.randomUUID();
+
+        repository.updateStateAtomic(
+            "orders",
+            processId,
+            "{\"test\": true}",
+            "STEP_ONE",
+            "IN_PROGRESS",
+            null,  // errorCode
+            null,  // errorMessage
+            jdbcTemplate
+        );
+
+        // The method uses queryForObject to call the stored procedure
+        verify(jdbcTemplate).queryForObject(
+            contains("sp_update_process_state"),
+            any(RowMapper.class),
+            eq("orders"),
+            eq(processId),
+            eq("{\"test\": true}"),
+            eq("STEP_ONE"),
+            eq("IN_PROGRESS"),
+            isNull(),
+            isNull()
+        );
+    }
 }

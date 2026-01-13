@@ -482,4 +482,61 @@ class ProcessReplyRouterTest {
         verify(pgmqClient, timeout(1000)).delete("test_replies", 1L);
         verify(pgmqClient, timeout(1000)).delete("test_replies", 2L);
     }
+
+    @Test
+    @DisplayName("should archive messages when archiveMessages is true")
+    void shouldArchiveMessagesWhenArchiveMessagesIsTrue() throws Exception {
+        // Create router with archiveMessages=true
+        ProcessReplyRouter archiveRouter = new ProcessReplyRouter(
+            dataSource,
+            jdbcTemplate,
+            transactionTemplate,
+            processRepo,
+            Map.of("TEST_PROCESS", manager),
+            pgmqClient,
+            "test_replies",
+            "test_domain",
+            30,
+            4,
+            100,
+            false, // useNotify
+            true   // archiveMessages
+        );
+
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 999L;
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.WAITING_FOR_REPLY,
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        archiveRouter.start();
+        Thread.sleep(300);
+        archiveRouter.stopNow();
+
+        // Should archive instead of delete
+        verify(pgmqClient, timeout(1000)).archive("test_replies", msgId);
+        verify(pgmqClient, never()).delete("test_replies", msgId);
+    }
 }
