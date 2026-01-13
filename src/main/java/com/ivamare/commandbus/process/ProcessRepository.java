@@ -86,4 +86,21 @@ public interface ProcessRepository {
      * Get list of completed step names within an existing transaction.
      */
     List<String> getCompletedSteps(String domain, UUID processId, JdbcTemplate jdbcTemplate);
+
+    /**
+     * Atomically update process state using JSONB merge.
+     * Avoids read-modify-write cycle by patching state directly in database.
+     *
+     * @param domain       Process domain
+     * @param processId    Process ID
+     * @param statePatch   JSONB patch to merge into existing state
+     * @param newStep      New step name (null to keep current)
+     * @param newStatus    New status (null to keep current)
+     * @param errorCode    Error code (null to keep current)
+     * @param errorMessage Error message (null to keep current)
+     */
+    void updateStateAtomic(String domain, UUID processId, String statePatch,
+                           String newStep, String newStatus,
+                           String errorCode, String errorMessage,
+                           JdbcTemplate jdbcTemplate);
 }

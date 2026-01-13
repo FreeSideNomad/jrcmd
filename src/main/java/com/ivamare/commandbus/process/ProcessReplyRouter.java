@@ -45,6 +45,7 @@ public class ProcessReplyRouter {
     private final int concurrency;
     private final long pollIntervalMs;
     private final boolean useNotify;
+    private final boolean archiveMessages;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
@@ -65,7 +66,8 @@ public class ProcessReplyRouter {
             int visibilityTimeout,
             int concurrency,
             long pollIntervalMs,
-            boolean useNotify) {
+            boolean useNotify,
+            boolean archiveMessages) {
         this.dataSource = dataSource;
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
@@ -78,6 +80,7 @@ public class ProcessReplyRouter {
         this.concurrency = concurrency;
         this.pollIntervalMs = pollIntervalMs;
         this.useNotify = useNotify;
+        this.archiveMessages = archiveMessages;
         this.semaphore = new Semaphore(concurrency);
     }
 
@@ -277,7 +280,7 @@ public class ProcessReplyRouter {
 
         if (reply.correlationId() == null) {
             log.warn("Reply {} has no correlation_id, discarding", msgId);
-            pgmqClient.delete(replyQueue, msgId);
+            removeMessage(msgId);
             return;
         }
 
@@ -290,7 +293,7 @@ public class ProcessReplyRouter {
 
         if (processOpt.isEmpty()) {
             log.warn("Reply for unknown process {}, discarding", reply.correlationId());
-            pgmqClient.delete(replyQueue, msgId);
+            removeMessage(msgId);
             return;
         }
 
@@ -299,7 +302,7 @@ public class ProcessReplyRouter {
 
         if (manager == null) {
             log.error("No manager for process type {}, discarding", process.processType());
-            pgmqClient.delete(replyQueue, msgId);
+            removeMessage(msgId);
             return;
         }
 
@@ -315,7 +318,7 @@ public class ProcessReplyRouter {
         }
 
         // Delete message (atomically with process update since we're in a transaction)
-        pgmqClient.delete(replyQueue, msgId);
+        removeMessage(msgId);
 
         log.debug("Processed reply for process {} step {}",
             process.processId(), process.currentStep());
@@ -342,5 +345,16 @@ public class ProcessReplyRouter {
         if (value == null) return null;
         if (value instanceof UUID) return (UUID) value;
         return UUID.fromString(value.toString());
+    }
+
+    /**
+     * Remove a message from the queue - either delete or archive based on configuration.
+     */
+    private void removeMessage(long msgId) {
+        if (archiveMessages) {
+            pgmqClient.archive(replyQueue, msgId);
+        } else {
+            pgmqClient.delete(replyQueue, msgId);
+        }
     }
 }

@@ -75,9 +75,10 @@ public class E2ETestApplication {
             "payments__process_replies",
             "payments",
             30,   // visibilityTimeout
-            2,    // concurrency
+            20,   // concurrency - increased from 2 for better throughput
             500,  // pollIntervalMs
-            true  // useNotify
+            true, // useNotify
+            true  // archiveMessages - archive for debugging
         );
     }
 

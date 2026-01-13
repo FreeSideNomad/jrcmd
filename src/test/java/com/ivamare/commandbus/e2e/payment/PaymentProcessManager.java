@@ -15,7 +15,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -106,7 +108,7 @@ public class PaymentProcessManager
 
     @Override
     public PaymentStep getFirstStep(PaymentProcessState state) {
-        return PaymentStep.BOOK_RISK;
+        return PaymentStep.UPDATE_STATUS_PROCESSING;
     }
 
     @Override
@@ -115,6 +117,18 @@ public class PaymentProcessManager
         payload.put("payment_id", state.paymentId().toString());
 
         switch (step) {
+            case UPDATE_STATUS_PROCESSING -> {
+                payload.put("target_status", PaymentStatus.PROCESSING.name());
+            }
+            case UPDATE_STATUS_COMPLETE -> {
+                payload.put("target_status", PaymentStatus.COMPLETE.name());
+            }
+            case UPDATE_STATUS_FAILED -> {
+                payload.put("target_status", PaymentStatus.FAILED.name());
+            }
+            case UPDATE_STATUS_CANCELLED -> {
+                payload.put("target_status", PaymentStatus.CANCELLED.name());
+            }
             case BOOK_RISK -> {
                 // Load payment details for risk assessment
                 paymentRepository.findById(state.paymentId()).ifPresent(payment -> {
@@ -170,6 +184,10 @@ public class PaymentProcessManager
             if (step == PaymentStep.BOOK_RISK) {
                 payload.put("risk_behavior", state.behavior().bookRisk().toMap());
             }
+            // SUBMIT_PAYMENT needs full behavior for L1-L4 network simulation
+            if (step == PaymentStep.SUBMIT_PAYMENT) {
+                payload.put("step_behavior", state.behavior().toMap());
+            }
         }
 
         log.debug("Building command for step {} with payload: {}", step, payload);
@@ -198,6 +216,12 @@ public class PaymentProcessManager
             return state;
         }
 
+        // Check for L1-L4 confirmations FIRST - they can arrive while still on SUBMIT_PAYMENT step
+        // due to race conditions (network simulator sends confirmations immediately after SUBMIT)
+        if (data.containsKey("level")) {
+            return handleConfirmation(state, reply, data);
+        }
+
         return switch (step) {
             case BOOK_RISK -> {
                 String status = (String) data.get("status");
@@ -224,50 +248,57 @@ public class PaymentProcessManager
                     ? UUID.fromString((String) data.get("command_id")) : reply.commandId();
                 yield state.withSubmissionResult(reference, commandId);
             }
-            case AWAIT_CONFIRMATIONS -> {
-                // Handle L1-L4 confirmations - can arrive in any order
-                int level = data.get("level") != null
-                    ? ((Number) data.get("level")).intValue() : 0;
-                boolean isError = reply.outcome() == ReplyOutcome.FAILED;
-
-                if (isError) {
-                    // Error code/message are at Reply level, not in data
-                    String errorCode = reply.errorCode();
-                    String errorMessage = reply.errorMessage();
-                    log.info("L{} FAILED for process {} - code: {}, message: {}",
-                        level, state.paymentId(), errorCode, errorMessage);
-                    yield switch (level) {
-                        case 1 -> state.withL1Error(errorCode, errorMessage);
-                        case 2 -> state.withL2Error(errorCode, errorMessage);
-                        case 3 -> state.withL3Error(errorCode, errorMessage);
-                        case 4 -> state.withL4Error(errorCode, errorMessage);
-                        default -> state;
-                    };
-                } else {
-                    String reference = (String) data.get("reference");
-                    log.info("L{} SUCCESS for process {} - reference: {}",
-                        level, state.paymentId(), reference);
-                    yield switch (level) {
-                        case 1 -> state.withL1Success(reference);
-                        case 2 -> state.withL2Success(reference);
-                        case 3 -> state.withL3Success(reference);
-                        case 4 -> state.withL4Success(reference);
-                        default -> state;
-                    };
-                }
-            }
+            case AWAIT_CONFIRMATIONS -> state;  // L1-L4 handled above
             case UNWIND_RISK, UNWIND_FX -> state;  // No state changes for compensation
+            // Status update steps don't change process state
+            case UPDATE_STATUS_PROCESSING, UPDATE_STATUS_COMPLETE,
+                 UPDATE_STATUS_FAILED, UPDATE_STATUS_CANCELLED -> state;
         };
+    }
+
+    /**
+     * Handle L1-L4 confirmation replies. Extracted to handle confirmations regardless of current step.
+     */
+    private PaymentProcessState handleConfirmation(PaymentProcessState state, Reply reply, Map<String, Object> data) {
+        int level = data.get("level") != null
+            ? ((Number) data.get("level")).intValue() : 0;
+        boolean isError = reply.outcome() == ReplyOutcome.FAILED;
+
+        if (isError) {
+            String errorCode = reply.errorCode();
+            String errorMessage = reply.errorMessage();
+            log.info("L{} FAILED for process {} - code: {}, message: {}",
+                level, state.paymentId(), errorCode, errorMessage);
+            return switch (level) {
+                case 1 -> state.withL1Error(errorCode, errorMessage);
+                case 2 -> state.withL2Error(errorCode, errorMessage);
+                case 3 -> state.withL3Error(errorCode, errorMessage);
+                case 4 -> state.withL4Error(errorCode, errorMessage);
+                default -> state;
+            };
+        } else {
+            String reference = (String) data.get("reference");
+            log.info("L{} SUCCESS for process {} - reference: {}",
+                level, state.paymentId(), reference);
+            return switch (level) {
+                case 1 -> state.withL1Success(reference);
+                case 2 -> state.withL2Success(reference);
+                case 3 -> state.withL3Success(reference);
+                case 4 -> state.withL4Success(reference);
+                default -> state;
+            };
+        }
     }
 
     @Override
     public PaymentStep getNextStep(PaymentStep currentStep, Reply reply, PaymentProcessState state) {
         return switch (currentStep) {
+            case UPDATE_STATUS_PROCESSING -> PaymentStep.BOOK_RISK;
             case BOOK_RISK -> {
                 // Check if risk was declined (handled elsewhere via business rule failure)
                 String status = reply.data() != null ? (String) reply.data().get("status") : null;
                 if ("DECLINED".equals(status)) {
-                    yield null;  // Process fails, no next step
+                    yield PaymentStep.UPDATE_STATUS_FAILED;  // Mark failed after declined
                 }
                 // Check if manual approval is pending
                 if ("PENDING_APPROVAL".equals(status)) {
@@ -281,18 +312,30 @@ public class PaymentProcessManager
                 yield state.fxRequired() ? PaymentStep.BOOK_FX : PaymentStep.SUBMIT_PAYMENT;
             }
             case BOOK_FX -> PaymentStep.SUBMIT_PAYMENT;
-            case SUBMIT_PAYMENT -> PaymentStep.AWAIT_CONFIRMATIONS;
+            case SUBMIT_PAYMENT -> {
+                // L1-L4 can arrive before SUBMIT reply due to race conditions.
+                // Check if already complete or has errors.
+                if (state.hasAnyError()) {
+                    log.info("Process {} has error during SUBMIT, will be cancelled", state.paymentId());
+                    yield PaymentStep.UPDATE_STATUS_CANCELLED;
+                }
+                if (state.isL4Success()) {
+                    log.info("Process {} L4 already received during SUBMIT, completing", state.paymentId());
+                    yield PaymentStep.UPDATE_STATUS_COMPLETE;
+                }
+                yield PaymentStep.AWAIT_CONFIRMATIONS;
+            }
             case AWAIT_CONFIRMATIONS -> {
                 // Check if any error occurred - process should be cancelled
                 if (state.hasAnyError()) {
                     log.info("Process {} has error, will be cancelled", state.paymentId());
-                    yield null;  // Process will be CANCELLED
+                    yield PaymentStep.UPDATE_STATUS_CANCELLED;
                 }
                 // Check if L4 success received - process is complete
                 if (state.isL4Success()) {
                     log.info("Process {} L4 success, completing. Levels received: {}",
                         state.paymentId(), state.receivedLevelCount());
-                    yield null;  // Process will be COMPLETE
+                    yield PaymentStep.UPDATE_STATUS_COMPLETE;
                 }
                 // Keep waiting for more confirmations
                 log.debug("Process {} waiting for confirmations. Levels received: {}",
@@ -300,7 +343,9 @@ public class PaymentProcessManager
                 yield PaymentStep.AWAIT_CONFIRMATIONS;
             }
             case UNWIND_FX -> PaymentStep.UNWIND_RISK;  // Continue compensation
-            case UNWIND_RISK -> null;  // Compensation complete
+            case UNWIND_RISK -> PaymentStep.UPDATE_STATUS_CANCELLED;  // Mark cancelled after compensation
+            // Terminal status steps - process ends after these
+            case UPDATE_STATUS_COMPLETE, UPDATE_STATUS_FAILED, UPDATE_STATUS_CANCELLED -> null;
         };
     }
 
@@ -324,5 +369,29 @@ public class PaymentProcessManager
             initialData.put("behavior", behavior.toMap());
         }
         return start(initialData);
+    }
+
+    /**
+     * Start payment processes for multiple payments in a single batch operation.
+     * This is significantly faster than calling startPayment() for each payment individually.
+     *
+     * @param payments List of payments to start processes for
+     * @param behavior Optional behavior configuration applied to all payments
+     * @return List of process IDs, in same order as input payments
+     */
+    public List<UUID> startPaymentBatch(List<Payment> payments, PaymentStepBehavior behavior) {
+        List<Map<String, Object>> initialDataList = new ArrayList<>(payments.size());
+
+        for (Payment payment : payments) {
+            Map<String, Object> initialData = new HashMap<>();
+            initialData.put("payment_id", payment.paymentId().toString());
+            initialData.put("fx_required", payment.requiresFx());
+            if (behavior != null) {
+                initialData.put("behavior", behavior.toMap());
+            }
+            initialDataList.add(initialData);
+        }
+
+        return startBatch(initialDataList);
     }
 }

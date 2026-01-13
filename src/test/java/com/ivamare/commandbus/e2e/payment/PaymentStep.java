@@ -5,15 +5,22 @@ package com.ivamare.commandbus.e2e.payment;
  *
  * <p>The workflow supports:
  * <ul>
- *   <li>Normal flow: BOOK_RISK → [AWAIT_RISK_APPROVAL] → [BOOK_FX] → SUBMIT_PAYMENT → AWAIT_CONFIRMATIONS</li>
+ *   <li>Normal flow: UPDATE_STATUS_PROCESSING → BOOK_RISK → [AWAIT_RISK_APPROVAL] → [BOOK_FX] → SUBMIT_PAYMENT → AWAIT_CONFIRMATIONS → UPDATE_STATUS_COMPLETE</li>
  *   <li>Manual approval: AWAIT_RISK_APPROVAL is inserted when payment requires operator approval</li>
- *   <li>Compensation flow: UNWIND_FX → UNWIND_RISK</li>
+ *   <li>Compensation flow: UNWIND_FX → UNWIND_RISK → UPDATE_STATUS_CANCELLED</li>
+ *   <li>Failure flow: UPDATE_STATUS_FAILED</li>
  * </ul>
  *
  * <p>AWAIT_CONFIRMATIONS accumulates L1-L4 network replies in any order.
  * Process completes when L4 success is received, or cancels on any error.
  */
 public enum PaymentStep {
+    // Status update steps (no probabilistic behavior - always succeed instantly)
+    UPDATE_STATUS_PROCESSING("UpdatePaymentStatus", false),
+    UPDATE_STATUS_COMPLETE("UpdatePaymentStatus", false),
+    UPDATE_STATUS_FAILED("UpdatePaymentStatus", false),
+    UPDATE_STATUS_CANCELLED("UpdatePaymentStatus", false),
+
     // Normal flow steps
     BOOK_RISK("BookTransactionRisk", false),
     BOOK_FX("BookFx", false),

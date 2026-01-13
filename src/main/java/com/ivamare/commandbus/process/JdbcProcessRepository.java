@@ -116,6 +116,90 @@ public class JdbcProcessRepository implements ProcessRepository {
         log.debug("Saved process {}.{}", process.domain(), process.processId());
     }
 
+    /**
+     * Save multiple processes in a single batch INSERT for improved performance.
+     * Use this method when starting many processes at once.
+     *
+     * @param processes List of processes to save
+     * @param jdbc JdbcTemplate to use for the operation
+     */
+    public void saveBatch(List<ProcessMetadata<?, ?>> processes, JdbcTemplate jdbc) {
+        if (processes.isEmpty()) {
+            return;
+        }
+
+        String sql = """
+            INSERT INTO commandbus.process (
+                domain, process_id, process_type, status, current_step,
+                state, error_code, error_message,
+                created_at, updated_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
+            """;
+
+        List<Object[]> batchArgs = processes.stream()
+            .map(p -> new Object[] {
+                p.domain(),
+                p.processId(),
+                p.processType(),
+                p.status().name(),
+                p.currentStep() != null ? p.currentStep().name() : null,
+                serializeState(p.state()),
+                p.errorCode(),
+                p.errorMessage(),
+                Timestamp.from(p.createdAt()),
+                Timestamp.from(p.updatedAt()),
+                p.completedAt() != null ? Timestamp.from(p.completedAt()) : null
+            })
+            .toList();
+
+        jdbc.batchUpdate(sql, batchArgs);
+        log.debug("Batch saved {} processes", processes.size());
+    }
+
+    /**
+     * Log multiple step entries in a single batch INSERT for improved performance.
+     * Use this method when logging audit entries for many processes at once.
+     *
+     * @param domain The domain for all entries
+     * @param entries List of (processId, auditEntry) pairs to save
+     * @param jdbc JdbcTemplate to use for the operation
+     */
+    public void logBatchSteps(String domain, List<ProcessAuditBatchEntry> entries, JdbcTemplate jdbc) {
+        if (entries.isEmpty()) {
+            return;
+        }
+
+        String sql = """
+            INSERT INTO commandbus.process_audit (
+                domain, process_id, step_name, command_id, command_type,
+                command_data, sent_at, reply_outcome, reply_data, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
+            """;
+
+        List<Object[]> batchArgs = entries.stream()
+            .map(e -> new Object[] {
+                domain,
+                e.processId(),
+                e.entry().stepName(),
+                e.entry().commandId(),
+                e.entry().commandType(),
+                serializeMap(e.entry().commandData()),
+                Timestamp.from(e.entry().sentAt()),
+                e.entry().replyOutcome() != null ? e.entry().replyOutcome().name() : null,
+                serializeMap(e.entry().replyData()),
+                e.entry().receivedAt() != null ? Timestamp.from(e.entry().receivedAt()) : null
+            })
+            .toList();
+
+        jdbc.batchUpdate(sql, batchArgs);
+        log.debug("Batch logged {} audit entries", entries.size());
+    }
+
+    /**
+     * Entry for batch logging process audit entries.
+     */
+    public record ProcessAuditBatchEntry(UUID processId, ProcessAuditEntry entry) {}
+
     @Override
     public void update(ProcessMetadata<?, ?> process) {
         update(process, jdbcTemplate);
@@ -241,7 +325,8 @@ public class JdbcProcessRepository implements ProcessRepository {
     @Override
     public void updateStepReply(String domain, UUID processId, UUID commandId,
                                 ProcessAuditEntry entry, JdbcTemplate jdbc) {
-        String sql = """
+        // First try to update existing audit row (for replies to commands we sent)
+        String updateSql = """
             UPDATE commandbus.process_audit SET
                 reply_outcome = ?,
                 reply_data = ?::jsonb,
@@ -249,7 +334,7 @@ public class JdbcProcessRepository implements ProcessRepository {
             WHERE domain = ? AND process_id = ? AND command_id = ?
             """;
 
-        jdbc.update(sql,
+        int updated = jdbc.update(updateSql,
             entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
             serializeMap(entry.replyData()),
             entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null,
@@ -257,6 +342,29 @@ public class JdbcProcessRepository implements ProcessRepository {
             processId,
             commandId
         );
+
+        // If no row was updated, this is an external reply (e.g., L1-L4 confirmations).
+        // Insert a new audit entry to track it.
+        if (updated == 0) {
+            String insertSql = """
+                INSERT INTO commandbus.process_audit (domain, process_id, step_name, command_id,
+                    command_type, command_data, sent_at, reply_outcome, reply_data, received_at)
+                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
+                """;
+
+            jdbc.update(insertSql,
+                domain,
+                processId,
+                entry.stepName(),
+                commandId,
+                entry.commandType(),
+                serializeMap(entry.commandData()),
+                entry.sentAt() != null ? Timestamp.from(entry.sentAt()) : null,
+                entry.replyOutcome() != null ? entry.replyOutcome().name() : null,
+                serializeMap(entry.replyData()),
+                entry.receivedAt() != null ? Timestamp.from(entry.receivedAt()) : null
+            );
+        }
     }
 
     @Override
@@ -314,5 +422,28 @@ public class JdbcProcessRepository implements ProcessRepository {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize JSON", e);
         }
+    }
+
+    @Override
+    public void updateStateAtomic(String domain, UUID processId, String statePatch,
+                                   String newStep, String newStatus,
+                                   String errorCode, String errorMessage,
+                                   JdbcTemplate jdbc) {
+        // Use queryForObject to handle the VOID return from the function
+        // SELECT on a VOID function returns a single row with null
+        String sql = "SELECT commandbus.sp_update_process_state(?, ?, ?::jsonb, ?, ?, ?, ?)";
+
+        jdbc.queryForObject(sql, (rs, rowNum) -> null,
+            domain,
+            processId,
+            statePatch,
+            newStep,
+            newStatus,
+            errorCode,
+            errorMessage
+        );
+
+        log.debug("Atomic state update for process {}.{} - step={}, status={}",
+            domain, processId, newStep, newStatus);
     }
 }

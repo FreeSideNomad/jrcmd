@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,17 +39,18 @@ public class PaymentNetworkSimulator {
     private final PendingNetworkResponseRepository pendingNetworkResponseRepository;
     private final String replyQueue;
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService executor;
     private final Random random = new Random();
 
-    // Default delays for each level (milliseconds)
-    private static final int L1_DELAY_MIN = 100;
-    private static final int L1_DELAY_MAX = 500;
-    private static final int L2_DELAY_MIN = 200;
-    private static final int L2_DELAY_MAX = 800;
-    private static final int L3_DELAY_MIN = 300;
-    private static final int L3_DELAY_MAX = 1000;
-    private static final int L4_DELAY_MIN = 400;
-    private static final int L4_DELAY_MAX = 1200;
+    // Default delays for each level (milliseconds) - used when behavior not specified
+    private static final int DEFAULT_L1_DELAY_MIN = 100;
+    private static final int DEFAULT_L1_DELAY_MAX = 500;
+    private static final int DEFAULT_L2_DELAY_MIN = 200;
+    private static final int DEFAULT_L2_DELAY_MAX = 800;
+    private static final int DEFAULT_L3_DELAY_MIN = 300;
+    private static final int DEFAULT_L3_DELAY_MAX = 1000;
+    private static final int DEFAULT_L4_DELAY_MIN = 400;
+    private static final int DEFAULT_L4_DELAY_MAX = 1200;
 
     public PaymentNetworkSimulator(
             PgmqClient pgmqClient,
@@ -57,8 +59,16 @@ public class PaymentNetworkSimulator {
         this.pgmqClient = pgmqClient;
         this.pendingNetworkResponseRepository = pendingNetworkResponseRepository;
         this.replyQueue = replyQueue;
-        this.scheduler = Executors.newScheduledThreadPool(4, r -> {
-            Thread t = new Thread(r, "payment-network-sim");
+        // Scheduler for realistic delays (when delays > 0)
+        // Use 100 threads to handle high-volume batches without backlog
+        this.scheduler = Executors.newScheduledThreadPool(100, r -> {
+            Thread t = new Thread(r, "payment-network-scheduler");
+            t.setDaemon(true);
+            return t;
+        });
+        // Simple executor for fast path (when all delays = 0)
+        this.executor = Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "payment-network-exec");
             t.setDaemon(true);
             return t;
         });
@@ -77,53 +87,121 @@ public class PaymentNetworkSimulator {
             UUID processId,
             PaymentStepBehavior stepBehavior) {
 
-        log.info("Starting payment confirmation simulation for process {} (command={})",
-            processId, commandId);
+        boolean zeroDelay = isZeroDelayMode(stepBehavior);
+        log.debug("Starting payment confirmation simulation for process {} (command={}), zeroDelay={}",
+            processId, commandId, zeroDelay);
 
-        // Schedule L1 reply
-        int l1Delay = randomDelay(L1_DELAY_MIN, L1_DELAY_MAX);
+        // Check if all delays are zero (fast path for performance testing)
+        if (zeroDelay) {
+            // Fast path: send all replies sequentially on executor thread
+            executor.submit(() -> {
+                try {
+                    sendAllRepliesSequentially(commandId, processId, stepBehavior);
+                } catch (Exception e) {
+                    log.error("Exception in fast-path reply sender for process {}", processId, e);
+                }
+            });
+        } else {
+            // Normal path: use scheduler with delays
+            scheduleL1(commandId, processId, stepBehavior);
+        }
+    }
+
+    /**
+     * Check if all L1-L4 delays are configured as zero (performance testing mode).
+     */
+    private boolean isZeroDelayMode(PaymentStepBehavior behavior) {
+        return getDelay(behavior.awaitL1(), DEFAULT_L1_DELAY_MIN, DEFAULT_L1_DELAY_MAX) == 0
+            && getDelay(behavior.awaitL2(), DEFAULT_L2_DELAY_MIN, DEFAULT_L2_DELAY_MAX) == 0
+            && getDelay(behavior.awaitL3(), DEFAULT_L3_DELAY_MIN, DEFAULT_L3_DELAY_MAX) == 0
+            && getDelay(behavior.awaitL4(), DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX) == 0;
+    }
+
+    /**
+     * Fast path: send all L1-L4 replies sequentially without scheduling.
+     * Used when all delays are 0 for performance testing.
+     */
+    private void sendAllRepliesSequentially(UUID commandId, UUID processId, PaymentStepBehavior stepBehavior) {
+        try {
+            // Small delay to ensure handler has returned and process has transitioned
+            // to AWAIT_CONFIRMATIONS before we send replies
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
+        if (!sendLevelReply(commandId, processId, 1, stepBehavior.awaitL1())) return;
+        if (!sendLevelReply(commandId, processId, 2, stepBehavior.awaitL2())) return;
+        if (!sendLevelReply(commandId, processId, 3, stepBehavior.awaitL3())) return;
+        sendLevelReply(commandId, processId, 4, stepBehavior.awaitL4());
+    }
+
+    /**
+     * Normal path: schedule L1 reply with delay, then chain L2-L4.
+     */
+    private void scheduleL1(UUID commandId, UUID processId, PaymentStepBehavior stepBehavior) {
+        int l1Delay = getDelay(stepBehavior.awaitL1(), DEFAULT_L1_DELAY_MIN, DEFAULT_L1_DELAY_MAX);
         scheduler.schedule(() -> {
-            boolean l1Success = sendLevelReply(commandId, processId, 1, stepBehavior.awaitL1());
+            try {
+                boolean l1Success = sendLevelReply(commandId, processId, 1, stepBehavior.awaitL1());
 
-            // If L1 succeeds, schedule L2
-            if (l1Success) {
-                int l2Delay = randomDelay(L2_DELAY_MIN, L2_DELAY_MAX);
-                scheduler.schedule(() -> {
-                    boolean l2Success = sendLevelReply(commandId, processId, 2, stepBehavior.awaitL2());
+                if (l1Success) {
+                    int l2Delay = getDelay(stepBehavior.awaitL2(), DEFAULT_L2_DELAY_MIN, DEFAULT_L2_DELAY_MAX);
+                    scheduler.schedule(() -> {
+                        try {
+                            boolean l2Success = sendLevelReply(commandId, processId, 2, stepBehavior.awaitL2());
 
-                    // If L2 succeeds, schedule L3
-                    if (l2Success) {
-                        int l3Delay = randomDelay(L3_DELAY_MIN, L3_DELAY_MAX);
-                        scheduler.schedule(() -> {
-                            boolean l3Success = sendLevelReply(commandId, processId, 3, stepBehavior.awaitL3());
-
-                            // If L3 succeeds (not pending/failed), schedule L4
-                            if (l3Success) {
-                                int l4Delay = randomDelay(L4_DELAY_MIN, L4_DELAY_MAX);
+                            if (l2Success) {
+                                int l3Delay = getDelay(stepBehavior.awaitL3(), DEFAULT_L3_DELAY_MIN, DEFAULT_L3_DELAY_MAX);
                                 scheduler.schedule(() -> {
-                                    sendLevelReply(commandId, processId, 4, stepBehavior.awaitL4());
-                                }, l4Delay, TimeUnit.MILLISECONDS);
+                                    try {
+                                        boolean l3Success = sendLevelReply(commandId, processId, 3, stepBehavior.awaitL3());
+
+                                        if (l3Success) {
+                                            int l4Delay = getDelay(stepBehavior.awaitL4(), DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX);
+                                            scheduler.schedule(() -> {
+                                                try {
+                                                    sendLevelReply(commandId, processId, 4, stepBehavior.awaitL4());
+                                                } catch (Exception e) {
+                                                    log.error("Exception sending L4 for process {}", processId, e);
+                                                }
+                                            }, l4Delay, TimeUnit.MILLISECONDS);
+                                        }
+                                    } catch (Exception e) {
+                                        log.error("Exception sending L3 for process {}", processId, e);
+                                    }
+                                }, l3Delay, TimeUnit.MILLISECONDS);
                             }
-                        }, l3Delay, TimeUnit.MILLISECONDS);
-                    }
-                }, l2Delay, TimeUnit.MILLISECONDS);
+                        } catch (Exception e) {
+                            log.error("Exception sending L2 for process {}", processId, e);
+                        }
+                    }, l2Delay, TimeUnit.MILLISECONDS);
+                }
+            } catch (Exception e) {
+                log.error("Exception sending L1 for process {}", processId, e);
             }
         }, l1Delay, TimeUnit.MILLISECONDS);
     }
 
     /**
+     * Get delay from behavior duration settings, falling back to defaults if not specified.
+     */
+    private int getDelay(ProbabilisticBehavior behavior, int defaultMin, int defaultMax) {
+        if (behavior != null) {
+            return randomDelay(behavior.minDurationMs(), behavior.maxDurationMs());
+        }
+        return randomDelay(defaultMin, defaultMax);
+    }
+
+    /**
      * Send a level confirmation reply.
      *
-     * <p>For L3 and L4, if pendingPct is configured, the response may be placed
-     * in the pending network response queue for operator intervention instead
-     * of being sent automatically.
-     *
-     * @return true if a success reply was sent (next level should be scheduled),
+     * @return true if a success reply was sent (next level should proceed),
      *         false if failed, timed out, or placed in pending queue
      */
     private boolean sendLevelReply(UUID commandId, UUID processId, int level, ProbabilisticBehavior behavior) {
         try {
-            // Apply probabilistic behavior
             double roll = random.nextDouble() * 100;
             double cumulative = 0;
 
@@ -148,7 +226,6 @@ public class PaymentNetworkSimulator {
 
             cumulative += behavior.timeoutPct();
             if (roll < cumulative) {
-                // Timeout: don't send reply, let process timeout
                 log.info("Simulating timeout at L{} for process {}", level, processId);
                 return false;
             }
@@ -157,19 +234,13 @@ public class PaymentNetworkSimulator {
             if ((level == 3 || level == 4) && behavior.pendingPct() > 0) {
                 cumulative += behavior.pendingPct();
                 if (roll < cumulative) {
-                    // Create pending network response entry
                     PendingNetworkResponse pending = PendingNetworkResponse.create(
-                        null,  // paymentId not available at this level
-                        processId,
-                        processId,  // correlationId
-                        commandId,
-                        level
+                        null, processId, processId, commandId, level
                     );
                     pendingNetworkResponseRepository.save(pending);
-
                     log.info("L{} response for process {} placed in pending queue (pending_id={})",
                         level, processId, pending.id());
-                    return false;  // Don't send reply - operator must approve
+                    return false;
                 }
             }
 
@@ -198,7 +269,7 @@ public class PaymentNetworkSimulator {
         pgmqClient.send(replyQueue, reply);
         pgmqClient.notify(replyQueue);
 
-        log.info("Sent L{} success reply for process {} (command={})", level, processId, commandId);
+        log.debug("Sent L{} success reply for process {} (command={})", level, processId, commandId);
     }
 
     private void sendFailureReply(UUID commandId, UUID processId, int level, String errorCode, String errorMessage) {
@@ -240,45 +311,31 @@ public class PaymentNetworkSimulator {
     }
 
     private int randomDelay(int min, int max) {
+        if (min == 0 && max == 0) return 0;
         return min + random.nextInt(Math.max(1, max - min));
     }
 
     /**
      * Send a success reply for a pending network response.
      * Called when operator approves a pending L3/L4 response.
-     *
-     * <p>If L3 is approved, L4 is automatically scheduled after a delay.
-     * If L4 is approved, that completes the network confirmation chain.
-     *
-     * @param commandId Original command ID
-     * @param processId Process ID (correlationId)
-     * @param level Network confirmation level (3 or 4)
      */
     public void sendApprovedReply(UUID commandId, UUID processId, int level) {
         sendSuccessReply(commandId, processId, level);
 
         // If L3 was approved, schedule L4 automatically
         if (level == 3) {
-            int l4Delay = randomDelay(L4_DELAY_MIN, L4_DELAY_MAX);
+            int l4Delay = randomDelay(DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX);
             scheduler.schedule(() -> {
-                // Check if there's already a pending L4 for this process
                 var pendingL4 = pendingNetworkResponseRepository.findByProcessIdAndLevel(processId, 4);
                 if (pendingL4.isEmpty()) {
-                    // No pending L4, send success directly
                     sendSuccessReply(commandId, processId, 4);
                 }
-                // If there's a pending L4, operator must approve it separately
             }, l4Delay, TimeUnit.MILLISECONDS);
         }
     }
 
     /**
      * Send a failure reply for a pending network response.
-     * Called when operator rejects a pending L3/L4 response.
-     *
-     * @param commandId Original command ID
-     * @param processId Process ID (correlationId)
-     * @param level Network confirmation level (3 or 4)
      */
     public void sendRejectedReply(UUID commandId, UUID processId, int level) {
         sendBusinessRuleFailureReply(commandId, processId, level,
@@ -287,10 +344,6 @@ public class PaymentNetworkSimulator {
 
     /**
      * Send an approval reply for a pending risk approval.
-     * Called when operator approves a manual risk approval request.
-     *
-     * @param commandId Original BookTransactionRisk command ID
-     * @param processId Process ID (correlationId)
      */
     public void sendApprovalApprovedReply(UUID commandId, UUID processId) {
         Map<String, Object> reply = new HashMap<>();
@@ -312,11 +365,6 @@ public class PaymentNetworkSimulator {
 
     /**
      * Send a rejection reply for a pending risk approval.
-     * Called when operator rejects a manual risk approval request.
-     *
-     * @param commandId Original BookTransactionRisk command ID
-     * @param processId Process ID (correlationId)
-     * @param reason Rejection reason
      */
     public void sendApprovalRejectedReply(UUID commandId, UUID processId, String reason) {
         Map<String, Object> reply = new HashMap<>();
@@ -343,12 +391,13 @@ public class PaymentNetworkSimulator {
      */
     public void shutdown() {
         scheduler.shutdown();
+        executor.shutdown();
         try {
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
+            scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            executor.awaitTermination(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             scheduler.shutdownNow();
+            executor.shutdownNow();
             Thread.currentThread().interrupt();
         }
     }
