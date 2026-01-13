@@ -859,10 +859,9 @@ public class E2EService {
         // Save batch and payments
         ((JdbcPaymentRepository) paymentRepository).saveBatch(batchId, request.name(), payments);
 
-        // Start processes for each payment
-        for (Payment payment : payments) {
-            paymentProcessManager.startPayment(payment, request.behavior());
-        }
+        // Start processes for all payments in a single batch operation
+        // This is dramatically faster than starting processes one by one
+        paymentProcessManager.startPaymentBatch(payments, request.behavior());
 
         return batchId;
     }

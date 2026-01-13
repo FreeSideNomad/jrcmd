@@ -116,6 +116,90 @@ public class JdbcProcessRepository implements ProcessRepository {
         log.debug("Saved process {}.{}", process.domain(), process.processId());
     }
 
+    /**
+     * Save multiple processes in a single batch INSERT for improved performance.
+     * Use this method when starting many processes at once.
+     *
+     * @param processes List of processes to save
+     * @param jdbc JdbcTemplate to use for the operation
+     */
+    public void saveBatch(List<ProcessMetadata<?, ?>> processes, JdbcTemplate jdbc) {
+        if (processes.isEmpty()) {
+            return;
+        }
+
+        String sql = """
+            INSERT INTO commandbus.process (
+                domain, process_id, process_type, status, current_step,
+                state, error_code, error_message,
+                created_at, updated_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
+            """;
+
+        List<Object[]> batchArgs = processes.stream()
+            .map(p -> new Object[] {
+                p.domain(),
+                p.processId(),
+                p.processType(),
+                p.status().name(),
+                p.currentStep() != null ? p.currentStep().name() : null,
+                serializeState(p.state()),
+                p.errorCode(),
+                p.errorMessage(),
+                Timestamp.from(p.createdAt()),
+                Timestamp.from(p.updatedAt()),
+                p.completedAt() != null ? Timestamp.from(p.completedAt()) : null
+            })
+            .toList();
+
+        jdbc.batchUpdate(sql, batchArgs);
+        log.debug("Batch saved {} processes", processes.size());
+    }
+
+    /**
+     * Log multiple step entries in a single batch INSERT for improved performance.
+     * Use this method when logging audit entries for many processes at once.
+     *
+     * @param domain The domain for all entries
+     * @param entries List of (processId, auditEntry) pairs to save
+     * @param jdbc JdbcTemplate to use for the operation
+     */
+    public void logBatchSteps(String domain, List<ProcessAuditBatchEntry> entries, JdbcTemplate jdbc) {
+        if (entries.isEmpty()) {
+            return;
+        }
+
+        String sql = """
+            INSERT INTO commandbus.process_audit (
+                domain, process_id, step_name, command_id, command_type,
+                command_data, sent_at, reply_outcome, reply_data, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
+            """;
+
+        List<Object[]> batchArgs = entries.stream()
+            .map(e -> new Object[] {
+                domain,
+                e.processId(),
+                e.entry().stepName(),
+                e.entry().commandId(),
+                e.entry().commandType(),
+                serializeMap(e.entry().commandData()),
+                Timestamp.from(e.entry().sentAt()),
+                e.entry().replyOutcome() != null ? e.entry().replyOutcome().name() : null,
+                serializeMap(e.entry().replyData()),
+                e.entry().receivedAt() != null ? Timestamp.from(e.entry().receivedAt()) : null
+            })
+            .toList();
+
+        jdbc.batchUpdate(sql, batchArgs);
+        log.debug("Batch logged {} audit entries", entries.size());
+    }
+
+    /**
+     * Entry for batch logging process audit entries.
+     */
+    public record ProcessAuditBatchEntry(UUID processId, ProcessAuditEntry entry) {}
+
     @Override
     public void update(ProcessMetadata<?, ?> process) {
         update(process, jdbcTemplate);

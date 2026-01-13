@@ -15,7 +15,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -324,5 +326,29 @@ public class PaymentProcessManager
             initialData.put("behavior", behavior.toMap());
         }
         return start(initialData);
+    }
+
+    /**
+     * Start payment processes for multiple payments in a single batch operation.
+     * This is significantly faster than calling startPayment() for each payment individually.
+     *
+     * @param payments List of payments to start processes for
+     * @param behavior Optional behavior configuration applied to all payments
+     * @return List of process IDs, in same order as input payments
+     */
+    public List<UUID> startPaymentBatch(List<Payment> payments, PaymentStepBehavior behavior) {
+        List<Map<String, Object>> initialDataList = new ArrayList<>(payments.size());
+
+        for (Payment payment : payments) {
+            Map<String, Object> initialData = new HashMap<>();
+            initialData.put("payment_id", payment.paymentId().toString());
+            initialData.put("fx_required", payment.requiresFx());
+            if (behavior != null) {
+                initialData.put("behavior", behavior.toMap());
+            }
+            initialDataList.add(initialData);
+        }
+
+        return startBatch(initialDataList);
     }
 }

@@ -3,12 +3,14 @@ package com.ivamare.commandbus.process;
 import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.model.Reply;
 import com.ivamare.commandbus.model.ReplyOutcome;
+import com.ivamare.commandbus.model.SendRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -167,6 +169,114 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
             executeStep(process, firstStep, jdbcTemplate);
 
             return processId;
+        });
+    }
+
+    /**
+     * Start multiple process instances in a single transaction.
+     * Uses batch inserts and batch command sending for dramatically improved performance
+     * when starting many processes at once.
+     *
+     * <p>This method is optimized for high-volume scenarios where starting thousands
+     * of processes one-by-one would be prohibitively slow. It:
+     * <ul>
+     *   <li>Creates all process metadata in memory</li>
+     *   <li>Batch inserts all processes in a single DB operation</li>
+     *   <li>Batch sends all initial commands via PGMQ</li>
+     *   <li>Batch inserts all audit log entries</li>
+     * </ul>
+     *
+     * @param initialDataList List of initial data maps, one per process to start
+     * @return List of process IDs (UUIDs) for all started processes, in same order as input
+     */
+    public List<UUID> startBatch(List<Map<String, Object>> initialDataList) {
+        if (initialDataList.isEmpty()) {
+            return List.of();
+        }
+
+        return transactionTemplate.execute(status -> {
+            List<ProcessMetadata<TState, TStep>> processes = new ArrayList<>(initialDataList.size());
+            List<SendRequest> commandRequests = new ArrayList<>(initialDataList.size());
+            List<JdbcProcessRepository.ProcessAuditBatchEntry> auditEntries = new ArrayList<>(initialDataList.size());
+
+            Instant now = Instant.now();
+
+            // Phase 1: Create all process metadata and commands in memory
+            for (Map<String, Object> initialData : initialDataList) {
+                UUID processId = UUID.randomUUID();
+                TState state = createInitialState(initialData);
+                TStep firstStep = getFirstStep(state);
+
+                // Create process metadata with WAITING_FOR_REPLY status
+                ProcessMetadata<TState, TStep> process = new ProcessMetadata<>(
+                    getDomain(),
+                    processId,
+                    getProcessType(),
+                    state,
+                    ProcessStatus.WAITING_FOR_REPLY,
+                    firstStep,
+                    now,
+                    now,
+                    null,
+                    null,
+                    null
+                );
+                processes.add(process);
+
+                // Build command for first step (skip if wait-only)
+                if (!isWaitOnlyStep(firstStep)) {
+                    ProcessCommand<?> command = buildCommand(firstStep, state);
+                    UUID commandId = UUID.randomUUID();
+                    Map<String, Object> commandPayload = command.toMap();
+
+                    // Create send request
+                    SendRequest request = new SendRequest(
+                        getDomain(),
+                        command.commandType(),
+                        commandId,
+                        commandPayload,
+                        processId,  // correlationId for reply routing
+                        replyQueue,
+                        null  // use default maxAttempts
+                    );
+                    commandRequests.add(request);
+
+                    // Create audit entry
+                    ProcessAuditEntry auditEntry = ProcessAuditEntry.forCommand(
+                        firstStep.name(), commandId, command.commandType(), commandPayload
+                    );
+                    auditEntries.add(new JdbcProcessRepository.ProcessAuditBatchEntry(processId, auditEntry));
+                }
+            }
+
+            // Phase 2: Batch insert all processes
+            if (processRepo instanceof JdbcProcessRepository jdbcRepo) {
+                jdbcRepo.saveBatch(new ArrayList<>(processes), jdbcTemplate);
+            } else {
+                // Fallback to individual saves
+                for (ProcessMetadata<TState, TStep> process : processes) {
+                    processRepo.save(process, jdbcTemplate);
+                }
+            }
+
+            // Phase 3: Batch send all commands
+            if (!commandRequests.isEmpty()) {
+                commandBus.sendBatch(commandRequests);
+            }
+
+            // Phase 4: Batch insert all audit entries
+            if (!auditEntries.isEmpty() && processRepo instanceof JdbcProcessRepository jdbcRepo) {
+                jdbcRepo.logBatchSteps(getDomain(), auditEntries, jdbcTemplate);
+            } else {
+                // Fallback to individual audit logs
+                for (var entry : auditEntries) {
+                    processRepo.logStep(getDomain(), entry.processId(), entry.entry(), jdbcTemplate);
+                }
+            }
+
+            log.info("Batch started {} processes for domain {}", processes.size(), getDomain());
+
+            return processes.stream().map(ProcessMetadata::processId).toList();
         });
     }
 
