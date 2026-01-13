@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Payments - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Payments</h2>
+        <div>
+            <a th:href="@{/payments/batch/new}" class="btn btn-outline-primary me-2">New Batch</a>
+            <a th:href="@{/payments/new}" class="btn btn-primary">New Payment</a>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form th:action="@{/payments}" method="get" class="row g-3">
+                <div class="col-auto">
+                    <label class="visually-hidden" for="status">Status</label>
+                    <select name="status" id="status" class="form-select" onchange="this.form.submit()">
+                        <option value="">All Statuses</option>
+                        <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                                th:selected="${s == status}">Status</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div th:if="${payments.isEmpty()}" class="alert alert-info">
+        No payments found. <a th:href="@{/payments/new}">Create one</a> to get started.
+    </div>
+
+    <div th:unless="${payments.isEmpty()}" class="card">
+        <div class="card-body">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Payment ID</th>
+                        <th>Amount</th>
+                        <th>Route</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="p : ${payments}" class="clickable-row"
+                        th:data-href="@{/payments/{id}(id=${p.paymentId})}">
+                        <td><code class="uuid-short" th:text="${#strings.abbreviate(p.paymentId.toString(), 12)}">uuid</code></td>
+                        <td>
+                            <span th:text="${#numbers.formatDecimal(p.debitAmount, 1, 2)}">0.00</span>
+                            <span th:text="${p.debitCurrency}">USD</span>
+                            <span th:if="${p.requiresFx()}" class="text-muted">
+                                → <span th:text="${p.creditCurrency}">EUR</span>
+                            </span>
+                        </td>
+                        <td>
+                            <small>
+                                <span th:text="${p.debitAccount}">00123-12345678</span>
+                                →
+                                <span th:text="${#strings.abbreviate(p.creditAccount, 20)}">IBAN</span>
+                            </small>
+                        </td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${p.displayStatus() == 'COMPLETE'} ? 'bg-success' :
+                                                  (${p.displayStatus() == 'FAILED' or p.displayStatus() == 'CANCELLED'} ? 'bg-danger' :
+                                                  (${p.displayStatus() == 'NEEDS_ATTENTION'} ? 'bg-warning' : 'bg-primary'))"
+                                  th:text="${p.displayStatus()}">STATUS</span>
+                        </td>
+                        <td style="width: 120px;">
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar"
+                                     th:classappend="${p.displayStatus() == 'COMPLETE'} ? 'bg-success' :
+                                                     (${p.displayStatus() == 'FAILED'} ? 'bg-danger' : 'bg-primary')"
+                                     role="progressbar"
+                                     th:style="'width: ' + ${p.progressPercent()} + '%'"
+                                     th:text="${p.progressPercent() + '%'}">0%</div>
+                            </div>
+                        </td>
+                        <td><code th:text="${#temporals.format(p.createdAt, 'HH:mm:ss')}">time</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+
+        // Auto-refresh every 5 seconds if any payment is in progress
+        (function() {
+            const hasInProgress = document.querySelector('.badge.bg-primary');
+            if (hasInProgress) {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
+    </script>
+</div>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="'Error ' + ${status} + ' - E2E Test App'">Error - E2E Test App</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #dc3545; margin-bottom: 5px; }
+        h1 .status-code { font-size: 0.6em; color: #666; font-weight: normal; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card-header { padding: 15px 20px; border-bottom: 1px solid #eee; font-weight: bold; }
+        .card-header.error { background: #dc3545; color: white; border-radius: 8px 8px 0 0; }
+        .card-header.warning { background: #ffc107; color: #333; }
+        .card-body { padding: 20px; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; margin: 0; }
+        code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+        .text-danger { color: #dc3545; }
+        .text-warning { color: #856404; }
+        .text-muted { color: #6c757d; }
+        dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
+        dt { font-weight: bold; }
+        dd { margin: 0; }
+        .btn { display: inline-block; padding: 8px 16px; border-radius: 4px; text-decoration: none; cursor: pointer; border: 1px solid; margin-right: 8px; }
+        .btn-primary { background: #0d6efd; color: white; border-color: #0d6efd; }
+        .btn-secondary { background: #6c757d; color: white; border-color: #6c757d; }
+        .btn-outline { background: white; color: #333; border-color: #ccc; }
+        .collapsible { cursor: pointer; user-select: none; }
+        .collapsible-content { display: none; }
+        .collapsible-content.show { display: block; }
+        .row { display: flex; gap: 20px; flex-wrap: wrap; }
+        .col { flex: 1; min-width: 300px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Error <span class="status-code" th:text="${status} + ' ' + ${statusReason}">500 Internal Server Error</span></h1>
+        <p><a href="/" class="btn btn-outline">Back to Dashboard</a></p>
+
+        <!-- Summary Card -->
+        <div class="card">
+            <div class="card-header error">Exception Details</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col">
+                        <dl>
+                            <dt>Timestamp</dt>
+                            <dd th:text="${timestamp}">time</dd>
+                            <dt>Request</dt>
+                            <dd><code th:text="${method} + ' ' + ${path} + (${queryString} != null ? '?' + ${queryString} : '')">GET /path</code></dd>
+                        </dl>
+                    </div>
+                    <div class="col">
+                        <dl>
+                            <dt>Exception</dt>
+                            <dd><code th:text="${exceptionType}">type</code></dd>
+                            <dt>Root Cause</dt>
+                            <dd><code th:text="${rootCauseType}">type</code></dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exception Message -->
+        <div class="card">
+            <div class="card-header">Exception Message</div>
+            <div class="card-body">
+                <pre class="text-danger" th:text="${exceptionMessage}">message</pre>
+            </div>
+        </div>
+
+        <!-- Root Cause (if different) -->
+        <div class="card" th:if="${rootCauseType != exceptionType}">
+            <div class="card-header warning">Root Cause</div>
+            <div class="card-body">
+                <p><strong>Type:</strong> <code th:text="${rootCauseType}">type</code></p>
+                <pre class="text-warning" th:text="${rootCauseMessage}">message</pre>
+            </div>
+        </div>
+
+        <!-- Stack Trace -->
+        <div class="card">
+            <div class="card-header collapsible" onclick="toggleStackTrace()">
+                Full Stack Trace <span class="text-muted">(click to expand)</span>
+            </div>
+            <div id="stackTrace" class="collapsible-content">
+                <div class="card-body">
+                    <pre style="max-height: 500px; overflow-y: auto; font-size: 12px;" th:text="${stackTrace}">stack trace</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="margin-top: 20px;">
+            <button class="btn btn-primary" onclick="window.location.reload()">Retry Request</button>
+            <button class="btn btn-secondary" onclick="window.history.back()">Go Back</button>
+            <button class="btn btn-outline" onclick="copyStackTrace()">Copy Stack Trace</button>
+        </div>
+    </div>
+
+    <script>
+        function toggleStackTrace() {
+            document.getElementById('stackTrace').classList.toggle('show');
+        }
+        function copyStackTrace() {
+            const stackTrace = document.querySelector('#stackTrace pre').textContent;
+            navigator.clipboard.writeText(stackTrace).then(() => {
+                alert('Stack trace copied to clipboard');
+            });
+        }
+    </script>
+</body>
+</html>

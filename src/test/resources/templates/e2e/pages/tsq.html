@@ -7,8 +7,26 @@
 <body>
 <div th:fragment="content">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-exclamation-triangle"></i> Troubleshooting Queue</h2>
+        <div class="d-flex align-items-center gap-3">
+            <h2><i class="bi bi-exclamation-triangle"></i> Troubleshooting Queue</h2>
+            <!-- Domain selector -->
+            <div th:if="${availableDomains != null and !availableDomains.isEmpty()}" class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-database"></i> <span th:text="${domain}">domain</span>
+                </button>
+                <ul class="dropdown-menu">
+                    <li th:each="d : ${availableDomains}">
+                        <a class="dropdown-item" th:href="@{/tsq(domain=${d})}"
+                           th:classappend="${d == domain} ? 'active' : ''"
+                           th:text="${d}">domain</a>
+                    </li>
+                </ul>
+            </div>
+            <span th:if="${availableDomains == null or availableDomains.isEmpty()}" class="badge bg-secondary"
+                  th:text="${domain}">domain</span>
+        </div>
         <form th:action="@{/tsq/retry-all}" method="post" th:if="${!commands.isEmpty()}">
+            <input type="hidden" name="domain" th:value="${domain}"/>
             <button type="submit" class="btn btn-warning"
                     onclick="return confirm('Retry all commands?')">
                 <i class="bi bi-arrow-clockwise"></i> Retry All
@@ -35,7 +53,7 @@
             <tbody>
                 <tr th:each="cmd : ${commands}"
                     class="clickable-row"
-                    th:data-href="@{/commands/{id}(id=${cmd.commandId})}">
+                    th:data-href="@{/commands/{id}(id=${cmd.commandId}, domain=${domain})}">
                     <td>
                         <code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code>
                     </td>
@@ -49,24 +67,22 @@
                     <td class="text-end" onclick="event.stopPropagation()">
                         <div class="btn-group btn-group-sm">
                             <form th:action="@{/tsq/{id}/retry(id=${cmd.commandId})}" method="post" class="d-inline">
-                                <button type="submit" class="btn btn-outline-primary"
-                                        data-bs-toggle="tooltip" data-bs-placement="top" title="Retry">
-                                    <i class="bi bi-arrow-clockwise"></i>
+                                <input type="hidden" name="domain" th:value="${domain}"/>
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <i class="bi bi-arrow-clockwise"></i> Retry
                                 </button>
                             </form>
 
                             <button type="button" class="btn btn-outline-success"
                                     data-bs-toggle="modal"
-                                    th:data-bs-target="'#completeModal' + ${cmd.commandId.toString().replace('-','')}"
-                                    title="Complete Manually">
-                                <i class="bi bi-check-lg"></i>
+                                    th:data-bs-target="'#completeModal' + ${cmd.commandId.toString().replace('-','')}">
+                                <i class="bi bi-check-lg"></i> Complete
                             </button>
 
                             <button type="button" class="btn btn-outline-danger"
                                     data-bs-toggle="modal"
-                                    th:data-bs-target="'#cancelModal' + ${cmd.commandId.toString().replace('-','')}"
-                                    title="Cancel">
-                                <i class="bi bi-x-lg"></i>
+                                    th:data-bs-target="'#cancelModal' + ${cmd.commandId.toString().replace('-','')}">
+                                <i class="bi bi-x-lg"></i> Cancel
                             </button>
                         </div>
 
@@ -75,6 +91,7 @@
                             <div class="modal-dialog">
                                 <div class="modal-content">
                                     <form th:action="@{/tsq/{id}/complete(id=${cmd.commandId})}" method="post">
+                                        <input type="hidden" name="domain" th:value="${domain}"/>
                                         <div class="modal-header">
                                             <h5 class="modal-title">Complete Command Manually</h5>
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -99,6 +116,7 @@
                             <div class="modal-dialog">
                                 <div class="modal-content">
                                     <form th:action="@{/tsq/{id}/cancel(id=${cmd.commandId})}" method="post">
+                                        <input type="hidden" name="domain" th:value="${domain}"/>
                                         <div class="modal-header">
                                             <h5 class="modal-title">Cancel Command</h5>
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title th:replace="${title}">E2E Test App</title>
     <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.2/css/bootstrap.min.css}">
-    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.2/font/bootstrap-icons.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.1/font/bootstrap-icons.css}">
     <link rel="stylesheet" th:href="@{/css/e2e.css}">
     <script th:src="@{/webjars/htmx.org/1.9.10/dist/htmx.min.js}"></script>
 </head>
@@ -46,6 +46,18 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link" th:href="@{/approvals}"
+                               th:classappend="${currentPath.startsWith('/approvals')} ? 'active'">
+                                <i class="bi bi-person-check"></i> Approvals
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/pending-network}"
+                               th:classappend="${currentPath.startsWith('/pending-network')} ? 'active'">
+                                <i class="bi bi-broadcast"></i> Pending Network
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link" th:href="@{/batches}"
                                th:classappend="${currentPath.startsWith('/batches')} ? 'active'">
                                 <i class="bi bi-collection"></i> Batches
@@ -61,6 +73,18 @@
                             <a class="nav-link" th:href="@{/process-batches}"
                                th:classappend="${currentPath.startsWith('/process-batches')} ? 'active'">
                                 <i class="bi bi-stack"></i> Process Batches
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/payments}"
+                               th:classappend="${currentPath == '/payments'} ? 'active'">
+                                <i class="bi bi-currency-exchange"></i> Payments
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" th:href="@{/payments/batches}"
+                               th:classappend="${currentPath.startsWith('/payments/batch')} ? 'active'">
+                                <i class="bi bi-credit-card-2-front"></i> Payment Batches
                             </a>
                         </li>
                         <li class="nav-item">
