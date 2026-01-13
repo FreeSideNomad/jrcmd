@@ -29,5 +29,13 @@ public enum ProcessStatus {
     FAILED,
 
     /** Process was canceled by operator */
-    CANCELED
+    CANCELED;
+
+    /**
+     * Check if this is a terminal status (process will not change status again).
+     * Terminal statuses are: COMPLETED, COMPENSATED, FAILED, CANCELED.
+     */
+    public boolean isTerminal() {
+        return this == COMPLETED || this == COMPENSATED || this == FAILED || this == CANCELED;
+    }
 }

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>New Payment - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/payments}">Payments</a></li>
+            <li class="breadcrumb-item active">New</li>
+        </ol>
+    </nav>
+
+    <h2 class="mb-4">Create Payment</h2>
+
+    <form th:action="@{/payments}" method="post">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Debit Account (Source)</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Transit Number</label>
+                        <input type="text" name="debitTransit" class="form-control" required
+                               pattern="\d{5}" placeholder="00123"
+                               th:value="${request.debitTransit()}">
+                        <small class="text-muted">5 digits</small>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Account Number</label>
+                        <input type="text" name="debitAccountNumber" class="form-control" required
+                               th:value="${request.debitAccountNumber()}" placeholder="12345678">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Currency</label>
+                        <select name="debitCurrency" class="form-select">
+                            <option th:each="c : ${currencies}" th:value="${c}" th:text="${c.name + ' (' + c + ')'}"
+                                    th:selected="${c == request.debitCurrency()}">Currency</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Credit Account (Destination)</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">BIC/SWIFT Code</label>
+                        <input type="text" name="creditBic" class="form-control" required
+                               th:value="${request.creditBic()}" placeholder="DEUTDEFF">
+                        <small class="text-muted">8 or 11 characters</small>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">IBAN</label>
+                        <input type="text" name="creditIban" class="form-control" required
+                               th:value="${request.creditIban()}" placeholder="DE89370400440532013000">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Credit Currency</label>
+                        <select name="creditCurrency" class="form-select">
+                            <option th:each="c : ${currencies}" th:value="${c}" th:text="${c.name + ' (' + c + ')'}"
+                                    th:selected="${c == request.creditCurrency()}">Currency</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Payment Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Amount</label>
+                        <input type="number" name="debitAmount" class="form-control" required
+                               step="0.01" min="0.01"
+                               th:value="${request.debitAmount()}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Value Date</label>
+                        <input type="date" name="valueDate" class="form-control" required
+                               th:value="${request.valueDate()}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Cutoff (hours from now)</label>
+                        <input type="number" name="cutoffHours" class="form-control"
+                               min="1" max="168" value="24">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a th:href="@{/payments}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Payment</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>

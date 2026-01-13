@@ -12,6 +12,7 @@ import java.util.Map;
  *   <li>failTransientPct - chance of transient failure</li>
  *   <li>failBusinessRulePct - chance of business rule violation</li>
  *   <li>timeoutPct - chance of timeout</li>
+ *   <li>pendingPct - chance of requiring operator intervention (for L3/L4 network responses)</li>
  *   <li>Otherwise - success with duration in range</li>
  * </ol>
  */
@@ -20,15 +21,29 @@ public record ProbabilisticBehavior(
     double failTransientPct,
     double failBusinessRulePct,
     double timeoutPct,
+    double pendingPct,
     int minDurationMs,
     int maxDurationMs
 ) {
 
     /**
+     * Constructor without pendingPct for backward compatibility.
+     */
+    public ProbabilisticBehavior(
+            double failPermanentPct,
+            double failTransientPct,
+            double failBusinessRulePct,
+            double timeoutPct,
+            int minDurationMs,
+            int maxDurationMs) {
+        this(failPermanentPct, failTransientPct, failBusinessRulePct, timeoutPct, 0, minDurationMs, maxDurationMs);
+    }
+
+    /**
      * Default behavior - always succeeds with 10-100ms duration.
      */
     public static ProbabilisticBehavior defaults() {
-        return new ProbabilisticBehavior(0, 0, 0, 0, 10, 100);
+        return new ProbabilisticBehavior(0, 0, 0, 0, 0, 10, 100);
     }
 
     public Map<String, Object> toMap() {
@@ -37,6 +52,7 @@ public record ProbabilisticBehavior(
         map.put("fail_transient_pct", failTransientPct);
         map.put("fail_business_rule_pct", failBusinessRulePct);
         map.put("timeout_pct", timeoutPct);
+        map.put("pending_pct", pendingPct);
         map.put("min_duration_ms", minDurationMs);
         map.put("max_duration_ms", maxDurationMs);
         return map;
@@ -49,6 +65,7 @@ public record ProbabilisticBehavior(
             toDouble(map.get("fail_transient_pct")),
             toDouble(map.get("fail_business_rule_pct")),
             toDouble(map.get("timeout_pct")),
+            toDouble(map.get("pending_pct")),
             toInt(map.get("min_duration_ms"), 10),
             toInt(map.get("max_duration_ms"), 100)
         );

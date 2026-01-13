@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Payment Batches - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-credit-card-2-front"></i> Payment Batches</h2>
+        <a th:href="@{/payments/batch/new}" class="btn btn-success">
+            <i class="bi bi-plus-circle"></i> New Batch
+        </a>
+    </div>
+
+    <div th:if="${batches.isEmpty()}" class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No payment batches found.
+        <a th:href="@{/payments/batch/new}">Create one</a>
+    </div>
+
+    <div th:unless="${batches.isEmpty()}" class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Created</th>
+                    <th class="text-center">Total</th>
+                    <th class="text-center">Complete</th>
+                    <th class="text-center">Failed</th>
+                    <th class="text-center">In Progress</th>
+                    <th>Progress</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="batch : ${batches}"
+                    class="clickable-row"
+                    th:data-href="@{/payments/batch/{id}(id=${batch.batchId})}">
+                    <td>
+                        <strong th:text="${batch.name}">Batch Name</strong>
+                        <br>
+                        <small class="text-muted" th:text="${#strings.abbreviate(batch.batchId.toString(), 12)}">uuid</small>
+                    </td>
+                    <td th:text="${#temporals.format(batch.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                    <td class="text-center" th:text="${batch.totalCount}">0</td>
+                    <td class="text-center text-success" th:text="${batch.completedCount}">0</td>
+                    <td class="text-center text-danger" th:text="${batch.failedCount}">0</td>
+                    <td class="text-center text-primary" th:text="${batch.inProgressCount}">0</td>
+                    <td style="min-width: 150px;">
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar bg-success" role="progressbar"
+                                 th:style="'width: ' + ${batch.totalCount > 0 ? (batch.completedCount * 100.0 / batch.totalCount) : 0} + '%'"
+                                 th:title="${batch.completedCount + ' completed'}">
+                            </div>
+                            <div class="progress-bar bg-danger" role="progressbar"
+                                 th:style="'width: ' + ${batch.totalCount > 0 ? (batch.failedCount * 100.0 / batch.totalCount) : 0} + '%'"
+                                 th:title="${batch.failedCount + ' failed'}">
+                            </div>
+                            <div class="progress-bar bg-primary progress-bar-striped progress-bar-animated" role="progressbar"
+                                 th:style="'width: ' + ${batch.totalCount > 0 ? (batch.inProgressCount * 100.0 / batch.totalCount) : 0} + '%'"
+                                 th:title="${batch.inProgressCount + ' in progress'}">
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        document.querySelectorAll('.clickable-row').forEach(row => {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => window.location = row.dataset.href);
+        });
+
+        // Auto-refresh every 5 seconds if any batch is in progress
+        (function() {
+            const hasInProgress = [[${hasInProgress}]];
+            if (hasInProgress) {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
+    </script>
+</div>
+</body>
+</html>

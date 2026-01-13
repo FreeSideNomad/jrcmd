@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Pending Network Responses - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-broadcast"></i> Pending Network Responses</h2>
+        <div>
+            <span class="badge bg-warning fs-6" th:text="${totalCount + ' pending'}">0 pending</span>
+        </div>
+    </div>
+
+    <!-- Level filter tabs -->
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${selectedLevel == null} ? 'active'"
+               th:href="@{/pending-network}">
+                All <span class="badge bg-secondary" th:text="${l3Count + l4Count}">0</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${selectedLevel == 3} ? 'active'"
+               th:href="@{/pending-network(level=3)}">
+                L3 <span class="badge bg-info" th:text="${l3Count}">0</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" th:classappend="${selectedLevel == 4} ? 'active'"
+               th:href="@{/pending-network(level=4)}">
+                L4 <span class="badge bg-primary" th:text="${l4Count}">0</span>
+            </a>
+        </li>
+    </ul>
+
+    <!-- Bulk actions -->
+    <div th:if="${!responses.isEmpty()}" class="mb-3">
+        <form th:action="@{/pending-network/approve-all}" method="post" class="d-inline">
+            <input type="hidden" name="level" th:value="${selectedLevel}">
+            <button type="submit" class="btn btn-success btn-sm"
+                    onclick="return confirm('Approve all displayed responses?')">
+                <i class="bi bi-check-all"></i> Approve All
+            </button>
+        </form>
+        <button type="button" class="btn btn-danger btn-sm ms-2"
+                data-bs-toggle="modal" data-bs-target="#rejectAllModal">
+            <i class="bi bi-x-circle"></i> Reject All
+        </button>
+    </div>
+
+    <div th:if="${responses.isEmpty()}" class="alert alert-success">
+        <i class="bi bi-check-circle"></i> No pending network responses
+    </div>
+
+    <div th:unless="${responses.isEmpty()}" class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Level</th>
+                    <th>Process ID</th>
+                    <th>Command ID</th>
+                    <th>Created</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="response : ${responses}">
+                    <td>
+                        <span class="badge"
+                              th:classappend="${response.level == 3} ? 'bg-info' : 'bg-primary'"
+                              th:text="${'L' + response.level}">L3</span>
+                    </td>
+                    <td>
+                        <a th:href="@{/processes/{id}(id=${response.processId})}">
+                            <code class="uuid-short" th:text="${#strings.abbreviate(response.processId.toString(), 12)}">uuid</code>
+                        </a>
+                    </td>
+                    <td>
+                        <code class="uuid-short" th:text="${#strings.abbreviate(response.commandId.toString(), 12)}">uuid</code>
+                    </td>
+                    <td th:text="${#temporals.format(response.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <form th:action="@{/pending-network/{id}/approve(id=${response.id})}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-lg"></i> Success
+                                </button>
+                            </form>
+
+                            <button type="button" class="btn btn-danger"
+                                    data-bs-toggle="modal"
+                                    th:data-bs-target="'#rejectModal' + ${response.id.toString().replace('-','')}">
+                                <i class="bi bi-x-lg"></i> Fail
+                            </button>
+                        </div>
+
+                        <!-- Reject Modal -->
+                        <div class="modal fade" th:id="'rejectModal' + ${response.id.toString().replace('-','')}" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <form th:action="@{/pending-network/{id}/reject(id=${response.id})}" method="post">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Send Failure Response</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>Level: <span class="badge"
+                                                           th:classappend="${response.level == 3} ? 'bg-info' : 'bg-primary'"
+                                                           th:text="${'L' + response.level}">L3</span></p>
+                                            <p>Process: <code th:text="${#strings.abbreviate(response.processId.toString(), 12)}">uuid</code></p>
+                                            <div class="mb-3">
+                                                <label class="form-label">Failure Reason</label>
+                                                <input type="text" name="reason" class="form-control" required
+                                                       placeholder="Enter reason for failure">
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-danger">Send Failure</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Reject All Modal -->
+    <div class="modal fade" id="rejectAllModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/pending-network/reject-all}" method="post">
+                    <input type="hidden" name="level" th:value="${selectedLevel}">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Reject All Displayed Responses</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>This will send a failure response for all <strong th:text="${responses.size()}">0</strong> displayed responses.</p>
+                        <div class="mb-3">
+                            <label class="form-label">Rejection Reason</label>
+                            <input type="text" name="reason" class="form-control" required
+                                   placeholder="Enter reason for rejection">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger">Reject All</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Bootstrap tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+
+        // Auto-refresh every 5 seconds if there are pending items
+        (function() {
+            const pending = [[${totalCount}]];
+            if (pending > 0) {
+                setTimeout(() => window.location.reload(), 5000);
+            }
+        })();
+    </script>
+</div>
+</body>
+</html>

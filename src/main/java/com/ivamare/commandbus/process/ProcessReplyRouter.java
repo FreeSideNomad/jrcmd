@@ -4,6 +4,7 @@ import com.ivamare.commandbus.model.PgmqMessage;
 import com.ivamare.commandbus.model.Reply;
 import com.ivamare.commandbus.model.ReplyOutcome;
 import com.ivamare.commandbus.pgmq.PgmqClient;
+import com.ivamare.commandbus.pgmq.QueueNames;
 import org.postgresql.PGConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +32,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ProcessReplyRouter {
 
     private static final Logger log = LoggerFactory.getLogger(ProcessReplyRouter.class);
-    private static final String PGMQ_NOTIFY_CHANNEL = "pgmq_new_message";
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
@@ -185,7 +185,7 @@ public class ProcessReplyRouter {
     }
 
     private void runWithNotify() throws SQLException, InterruptedException {
-        String channel = PGMQ_NOTIFY_CHANNEL + "_" + replyQueue;
+        String channel = QueueNames.notifyChannel(replyQueue);
 
         try (Connection listenConn = dataSource.getConnection()) {
             listenConn.setAutoCommit(true);
@@ -303,8 +303,16 @@ public class ProcessReplyRouter {
             return;
         }
 
-        // Dispatch to manager
-        manager.handleReply(reply, process, jdbcTemplate);
+        // Check if process is in terminal state
+        if (process.status().isTerminal()) {
+            // Process already complete/cancelled - just update state for audit
+            log.debug("Reply for terminal process {} (status={}), updating state only",
+                process.processId(), process.status());
+            manager.updateStateOnly(reply, process, jdbcTemplate);
+        } else {
+            // Normal processing - may change status
+            manager.handleReply(reply, process, jdbcTemplate);
+        }
 
         // Delete message (atomically with process update since we're in a transaction)
         pgmqClient.delete(replyQueue, msgId);
@@ -318,7 +326,11 @@ public class ProcessReplyRouter {
         UUID commandId = parseUUID(message.get("command_id"));
         UUID correlationId = parseUUID(message.get("correlation_id"));
         ReplyOutcome outcome = ReplyOutcome.valueOf((String) message.get("outcome"));
+        // Support both "result" (standard) and "data" (used by simulators)
         Map<String, Object> resultData = (Map<String, Object>) message.get("result");
+        if (resultData == null) {
+            resultData = (Map<String, Object>) message.get("data");
+        }
         String errorCode = (String) message.get("error_code");
         String errorMessage = (String) message.get("error_message");
         String errorType = (String) message.get("error_type");

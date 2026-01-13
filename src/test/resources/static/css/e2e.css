@@ -1,0 +1,87 @@
+/* E2E Test App Custom Styles */
+
+/* Sidebar styling */
+.sidebar {
+    min-height: calc(100vh - 56px);
+    padding-top: 1rem;
+}
+
+.sidebar .nav-link {
+    color: #333;
+    padding: 0.5rem 1rem;
+}
+
+.sidebar .nav-link:hover {
+    background-color: #e9ecef;
+}
+
+.sidebar .nav-link.active {
+    background-color: #0d6efd;
+    color: white;
+    border-radius: 0.25rem;
+}
+
+/* UUID display */
+.uuid-short {
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+/* Clickable table rows */
+.clickable-row {
+    cursor: pointer;
+}
+
+.clickable-row:hover {
+    background-color: #f8f9fa;
+}
+
+/* Progress bar customization */
+.progress {
+    background-color: #e9ecef;
+}
+
+/* Badge styling */
+.badge {
+    font-weight: 500;
+}
+
+/* Card headers */
+.card-header h5,
+.card-header h6 {
+    margin-bottom: 0;
+}
+
+/* Form styling */
+.form-label {
+    font-weight: 500;
+}
+
+/* Table styling */
+.table th {
+    font-weight: 600;
+    background-color: #f8f9fa;
+}
+
+/* Modal styling */
+.modal-header {
+    background-color: #f8f9fa;
+}
+
+/* Status badges */
+.status-pending { background-color: #6c757d; }
+.status-in-progress { background-color: #0d6efd; }
+.status-completed { background-color: #198754; }
+.status-failed { background-color: #dc3545; }
+
+/* Audit trail */
+.audit-trail code {
+    font-size: 0.8rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        min-height: auto;
+    }
+}

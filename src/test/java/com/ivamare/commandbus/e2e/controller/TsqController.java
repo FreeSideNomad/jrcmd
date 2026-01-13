@@ -34,67 +34,79 @@ public class TsqController {
 
     @GetMapping
     public String listTsq(
+            @RequestParam(required = false) String domain,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             Model model) {
-        model.addAttribute("commands", e2eService.getTsqCommands(domain, size, page * size));
-        model.addAttribute("totalCount", e2eService.getTsqCount(domain));
+        String effectiveDomain = domain != null ? domain : this.domain;
+        model.addAttribute("commands", e2eService.getTsqCommands(effectiveDomain, size, page * size));
+        model.addAttribute("totalCount", e2eService.getTsqCount(effectiveDomain));
         model.addAttribute("page", page);
         model.addAttribute("size", size);
-        model.addAttribute("domain", domain);
+        model.addAttribute("domain", effectiveDomain);
+        model.addAttribute("availableDomains", e2eService.getDomainsWithTsqItems());
         return "pages/tsq";
     }
 
     @PostMapping("/{commandId}/retry")
     public String retry(
             @PathVariable UUID commandId,
+            @RequestParam(required = false) String domain,
             RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
         try {
-            e2eService.retryTsqCommand(domain, commandId, "e2e-ui");
+            e2eService.retryTsqCommand(effectiveDomain, commandId, "e2e-ui");
             redirectAttributes.addFlashAttribute("success", "Command queued for retry");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to retry: " + e.getMessage());
         }
-        return "redirect:/tsq";
+        return "redirect:/tsq?domain=" + effectiveDomain;
     }
 
     @PostMapping("/{commandId}/cancel")
     public String cancel(
             @PathVariable UUID commandId,
             @RequestParam String reason,
+            @RequestParam(required = false) String domain,
             RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
         try {
-            e2eService.cancelTsqCommand(domain, commandId, reason, "e2e-ui");
+            e2eService.cancelTsqCommand(effectiveDomain, commandId, reason, "e2e-ui");
             redirectAttributes.addFlashAttribute("success", "Command canceled");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to cancel: " + e.getMessage());
         }
-        return "redirect:/tsq";
+        return "redirect:/tsq?domain=" + effectiveDomain;
     }
 
     @PostMapping("/{commandId}/complete")
     public String complete(
             @PathVariable UUID commandId,
             @RequestParam String resultJson,
+            @RequestParam(required = false) String domain,
             RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
         try {
             Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
-            e2eService.completeTsqCommand(domain, commandId, result, "e2e-ui");
+            e2eService.completeTsqCommand(effectiveDomain, commandId, result, "e2e-ui");
             redirectAttributes.addFlashAttribute("success", "Command completed manually");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to complete: " + e.getMessage());
         }
-        return "redirect:/tsq";
+        return "redirect:/tsq?domain=" + effectiveDomain;
     }
 
     @PostMapping("/retry-all")
-    public String retryAll(RedirectAttributes redirectAttributes) {
+    public String retryAll(
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
         try {
-            e2eService.retryAllTsq(domain, "e2e-ui");
+            e2eService.retryAllTsq(effectiveDomain, "e2e-ui");
             redirectAttributes.addFlashAttribute("success", "All commands queued for retry");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to retry all: " + e.getMessage());
         }
-        return "redirect:/tsq";
+        return "redirect:/tsq?domain=" + effectiveDomain;
     }
 }

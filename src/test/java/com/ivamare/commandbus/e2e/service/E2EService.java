@@ -2,11 +2,13 @@ package com.ivamare.commandbus.e2e.service;
 
 import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.dto.*;
+import com.ivamare.commandbus.e2e.payment.*;
 import com.ivamare.commandbus.e2e.process.OutputType;
 import com.ivamare.commandbus.e2e.process.StatementReportProcessManager;
 import com.ivamare.commandbus.e2e.process.StepBehavior;
 import com.ivamare.commandbus.model.*;
 import com.ivamare.commandbus.ops.TroubleshootingQueue;
+import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
 import com.ivamare.commandbus.repository.AuditRepository;
@@ -17,7 +19,9 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -34,6 +38,8 @@ public class E2EService {
     private final AuditRepository auditRepository;
     private final TroubleshootingQueue tsq;
     private final StatementReportProcessManager statementReportProcessManager;
+    private final PaymentRepository paymentRepository;
+    private final PaymentProcessManager paymentProcessManager;
 
     public E2EService(
             JdbcTemplate jdbcTemplate,
@@ -43,7 +49,9 @@ public class E2EService {
             ProcessRepository processRepository,
             AuditRepository auditRepository,
             TroubleshootingQueue tsq,
-            @Nullable StatementReportProcessManager statementReportProcessManager) {
+            @Nullable StatementReportProcessManager statementReportProcessManager,
+            @Nullable PaymentRepository paymentRepository,
+            @Nullable PaymentProcessManager paymentProcessManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.commandBus = commandBus;
         this.commandRepository = commandRepository;
@@ -52,6 +60,8 @@ public class E2EService {
         this.auditRepository = auditRepository;
         this.tsq = tsq;
         this.statementReportProcessManager = statementReportProcessManager;
+        this.paymentRepository = paymentRepository;
+        this.paymentProcessManager = paymentProcessManager;
     }
 
     // ========== Dashboard ==========
@@ -175,6 +185,17 @@ public class E2EService {
         for (TroubleshootingItem item : items) {
             tsq.operatorRetry(domain, item.commandId(), operator);
         }
+    }
+
+    /**
+     * Get all domains that have items in the troubleshooting queue.
+     */
+    @Transactional(readOnly = true)
+    public List<String> getDomainsWithTsqItems() {
+        return jdbcTemplate.queryForList(
+            "SELECT DISTINCT domain FROM commandbus.command WHERE status = 'IN_TROUBLESHOOTING_QUEUE' ORDER BY domain",
+            String.class
+        );
     }
 
     // ========== Batches ==========
@@ -345,6 +366,16 @@ public class E2EService {
     public List<QueueStats> getQueueStats(String domain) {
         String sql = "SELECT queue_name FROM pgmq.meta WHERE queue_name LIKE ?";
         List<String> queueNames = jdbcTemplate.queryForList(sql, String.class, domain + "%");
+
+        return queueNames.stream()
+            .map(this::getQueueStatsForQueue)
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<QueueStats> getAllQueueStats() {
+        String sql = "SELECT queue_name FROM pgmq.meta ORDER BY queue_name";
+        List<String> queueNames = jdbcTemplate.queryForList(sql, String.class);
 
         return queueNames.stream()
             .map(this::getQueueStatsForQueue)
@@ -684,4 +715,310 @@ public class E2EService {
             process.createdAt(), process.updatedAt(), process.completedAt()
         );
     }
+
+    // ========== Payments ==========
+
+    /**
+     * Create a payment and start the payment process.
+     */
+    @Transactional
+    public UUID createPayment(Payment payment, PaymentStepBehavior behavior) {
+        if (paymentRepository == null || paymentProcessManager == null) {
+            throw new IllegalStateException("Payment components not configured");
+        }
+
+        // Save payment
+        paymentRepository.save(payment);
+
+        // Start process
+        return paymentProcessManager.startPayment(payment, behavior);
+    }
+
+    /**
+     * Get payments with optional status filter.
+     * The filter uses derived status from process status to match what's displayed in UI.
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentView> getPayments(PaymentStatus status, int limit, int offset) {
+        if (paymentRepository == null) {
+            return List.of();
+        }
+
+        if (status == null) {
+            // No filter - return all with pagination
+            List<Payment> payments = paymentRepository.findAll(limit, offset, jdbcTemplate);
+            return payments.stream()
+                .map(this::toPaymentView)
+                .toList();
+        }
+
+        // Filter based on derived status from process
+        // Map PaymentStatus to ProcessStatus conditions
+        String processStatusCondition = switch (status) {
+            case COMPLETE -> "p.status = 'COMPLETED'";
+            case FAILED -> "p.status = 'FAILED'";
+            case CANCELLED -> "p.status IN ('COMPENSATING', 'COMPENSATED', 'CANCELED')";
+            case PROCESSING -> "p.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ')";
+            case APPROVED -> "p.status = 'PENDING'";
+            case DRAFT -> "p.process_id IS NULL";
+        };
+
+        String sql = """
+            SELECT pay.payment_id
+            FROM e2e.payment pay
+            LEFT JOIN commandbus.process p ON p.domain = 'payments'
+                AND p.state->>'payment_id' = pay.payment_id::text
+            WHERE %s
+            ORDER BY pay.created_at DESC
+            LIMIT ? OFFSET ?
+            """.formatted(processStatusCondition);
+
+        List<UUID> paymentIds = jdbcTemplate.queryForList(sql, UUID.class, limit, offset);
+
+        return paymentIds.stream()
+            .map(id -> paymentRepository.findById(id, jdbcTemplate))
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .map(this::toPaymentView)
+            .toList();
+    }
+
+    /**
+     * Get payment by ID with process info.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PaymentView> getPaymentById(UUID paymentId) {
+        if (paymentRepository == null) {
+            return Optional.empty();
+        }
+
+        return paymentRepository.findById(paymentId, jdbcTemplate)
+            .map(this::toPaymentView);
+    }
+
+    /**
+     * Get payment audit trail (process audit entries).
+     */
+    @Transactional(readOnly = true)
+    public List<ProcessAuditEntry> getPaymentAuditTrail(UUID paymentId) {
+        // Find process for this payment
+        String sql = """
+            SELECT process_id FROM commandbus.process
+            WHERE domain = 'payments' AND state->>'payment_id' = ?
+            """;
+        List<String> processIds = jdbcTemplate.queryForList(sql, String.class, paymentId.toString());
+
+        if (processIds.isEmpty()) {
+            return List.of();
+        }
+
+        UUID processId = UUID.fromString(processIds.get(0));
+        return processRepository.getAuditTrail("payments", processId);
+    }
+
+    /**
+     * Create a batch of payments.
+     */
+    @Transactional
+    public UUID createPaymentBatch(PaymentBatchCreateRequest request) {
+        if (paymentRepository == null || paymentProcessManager == null) {
+            throw new IllegalStateException("Payment components not configured");
+        }
+
+        UUID batchId = UUID.randomUUID();
+        Random random = new Random();
+
+        List<Payment> payments = new ArrayList<>();
+        for (int i = 0; i < request.count(); i++) {
+            // Generate random payment
+            BigDecimal amount = request.minAmount().add(
+                new BigDecimal(random.nextDouble()).multiply(
+                    request.maxAmount().subtract(request.minAmount())
+                ).setScale(2, java.math.RoundingMode.HALF_UP)
+            );
+
+            Payment payment = Payment.builder()
+                .debitAccount(DebitAccount.of(
+                    String.format("%05d", random.nextInt(99999)),
+                    String.format("%08d", random.nextInt(99999999))
+                ))
+                .creditAccount(CreditAccount.of(
+                    generateRandomBic(),
+                    generateRandomIban(request.creditCurrency().name())
+                ))
+                .debitAmount(amount)
+                .debitCurrency(request.debitCurrency())
+                .creditCurrency(request.creditCurrency())
+                .valueDate(request.valueDate())
+                .cutoffTimestamp(Instant.now().plus(request.cutoffHours(), ChronoUnit.HOURS))
+                .build();
+
+            payments.add(payment);
+        }
+
+        // Save batch and payments
+        ((JdbcPaymentRepository) paymentRepository).saveBatch(batchId, request.name(), payments);
+
+        // Start processes for each payment
+        for (Payment payment : payments) {
+            paymentProcessManager.startPayment(payment, request.behavior());
+        }
+
+        return batchId;
+    }
+
+    /**
+     * Get all payment batches with statistics.
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentBatchListItem> getPaymentBatches(int limit, int offset) {
+        String sql = """
+            SELECT
+                b.batch_id, b.name, b.total_count, b.created_at,
+                COUNT(*) FILTER (WHERE ps.status = 'COMPLETED') as completed_count,
+                COUNT(*) FILTER (WHERE ps.status IN ('FAILED', 'COMPENSATED', 'CANCELED')) as failed_count,
+                COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress_count
+            FROM e2e.payment_batch b
+            LEFT JOIN e2e.payment_batch_item bi ON b.batch_id = bi.batch_id
+            LEFT JOIN e2e.payment p ON bi.payment_id = p.payment_id
+            LEFT JOIN commandbus.process ps ON ps.domain = 'payments'
+                AND ps.state->>'payment_id' = p.payment_id::text
+            GROUP BY b.batch_id, b.name, b.total_count, b.created_at
+            ORDER BY b.created_at DESC
+            LIMIT ? OFFSET ?
+            """;
+
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new PaymentBatchListItem(
+            UUID.fromString(rs.getString("batch_id")),
+            rs.getString("name"),
+            rs.getInt("total_count"),
+            rs.getInt("completed_count"),
+            rs.getInt("failed_count"),
+            rs.getInt("in_progress_count"),
+            rs.getTimestamp("created_at").toInstant()
+        ), limit, offset);
+    }
+
+    /**
+     * Payment batch list item with statistics.
+     */
+    public record PaymentBatchListItem(
+        UUID batchId,
+        String name,
+        int totalCount,
+        int completedCount,
+        int failedCount,
+        int inProgressCount,
+        Instant createdAt
+    ) {}
+
+    /**
+     * Get payment batch by ID.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PaymentBatchInfo> getPaymentBatchById(UUID batchId) {
+        String sql = """
+            SELECT batch_id, name, total_count, created_at
+            FROM e2e.payment_batch WHERE batch_id = ?
+            """;
+
+        List<PaymentBatchInfo> batches = jdbcTemplate.query(sql, (rs, rowNum) -> new PaymentBatchInfo(
+            UUID.fromString(rs.getString("batch_id")),
+            rs.getString("name"),
+            rs.getInt("total_count"),
+            rs.getTimestamp("created_at").toInstant()
+        ), batchId);
+
+        return batches.isEmpty() ? Optional.empty() : Optional.of(batches.get(0));
+    }
+
+    /**
+     * Get payments in a batch.
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentView> getPaymentsByBatchId(UUID batchId, PaymentStatus status, int limit, int offset) {
+        if (paymentRepository == null) {
+            return List.of();
+        }
+
+        List<Payment> payments = paymentRepository.findByBatchId(batchId, jdbcTemplate);
+
+        return payments.stream()
+            .filter(p -> status == null || p.status() == status)
+            .skip(offset)
+            .limit(limit)
+            .map(this::toPaymentView)
+            .toList();
+    }
+
+    /**
+     * Get payment batch statistics.
+     */
+    @Transactional(readOnly = true)
+    public PaymentBatchStats getPaymentBatchStats(UUID batchId) {
+        String sql = """
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE ps.status = 'COMPLETED') as completed,
+                COUNT(*) FILTER (WHERE ps.status IN ('FAILED', 'COMPENSATED', 'CANCELED')) as failed,
+                COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress
+            FROM e2e.payment_batch_item bi
+            JOIN e2e.payment p ON bi.payment_id = p.payment_id
+            LEFT JOIN commandbus.process ps ON ps.domain = 'payments'
+                AND ps.state->>'payment_id' = p.payment_id::text
+            WHERE bi.batch_id = ?
+            """;
+
+        return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new PaymentBatchStats(
+            rs.getInt("total"),
+            rs.getInt("completed"),
+            rs.getInt("failed"),
+            rs.getInt("in_progress")
+        ), batchId);
+    }
+
+    private PaymentView toPaymentView(Payment payment) {
+        // Try to find associated process
+        com.ivamare.commandbus.process.ProcessMetadata<?, ?> process = null;
+        String sql = """
+            SELECT process_id FROM commandbus.process
+            WHERE domain = 'payments' AND state->>'payment_id' = ?
+            """;
+        List<String> processIds = jdbcTemplate.queryForList(sql, String.class, payment.paymentId().toString());
+
+        if (!processIds.isEmpty()) {
+            process = processRepository.getById("payments", UUID.fromString(processIds.get(0))).orElse(null);
+        }
+
+        return PaymentView.from(payment, process);
+    }
+
+    private String generateRandomBic() {
+        String[] banks = {"DEUT", "BNPA", "HSBC", "BARC", "UBSW", "CITI", "JPMO"};
+        String[] countries = {"DE", "FR", "GB", "US", "CH", "NL"};
+        Random r = new Random();
+        return banks[r.nextInt(banks.length)] + countries[r.nextInt(countries.length)] + "FF";
+    }
+
+    private String generateRandomIban(String currency) {
+        Random r = new Random();
+        String countryCode = switch (currency) {
+            case "EUR" -> "DE";
+            case "GBP" -> "GB";
+            case "CHF" -> "CH";
+            default -> "DE";
+        };
+        return countryCode + String.format("%02d", r.nextInt(99)) +
+               String.format("%018d", Math.abs(r.nextLong()) % 1_000_000_000_000_000_000L);
+    }
+
+    /**
+     * Payment batch info record.
+     */
+    public record PaymentBatchInfo(UUID batchId, String name, int totalCount, Instant createdAt) {}
+
+    /**
+     * Payment batch statistics record.
+     */
+    public record PaymentBatchStats(int totalCount, int completedCount, int failedCount, int inProgressCount) {}
 }

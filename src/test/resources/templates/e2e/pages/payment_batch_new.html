@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>New Payment Batch - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/payments}">Payments</a></li>
+            <li class="breadcrumb-item active">New Batch</li>
+        </ol>
+    </nav>
+
+    <h2 class="mb-4">Create Payment Batch</h2>
+
+    <form th:action="@{/payments/batch}" method="post">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Basic Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Batch Name</label>
+                        <input type="text" name="name" class="form-control" required
+                               th:value="${request.name()}" placeholder="My Payment Batch">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Count</label>
+                        <input type="number" name="count" class="form-control" min="1" max="1000000"
+                               th:value="${request.count()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Min Amount</label>
+                        <input type="number" name="minAmount" class="form-control" step="0.01"
+                               th:value="${request.minAmount()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Max Amount</label>
+                        <input type="number" name="maxAmount" class="form-control" step="0.01"
+                               th:value="${request.maxAmount()}">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Debit Currency</label>
+                        <select name="debitCurrency" class="form-select">
+                            <option th:each="c : ${currencies}" th:value="${c}" th:text="${c}"
+                                    th:selected="${c == request.debitCurrency()}">Currency</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Credit Currency</label>
+                        <select name="creditCurrency" class="form-select">
+                            <option th:each="c : ${currencies}" th:value="${c}" th:text="${c}"
+                                    th:selected="${c == request.creditCurrency()}">Currency</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Value Date</label>
+                        <input type="date" name="valueDate" class="form-control"
+                               th:value="${request.valueDate()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Cutoff (hours)</label>
+                        <input type="number" name="cutoffHours" class="form-control"
+                               min="1" max="168" th:value="${request.cutoffHours()}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Risk Behavior</h5>
+                <small class="text-muted">Configure approval methods and failure rates for BookTransactionRisk step</small>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Balance %</label>
+                        <input type="number" name="riskApprovedBalancePct" class="form-control"
+                               min="0" max="100" step="0.1" value="70">
+                        <small class="text-muted">Approved via balance</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Limit %</label>
+                        <input type="number" name="riskApprovedLimitPct" class="form-control"
+                               min="0" max="100" step="0.1" value="20">
+                        <small class="text-muted">Approved via limit</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Manual %</label>
+                        <input type="number" name="riskManualApprovalPct" class="form-control"
+                               min="0" max="100" step="0.1" value="5">
+                        <small class="text-muted">Requires UI approval</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Declined %</label>
+                        <input type="number" name="riskDeclinedPct" class="form-control"
+                               min="0" max="100" step="0.1" value="5">
+                        <small class="text-muted">Declined</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="riskMinMs" class="form-control"
+                               min="0" max="10000" value="50">
+                        <small class="text-muted">Processing time</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="riskMaxMs" class="form-control"
+                               min="0" max="10000" value="200">
+                        <small class="text-muted">Processing time</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Step Behavior Configuration</h5>
+                <small class="text-muted">Configure failure rates and durations for FX, Submit, and L1-L4 steps</small>
+            </div>
+            <div class="card-body">
+                <!-- FX Step -->
+                <h6 class="border-bottom pb-2">Book FX (cross-currency only)</h6>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Perm Fail %</label>
+                        <input type="number" name="fxFailPerm" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Trans Fail %</label>
+                        <input type="number" name="fxFailTrans" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Biz Rule %</label>
+                        <input type="number" name="fxFailBiz" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Timeout %</label>
+                        <input type="number" name="fxTimeout" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="fxMinMs" class="form-control"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="fxMaxMs" class="form-control"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+
+                <!-- Submit Step -->
+                <h6 class="border-bottom pb-2 mt-4">Submit Payment</h6>
+                <div class="row mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Perm Fail %</label>
+                        <input type="number" name="submitFailPerm" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Trans Fail %</label>
+                        <input type="number" name="submitFailTrans" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Biz Rule %</label>
+                        <input type="number" name="submitFailBiz" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Timeout %</label>
+                        <input type="number" name="submitTimeout" class="form-control"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min ms</label>
+                        <input type="number" name="submitMinMs" class="form-control"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max ms</label>
+                        <input type="number" name="submitMaxMs" class="form-control"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+
+                <!-- L1-L4 Steps (compact view) -->
+                <h6 class="border-bottom pb-2 mt-4">Network Confirmations (L1-L4)</h6>
+                <small class="text-muted mb-3 d-block">These control the simulated payment network reply behavior</small>
+
+                <!-- Header row -->
+                <div class="row mb-2 text-muted small">
+                    <div class="col-1">Level</div>
+                    <div class="col-2">Perm Fail %</div>
+                    <div class="col-2">Trans Fail %</div>
+                    <div class="col-2">Biz Rule %</div>
+                    <div class="col-1">Timeout %</div>
+                    <div class="col-1">Pending %</div>
+                    <div class="col-1">Min ms</div>
+                    <div class="col-1">Max ms</div>
+                </div>
+
+                <div th:each="level : ${ {1, 2, 3, 4} }" class="row mb-2">
+                    <div class="col-1 d-flex align-items-center">
+                        <strong th:text="${'L' + level}">L1</strong>
+                    </div>
+                    <div class="col-2">
+                        <input type="number" th:name="${'l' + level + 'FailPerm'}" class="form-control form-control-sm"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-2">
+                        <input type="number" th:name="${'l' + level + 'FailTrans'}" class="form-control form-control-sm"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-2">
+                        <input type="number" th:name="${'l' + level + 'FailBiz'}" class="form-control form-control-sm"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-1">
+                        <input type="number" th:name="${'l' + level + 'Timeout'}" class="form-control form-control-sm"
+                               min="0" max="100" step="0.1" value="0">
+                    </div>
+                    <div class="col-1">
+                        <input th:if="${level == 3 or level == 4}" type="number" th:name="${'l' + level + 'Pending'}"
+                               class="form-control form-control-sm" min="0" max="100" step="0.1" value="0">
+                        <span th:if="${level == 1 or level == 2}" class="text-muted">-</span>
+                    </div>
+                    <div class="col-1">
+                        <input type="number" th:name="${'l' + level + 'MinMs'}" class="form-control form-control-sm"
+                               min="0" max="10000" value="10">
+                    </div>
+                    <div class="col-1">
+                        <input type="number" th:name="${'l' + level + 'MaxMs'}" class="form-control form-control-sm"
+                               min="0" max="10000" value="100">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a th:href="@{/payments}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Payment Batch</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>

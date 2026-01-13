@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout/main :: layout(~{::title}, ~{::content})}">
+<head>
+    <title>Payment Detail - E2E Test App</title>
+</head>
+<body>
+<div th:fragment="content">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a th:href="@{/}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a th:href="@{/payments}">Payments</a></li>
+            <li class="breadcrumb-item active" th:text="${#strings.abbreviate(payment.paymentId.toString(), 12)}">Detail</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Payment Detail</h2>
+        <span class="badge fs-5"
+              th:classappend="${payment.displayStatus() == 'COMPLETE'} ? 'bg-success' :
+                              (${payment.displayStatus() == 'FAILED' or payment.displayStatus() == 'CANCELLED'} ? 'bg-danger' :
+                              (${payment.displayStatus() == 'NEEDS_ATTENTION'} ? 'bg-warning' : 'bg-primary'))"
+              th:text="${payment.displayStatus()}">STATUS</span>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Payment Information</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Payment ID</dt>
+                        <dd class="col-sm-8"><code th:text="${payment.paymentId}">uuid</code></dd>
+
+                        <dt class="col-sm-4">Amount</dt>
+                        <dd class="col-sm-8">
+                            <span th:text="${#numbers.formatDecimal(payment.debitAmount, 1, 2)}">0.00</span>
+                            <span th:text="${payment.debitCurrency}">USD</span>
+                            <span th:if="${payment.requiresFx()}">
+                                →
+                                <span th:if="${payment.creditAmount != null}"
+                                      th:text="${#numbers.formatDecimal(payment.creditAmount, 1, 2)}">0.00</span>
+                                <span th:unless="${payment.creditAmount != null}">?</span>
+                                <span th:text="${payment.creditCurrency}">EUR</span>
+                            </span>
+                        </dd>
+
+                        <dt class="col-sm-4">Debit Account</dt>
+                        <dd class="col-sm-8" th:text="${payment.debitAccount}">00123-12345678</dd>
+
+                        <dt class="col-sm-4">Credit Account</dt>
+                        <dd class="col-sm-8" th:text="${payment.creditAccount}">BIC / IBAN</dd>
+
+                        <dt class="col-sm-4">Value Date</dt>
+                        <dd class="col-sm-8" th:text="${payment.valueDate}">2024-01-15</dd>
+
+                        <dt class="col-sm-4">Cutoff</dt>
+                        <dd class="col-sm-8" th:text="${#temporals.format(payment.cutoffTimestamp, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div th:if="${payment.requiresFx()}" class="card mb-4">
+                <div class="card-header">
+                    <h5>FX Details</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">FX Contract</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${payment.fxContractId != null}" th:text="${payment.fxContractId}">12345</span>
+                            <span th:unless="${payment.fxContractId != null}" class="text-muted">Not booked yet</span>
+                        </dd>
+
+                        <dt class="col-sm-4">FX Rate</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${payment.fxRate != null}" th:text="${payment.fxRate}">0.92</span>
+                            <span th:unless="${payment.fxRate != null}" class="text-muted">-</span>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Process Status</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Process ID</dt>
+                        <dd class="col-sm-8">
+                            <code th:if="${payment.processId != null}" th:text="${payment.processId}">uuid</code>
+                            <span th:unless="${payment.processId != null}" class="text-muted">Not started</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Process Status</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${payment.processStatus != null}" th:text="${payment.processStatus}">status</span>
+                            <span th:unless="${payment.processStatus != null}" class="text-muted">-</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Current Step</dt>
+                        <dd class="col-sm-8">
+                            <span th:if="${payment.currentStep != null}" th:text="${payment.currentStep}">step</span>
+                            <span th:unless="${payment.currentStep != null}" class="text-muted">-</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Completed Level</dt>
+                        <dd class="col-sm-8" th:text="${'L' + payment.completedLevel + ' / L4'}">L0 / L4</dd>
+                    </dl>
+
+                    <div class="progress mt-3" style="height: 30px;">
+                        <div class="progress-bar"
+                             th:classappend="${payment.displayStatus() == 'COMPLETE'} ? 'bg-success' :
+                                             (${payment.displayStatus() == 'FAILED'} ? 'bg-danger' : 'bg-primary')"
+                             role="progressbar"
+                             th:style="'width: ' + ${payment.progressPercent()} + '%'"
+                             th:text="${payment.progressPercent() + '%'}">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Network Confirmations (L1-L4) -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Network Confirmations</h5>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Level</th>
+                                <th>Status</th>
+                                <th>Reference / Error</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- L1 -->
+                            <tr>
+                                <td><strong>L1</strong></td>
+                                <td>
+                                    <span th:if="${payment.l1Status() != null and payment.l1Status().isSuccess()}" class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Success
+                                    </span>
+                                    <span th:if="${payment.l1Status() != null and payment.l1Status().isError()}" class="badge bg-danger">
+                                        <i class="bi bi-x-circle"></i> Error
+                                    </span>
+                                    <span th:if="${payment.l1Status() == null or payment.l1Status().isPending()}" class="badge bg-secondary">
+                                        Pending
+                                    </span>
+                                </td>
+                                <td>
+                                    <span th:if="${payment.l1Status() != null and payment.l1Status().isSuccess()}"
+                                          th:text="${payment.l1Status().reference()}" class="text-success">ref</span>
+                                    <span th:if="${payment.l1Status() != null and payment.l1Status().isError()}" class="text-danger">
+                                        <strong th:text="${payment.l1Status().errorCode()}">ERR</strong>:
+                                        <span th:text="${payment.l1Status().errorMessage()}">message</span>
+                                    </span>
+                                    <span th:if="${payment.l1Status() == null or payment.l1Status().isPending()}" class="text-muted">-</span>
+                                </td>
+                            </tr>
+                            <!-- L2 -->
+                            <tr>
+                                <td><strong>L2</strong></td>
+                                <td>
+                                    <span th:if="${payment.l2Status() != null and payment.l2Status().isSuccess()}" class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Success
+                                    </span>
+                                    <span th:if="${payment.l2Status() != null and payment.l2Status().isError()}" class="badge bg-danger">
+                                        <i class="bi bi-x-circle"></i> Error
+                                    </span>
+                                    <span th:if="${payment.l2Status() == null or payment.l2Status().isPending()}" class="badge bg-secondary">
+                                        Pending
+                                    </span>
+                                </td>
+                                <td>
+                                    <span th:if="${payment.l2Status() != null and payment.l2Status().isSuccess()}"
+                                          th:text="${payment.l2Status().reference()}" class="text-success">ref</span>
+                                    <span th:if="${payment.l2Status() != null and payment.l2Status().isError()}" class="text-danger">
+                                        <strong th:text="${payment.l2Status().errorCode()}">ERR</strong>:
+                                        <span th:text="${payment.l2Status().errorMessage()}">message</span>
+                                    </span>
+                                    <span th:if="${payment.l2Status() == null or payment.l2Status().isPending()}" class="text-muted">-</span>
+                                </td>
+                            </tr>
+                            <!-- L3 -->
+                            <tr>
+                                <td><strong>L3</strong></td>
+                                <td>
+                                    <span th:if="${payment.l3Status() != null and payment.l3Status().isSuccess()}" class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Success
+                                    </span>
+                                    <span th:if="${payment.l3Status() != null and payment.l3Status().isError()}" class="badge bg-danger">
+                                        <i class="bi bi-x-circle"></i> Error
+                                    </span>
+                                    <span th:if="${payment.l3Status() == null or payment.l3Status().isPending()}" class="badge bg-secondary">
+                                        Pending
+                                    </span>
+                                </td>
+                                <td>
+                                    <span th:if="${payment.l3Status() != null and payment.l3Status().isSuccess()}"
+                                          th:text="${payment.l3Status().reference()}" class="text-success">ref</span>
+                                    <span th:if="${payment.l3Status() != null and payment.l3Status().isError()}" class="text-danger">
+                                        <strong th:text="${payment.l3Status().errorCode()}">ERR</strong>:
+                                        <span th:text="${payment.l3Status().errorMessage()}">message</span>
+                                    </span>
+                                    <span th:if="${payment.l3Status() == null or payment.l3Status().isPending()}" class="text-muted">-</span>
+                                </td>
+                            </tr>
+                            <!-- L4 -->
+                            <tr>
+                                <td><strong>L4</strong></td>
+                                <td>
+                                    <span th:if="${payment.l4Status() != null and payment.l4Status().isSuccess()}" class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Success
+                                    </span>
+                                    <span th:if="${payment.l4Status() != null and payment.l4Status().isError()}" class="badge bg-danger">
+                                        <i class="bi bi-x-circle"></i> Error
+                                    </span>
+                                    <span th:if="${payment.l4Status() == null or payment.l4Status().isPending()}" class="badge bg-secondary">
+                                        Pending
+                                    </span>
+                                </td>
+                                <td>
+                                    <span th:if="${payment.l4Status() != null and payment.l4Status().isSuccess()}"
+                                          th:text="${payment.l4Status().reference()}" class="text-success">ref</span>
+                                    <span th:if="${payment.l4Status() != null and payment.l4Status().isError()}" class="text-danger">
+                                        <strong th:text="${payment.l4Status().errorCode()}">ERR</strong>:
+                                        <span th:text="${payment.l4Status().errorMessage()}">message</span>
+                                    </span>
+                                    <span th:if="${payment.l4Status() == null or payment.l4Status().isPending()}" class="text-muted">-</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Step Progress -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Step Progress</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group">
+                        <li th:each="step : ${steps}" class="list-group-item d-flex justify-content-between align-items-center"
+                            th:classappend="${step.name() == payment.currentStep} ? 'list-group-item-primary' : ''">
+                            <span th:text="${step.name()}">STEP</span>
+                            <span th:if="${step.waitOnly}" class="badge bg-secondary">Wait-only</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Trail -->
+    <div class="card">
+        <div class="card-header">
+            <h5>Audit Trail</h5>
+        </div>
+        <div class="card-body">
+            <div th:if="${auditTrail.isEmpty()}" class="text-muted">
+                No audit entries yet.
+            </div>
+            <table th:unless="${auditTrail.isEmpty()}" class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Step</th>
+                        <th>Command Type</th>
+                        <th>Outcome</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="entry : ${auditTrail}">
+                        <td><code th:text="${#temporals.format(entry.sentAt(), 'HH:mm:ss.SSS')}">time</code></td>
+                        <td th:text="${entry.stepName()}">STEP</td>
+                        <td th:text="${entry.commandType()}">Type</td>
+                        <td>
+                            <span th:if="${entry.replyOutcome() != null}" class="badge"
+                                  th:classappend="${entry.replyOutcome().name() == 'SUCCESS'} ? 'bg-success' : 'bg-danger'"
+                                  th:text="${entry.replyOutcome()}">OUTCOME</span>
+                            <span th:unless="${entry.replyOutcome() != null}" class="badge bg-secondary">Pending</span>
+                        </td>
+                        <td>
+                            <small th:if="${entry.replyData() != null}" th:text="${entry.replyData()}">data</small>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh every 3 seconds if payment is in progress
+        (function() {
+            const status = '[[${payment.displayStatus()}]]';
+            if (status !== 'COMPLETE' && status !== 'FAILED' && status !== 'CANCELLED') {
+                setTimeout(() => window.location.reload(), 3000);
+            }
+        })();
+    </script>
+</div>
+</body>
+</html>

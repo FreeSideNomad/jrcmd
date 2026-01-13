@@ -113,6 +113,22 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
     }
 
     /**
+     * Check if a step is wait-only (doesn't send a command).
+     * Wait-only steps are used for multi-reply patterns where an external system
+     * sends multiple replies to a single command. The process transitions to the
+     * wait-only step and waits for the next external reply.
+     *
+     * <p>Override this method to indicate which steps should not send commands.
+     * For wait-only steps, {@link #buildCommand(Enum, ProcessState)} is not called.
+     *
+     * @param step The step to check
+     * @return true if this step should wait without sending a command
+     */
+    public boolean isWaitOnlyStep(TStep step) {
+        return false;
+    }
+
+    /**
      * Hook called before sending command.
      * Override to perform side effects or state mutations.
      */
@@ -168,6 +184,75 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
      */
     public void handleReply(Reply reply, ProcessMetadata<?, ?> rawProcess, JdbcTemplate jdbc) {
         handleReplyInternal(reply, rawProcess, jdbc);
+    }
+
+    /**
+     * Update state only, without changing process status or step.
+     * Used for replies arriving after process reaches terminal state (COMPLETE/CANCELLED).
+     * This allows late-arriving replies to still update state for audit purposes.
+     */
+    public void updateStateOnly(Reply reply, ProcessMetadata<?, ?> rawProcess, JdbcTemplate jdbc) {
+        updateStateOnlyInternal(reply, rawProcess, jdbc);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void updateStateOnlyInternal(Reply reply, ProcessMetadata<?, ?> rawProcess, JdbcTemplate jdbc) {
+        // Deserialize state from map if needed
+        TState state;
+        TStep currentStep = null;
+
+        // First, check if currentStep is directly available
+        if (rawProcess.currentStep() != null) {
+            currentStep = (TStep) rawProcess.currentStep();
+        }
+
+        if (rawProcess.state() instanceof MapProcessState mapState) {
+            Map<String, Object> stateMap = mapState.toMap();
+
+            // Extract current step from state map if not already set
+            if (currentStep == null) {
+                String stepName = (String) stateMap.get("__current_step__");
+                if (stepName != null) {
+                    currentStep = Enum.valueOf(getStepClass(), stepName);
+                }
+            }
+
+            // Remove internal key before deserializing state
+            Map<String, Object> cleanStateMap = new java.util.HashMap<>(stateMap);
+            cleanStateMap.remove("__current_step__");
+            state = deserializeState(cleanStateMap);
+        } else {
+            state = (TState) rawProcess.state();
+        }
+
+        if (currentStep == null) {
+            log.warn("Cannot update state for process {} - no current step available", rawProcess.processId());
+            return;
+        }
+
+        // Update state using the standard updateState method
+        TState updatedState = updateState(state, currentStep, reply);
+
+        // Only save if state actually changed
+        if (!updatedState.equals(state)) {
+            ProcessMetadata<TState, TStep> updated = new ProcessMetadata<>(
+                rawProcess.domain(),
+                rawProcess.processId(),
+                rawProcess.processType(),
+                updatedState,
+                rawProcess.status(),  // Keep current status (COMPLETE/CANCELLED)
+                currentStep,          // Keep current step
+                rawProcess.createdAt(),
+                Instant.now(),        // Update timestamp
+                rawProcess.completedAt(),
+                rawProcess.errorCode(),
+                rawProcess.errorMessage()
+            );
+
+            processRepo.update(updated, jdbc);
+            log.debug("Updated state for terminal process {} with reply (status={})",
+                rawProcess.processId(), rawProcess.status());
+        }
     }
 
     // ========== Internal Implementation ==========
@@ -272,6 +357,12 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
     }
 
     private void executeStep(ProcessMetadata<TState, TStep> process, TStep step, JdbcTemplate jdbc) {
+        // Check if this is a wait-only step (no command to send)
+        if (isWaitOnlyStep(step)) {
+            executeWaitOnlyStep(process, step, jdbc);
+            return;
+        }
+
         ProcessCommand<?> command = buildCommand(step, process.state());
         UUID commandId = UUID.randomUUID();
 
@@ -310,6 +401,31 @@ public abstract class BaseProcessManager<TState extends ProcessState, TStep exte
 
         log.debug("Process {} executing step {} with command {}",
             process.processId(), step, commandId);
+    }
+
+    /**
+     * Execute a wait-only step - transitions to the step without sending a command.
+     * Used for multi-reply patterns where external systems send progressive replies.
+     */
+    private void executeWaitOnlyStep(ProcessMetadata<TState, TStep> process, TStep step, JdbcTemplate jdbc) {
+        ProcessMetadata<TState, TStep> updated = new ProcessMetadata<>(
+            process.domain(),
+            process.processId(),
+            process.processType(),
+            process.state(),
+            ProcessStatus.WAITING_FOR_REPLY,
+            step,
+            process.createdAt(),
+            Instant.now(),
+            process.completedAt(),
+            process.errorCode(),
+            process.errorMessage()
+        );
+
+        processRepo.update(updated, jdbc);
+
+        log.debug("Process {} transitioned to wait-only step {}, waiting for external reply",
+            process.processId(), step);
     }
 
     /**
