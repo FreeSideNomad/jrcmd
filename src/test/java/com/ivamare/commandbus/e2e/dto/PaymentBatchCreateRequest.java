@@ -10,6 +10,8 @@ import java.time.LocalDate;
 
 /**
  * Request DTO for creating a batch of payments.
+ *
+ * @param executionModel Execution model: "STEP_BASED" (BaseProcessManager) or "PROCESS_STEP" (ProcessStepManager)
  */
 public record PaymentBatchCreateRequest(
     String name,
@@ -20,6 +22,7 @@ public record PaymentBatchCreateRequest(
     Currency creditCurrency,
     LocalDate valueDate,
     int cutoffHours,
+    String executionModel,
     PaymentStepBehavior behavior
 ) {
     /**
@@ -35,8 +38,16 @@ public record PaymentBatchCreateRequest(
             Currency.EUR,
             LocalDate.now().plusDays(1),
             24,
+            "STEP_BASED",
             PaymentStepBehavior.defaults()
         );
+    }
+
+    /**
+     * Check if using PROCESS_STEP execution model.
+     */
+    public boolean isProcessStepModel() {
+        return "PROCESS_STEP".equals(executionModel);
     }
 
     /**

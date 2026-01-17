@@ -143,6 +143,7 @@ public class PaymentController {
             @RequestParam String creditCurrency,
             @RequestParam String valueDate,
             @RequestParam(defaultValue = "24") int cutoffHours,
+            @RequestParam(defaultValue = "STEP_BASED") String executionModel,
             // Risk behavior
             @RequestParam(defaultValue = "70") double riskApprovedBalancePct,
             @RequestParam(defaultValue = "20") double riskApprovedLimitPct,
@@ -215,6 +216,7 @@ public class PaymentController {
             Currency.valueOf(creditCurrency),
             LocalDate.parse(valueDate),
             cutoffHours,
+            executionModel,
             behavior
         );
 
