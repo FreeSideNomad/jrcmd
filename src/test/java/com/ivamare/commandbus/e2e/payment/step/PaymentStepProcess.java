@@ -1,12 +1,10 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
-import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
-import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.step.DeadlineAction;
 import com.ivamare.commandbus.process.step.ExceptionType;
-import com.ivamare.commandbus.process.step.ProcessStepManager;
 import com.ivamare.commandbus.process.step.StepOptions;
+import com.ivamare.commandbus.process.step.TestProcessStepManager;
 import com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +41,7 @@ import java.util.UUID;
  *   <li>Moves to TSQ on permanent failure</li>
  * </ul>
  */
-public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
+public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState> {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentStepProcess.class);
 
@@ -114,29 +112,30 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
 
     @Override
     protected void execute(PaymentStepState state) {
-        PaymentStepBehavior behavior = state.getBehavior();
+        // Behavior injection is now handled automatically by TestProcessStepManager
+        // based on state.getBehaviorForStep(stepName) which delegates to PaymentStepBehavior
 
         // Step 1: Book risk (with compensation)
         step("bookRisk", StepOptions.<PaymentStepState, String>builder()
-            .action(s -> executeRiskBooking(s, behavior != null ? behavior.bookRisk().toProbabilistic() : null))
+            .action(this::executeRiskBooking)
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(1))
-            .compensation(s -> releaseRiskBooking(s))
+            .compensation(this::releaseRiskBooking)
             .build());
 
         // Step 2: Book FX if needed (with compensation)
         if (shouldBookFx(state)) {
             step("bookFx", StepOptions.<PaymentStepState, Long>builder()
-                .action(s -> executeFxBooking(s, behavior != null ? behavior.bookFx() : null))
+                .action(this::executeFxBooking)
                 .maxRetries(2)
                 .retryDelay(Duration.ofMillis(500))
-                .compensation(s -> releaseFxBooking(s))
+                .compensation(this::releaseFxBooking)
                 .build());
         }
 
         // Step 3: Submit to payment network
         step("submitPayment", StepOptions.<PaymentStepState, String>builder()
-            .action(s -> executeSubmission(s, behavior != null ? behavior.submitPayment() : null))
+            .action(this::executeSubmission)
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(2))
             .build());
@@ -170,13 +169,12 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
 
     // ========== Step Implementations ==========
 
-    private String executeRiskBooking(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Execute risk booking for the payment.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private String executeRiskBooking(PaymentStepState state) {
         log.debug("Executing risk booking for payment {}", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "bookRisk");
-        }
 
         // Generate risk reference
         String riskRef = "RISK-" + UUID.randomUUID().toString().substring(0, 8);
@@ -198,13 +196,12 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         return state.isFxRequired();
     }
 
-    private Long executeFxBooking(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Execute FX booking for the payment.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private Long executeFxBooking(PaymentStepState state) {
         log.debug("Executing FX booking for payment {}", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "bookFx");
-        }
 
         // Generate FX contract
         Long contractId = Math.abs(random.nextLong()) % 1000000;
@@ -224,13 +221,12 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         // In production, this would call the FX service to release the contract
     }
 
-    private String executeSubmission(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Submit payment to the network.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private String executeSubmission(PaymentStepState state) {
         log.debug("Submitting payment {} to network", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "submitPayment");
-        }
 
         // Generate submission reference
         String submissionRef = "NET-" + UUID.randomUUID().toString().substring(0, 8);
@@ -251,41 +247,5 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         }
 
         return submissionRef;
-    }
-
-    // ========== Simulation Helpers ==========
-
-    private void simulateBehavior(ProbabilisticBehavior behavior, String stepName) {
-        double roll = random.nextDouble() * 100;
-        double cumulative = 0;
-
-        // Check for permanent failure
-        cumulative += behavior.failPermanentPct();
-        if (roll < cumulative) {
-            throw new RuntimeException("Permanent failure in " + stepName);
-        }
-
-        // Check for transient failure
-        cumulative += behavior.failTransientPct();
-        if (roll < cumulative) {
-            throw new RuntimeException("Transient timeout in " + stepName);
-        }
-
-        // Check for business rule failure
-        cumulative += behavior.failBusinessRulePct();
-        if (roll < cumulative) {
-            throw new StepBusinessRuleException("Business rule violation in " + stepName);
-        }
-
-        // Simulate latency
-        int latency = behavior.minDurationMs() +
-            random.nextInt(Math.max(1, behavior.maxDurationMs() - behavior.minDurationMs()));
-        if (latency > 0) {
-            try {
-                Thread.sleep(latency);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
     }
 }

@@ -17,6 +17,7 @@ import java.util.UUID;
  * @param correlationId  For routing reply back to process
  * @param commandId      Original SubmitPayment command ID
  * @param level          Network confirmation level (3 or 4)
+ * @param executionModel Execution model (STEP_BASED or PROCESS_STEP)
  * @param status         Queue item status (PENDING, APPROVED, REJECTED)
  * @param createdAt      When item was queued
  * @param resolvedAt     When operator took action
@@ -30,6 +31,7 @@ public record PendingNetworkResponse(
     UUID correlationId,
     UUID commandId,
     int level,
+    String executionModel,
     ResponseStatus status,
     Instant createdAt,
     Instant resolvedAt,
@@ -46,7 +48,7 @@ public record PendingNetworkResponse(
     }
 
     /**
-     * Create a new pending network response entry.
+     * Create a new pending network response entry for STEP_BASED execution model (default).
      */
     public static PendingNetworkResponse create(
             UUID paymentId,
@@ -54,6 +56,19 @@ public record PendingNetworkResponse(
             UUID correlationId,
             UUID commandId,
             int level) {
+        return create(paymentId, processId, correlationId, commandId, level, "STEP_BASED");
+    }
+
+    /**
+     * Create a new pending network response entry with specified execution model.
+     */
+    public static PendingNetworkResponse create(
+            UUID paymentId,
+            UUID processId,
+            UUID correlationId,
+            UUID commandId,
+            int level,
+            String executionModel) {
         return new PendingNetworkResponse(
             UUID.randomUUID(),
             paymentId,
@@ -61,6 +76,7 @@ public record PendingNetworkResponse(
             correlationId,
             commandId,
             level,
+            executionModel,
             ResponseStatus.PENDING,
             Instant.now(),
             null,
@@ -80,12 +96,20 @@ public record PendingNetworkResponse(
             correlationId,
             commandId,
             level,
+            executionModel,
             status,
             createdAt,
             Instant.now(),
             operator,
             notes
         );
+    }
+
+    /**
+     * Check if this response uses the PROCESS_STEP execution model.
+     */
+    public boolean isProcessStepModel() {
+        return "PROCESS_STEP".equals(executionModel);
     }
 
     /**

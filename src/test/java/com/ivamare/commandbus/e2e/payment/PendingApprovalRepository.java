@@ -30,8 +30,8 @@ public class PendingApprovalRepository {
         INSERT INTO e2e.pending_approval (
             id, payment_id, process_id, correlation_id, command_id,
             amount, currency, debit_account, credit_account,
-            status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            execution_model, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
     private static final String UPDATE_SQL = """
@@ -43,7 +43,7 @@ public class PendingApprovalRepository {
     private static final String SELECT_BASE = """
         SELECT id, payment_id, process_id, correlation_id, command_id,
                amount, currency, debit_account, credit_account,
-               status, created_at, resolved_at, resolved_by, resolution_notes
+               execution_model, status, created_at, resolved_at, resolved_by, resolution_notes
         FROM e2e.pending_approval
         """;
 
@@ -60,6 +60,7 @@ public class PendingApprovalRepository {
             rs.getString("currency"),
             rs.getString("debit_account"),
             rs.getString("credit_account"),
+            rs.getString("execution_model"),
             ApprovalStatus.valueOf(rs.getString("status")),
             toInstant(rs.getTimestamp("created_at")),
             toInstant(rs.getTimestamp("resolved_at")),
@@ -90,6 +91,7 @@ public class PendingApprovalRepository {
             approval.currency(),
             approval.debitAccount(),
             approval.creditAccount(),
+            approval.executionModel(),
             approval.status().name(),
             toTimestamp(approval.createdAt())
         );

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
+import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
 import com.ivamare.commandbus.process.step.exceptions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +73,7 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     protected final JdbcTemplate jdbcTemplate;
     protected final TransactionTemplate transactionTemplate;
     protected final ObjectMapper objectMapper;
+    protected final Bucket4jRateLimiter rateLimiter;  // nullable for backward compatibility
 
     // Thread-local execution context (set during execute())
     protected final ThreadLocal<ExecutionContext<TState>> currentContext = new ThreadLocal<>();
@@ -82,7 +84,7 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate) {
-        this(processRepo, jdbcTemplate, transactionTemplate, createObjectMapper());
+        this(processRepo, jdbcTemplate, transactionTemplate, null, createObjectMapper());
     }
 
     protected ProcessStepManager(
@@ -90,9 +92,27 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
             ObjectMapper objectMapper) {
+        this(processRepo, jdbcTemplate, transactionTemplate, null, objectMapper);
+    }
+
+    protected ProcessStepManager(
+            ProcessRepository processRepo,
+            JdbcTemplate jdbcTemplate,
+            TransactionTemplate transactionTemplate,
+            Bucket4jRateLimiter rateLimiter) {
+        this(processRepo, jdbcTemplate, transactionTemplate, rateLimiter, createObjectMapper());
+    }
+
+    protected ProcessStepManager(
+            ProcessRepository processRepo,
+            JdbcTemplate jdbcTemplate,
+            TransactionTemplate transactionTemplate,
+            Bucket4jRateLimiter rateLimiter,
+            ObjectMapper objectMapper) {
         this.processRepo = processRepo;
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
+        this.rateLimiter = rateLimiter;
         this.objectMapper = objectMapper;
     }
 
@@ -137,6 +157,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     protected ExceptionType classifyException(Exception e) {
         if (e instanceof StepBusinessRuleException) {
             return ExceptionType.BUSINESS;
+        }
+        if (e instanceof RateLimitExceededException) {
+            return ExceptionType.TRANSIENT;
         }
         // Default: fail fast to TSQ
         return ExceptionType.PERMANENT;
@@ -551,6 +574,15 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         persistState(ctx.processId(), state);
 
         try {
+            // Rate limiting (if configured) - inside try so exceptions are handled
+            if (options.hasRateLimiting() && rateLimiter != null) {
+                if (!rateLimiter.acquire(options.rateLimitKey(), options.rateLimitTimeout())) {
+                    throw new RateLimitExceededException(
+                        "Rate limit exceeded for " + options.rateLimitKey(),
+                        options.rateLimitKey());
+                }
+            }
+
             // Execute the action
             R result = options.action().apply(state);
 
