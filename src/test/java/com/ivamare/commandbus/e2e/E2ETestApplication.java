@@ -105,10 +105,10 @@ public class E2ETestApplication {
     /**
      * Create PaymentStepProcess for step-based workflow execution.
      * This is the ProcessStepManager implementation for payments.
-     * Only runs in worker mode (not UI).
+     * Available in both UI and worker modes - UI needs it to start processes,
+     * workers need it to execute them.
      */
     @Bean
-    @Profile("!ui")
     public PaymentStepProcess paymentStepProcess(
             ProcessRepository processRepository,
             JdbcTemplate jdbcTemplate,
