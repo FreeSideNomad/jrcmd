@@ -198,6 +198,113 @@ public class E2EService {
         );
     }
 
+    // ========== TSQ Process Operations (for PROCESS_STEP execution model) ==========
+
+    /**
+     * Get processes in WAITING_FOR_TSQ status (for TSQ UI tab).
+     */
+    @Transactional(readOnly = true)
+    public List<TsqProcessView> getTsqProcesses(String domain, int limit, int offset) {
+        String sql = """
+            SELECT process_id, domain, process_type, current_step, current_wait,
+                   error_code, error_message, created_at, updated_at
+            FROM commandbus.process
+            WHERE domain = ? AND status = 'WAITING_FOR_TSQ'
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?
+            """;
+
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new TsqProcessView(
+            UUID.fromString(rs.getString("process_id")),
+            rs.getString("domain"),
+            rs.getString("process_type"),
+            rs.getString("current_step"),
+            rs.getString("current_wait"),
+            rs.getString("error_code"),
+            rs.getString("error_message"),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("updated_at").toInstant()
+        ), domain, limit, offset);
+    }
+
+    /**
+     * Retry a TSQ process (mark as PENDING to resume execution).
+     */
+    @Transactional
+    public void retryTsqProcess(String domain, UUID processId) {
+        // Clear error and set status to PENDING for ProcessStepWorker to pick up
+        jdbcTemplate.update("""
+            UPDATE commandbus.process
+            SET status = 'PENDING',
+                error_code = NULL,
+                error_message = NULL,
+                updated_at = NOW()
+            WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+            """, domain, processId);
+    }
+
+    /**
+     * Cancel a TSQ process with optional compensations.
+     */
+    @Transactional
+    public void cancelTsqProcess(String domain, UUID processId, boolean runCompensations) {
+        // For now, just mark as CANCELED. Full compensation support requires ProcessStepManager.
+        String newStatus = runCompensations ? "COMPENSATED" : "CANCELED";
+        jdbcTemplate.update("""
+            UPDATE commandbus.process
+            SET status = ?,
+                completed_at = NOW(),
+                updated_at = NOW()
+            WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+            """, newStatus, domain, processId);
+    }
+
+    /**
+     * Complete a TSQ process manually with optional state overrides.
+     */
+    @Transactional
+    public void completeTsqProcess(String domain, UUID processId, Map<String, Object> stateOverrides) {
+        if (stateOverrides != null && !stateOverrides.isEmpty()) {
+            try {
+                String overrideJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(stateOverrides);
+                jdbcTemplate.update("""
+                    UPDATE commandbus.process
+                    SET status = 'COMPLETED',
+                        state = state || ?::jsonb,
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+                    """, overrideJson, domain, processId);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to serialize state overrides", e);
+            }
+        } else {
+            jdbcTemplate.update("""
+                UPDATE commandbus.process
+                SET status = 'COMPLETED',
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+                """, domain, processId);
+        }
+    }
+
+    /**
+     * Retry all TSQ processes for a domain.
+     */
+    @Transactional
+    public void retryAllTsqProcesses(String domain) {
+        jdbcTemplate.update("""
+            UPDATE commandbus.process
+            SET status = 'PENDING',
+                error_code = NULL,
+                error_message = NULL,
+                updated_at = NOW()
+            WHERE domain = ? AND status = 'WAITING_FOR_TSQ'
+            """, domain);
+    }
+
     // ========== Batches ==========
 
     @Transactional

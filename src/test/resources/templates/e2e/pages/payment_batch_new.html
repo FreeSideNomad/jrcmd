@@ -23,7 +23,7 @@
             </div>
             <div class="card-body">
                 <div class="row mb-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Batch Name</label>
                         <input type="text" name="name" class="form-control" required
                                th:value="${request.name()}" placeholder="My Payment Batch">
@@ -32,6 +32,18 @@
                         <label class="form-label">Count</label>
                         <input type="number" name="count" class="form-control" min="1" max="1000000"
                                th:value="${request.count()}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Execution Model</label>
+                        <select name="executionModel" class="form-select">
+                            <option value="STEP_BASED" th:selected="${request.executionModel() == null or request.executionModel() == 'STEP_BASED'}">
+                                STEP_BASED (Command-based)
+                            </option>
+                            <option value="PROCESS_STEP" th:selected="${request.executionModel() == 'PROCESS_STEP'}">
+                                PROCESS_STEP (Deterministic Replay)
+                            </option>
+                        </select>
+                        <small class="text-muted">Workflow execution approach</small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Min Amount</label>

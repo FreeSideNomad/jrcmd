@@ -25,20 +25,46 @@
             <span th:if="${availableDomains == null or availableDomains.isEmpty()}" class="badge bg-secondary"
                   th:text="${domain}">domain</span>
         </div>
-        <form th:action="@{/tsq/retry-all}" method="post" th:if="${!commands.isEmpty()}">
-            <input type="hidden" name="domain" th:value="${domain}"/>
-            <button type="submit" class="btn btn-warning"
-                    onclick="return confirm('Retry all commands?')">
-                <i class="bi bi-arrow-clockwise"></i> Retry All
+    </div>
+
+    <!-- Tabs for Commands vs Processes -->
+    <ul class="nav nav-tabs mb-4" id="tsqTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="commands-tab" data-bs-toggle="tab" data-bs-target="#commands-pane"
+                    type="button" role="tab" aria-controls="commands-pane" aria-selected="true">
+                <i class="bi bi-terminal"></i> Commands
+                <span th:if="${commands != null and !commands.isEmpty()}" class="badge bg-warning"
+                      th:text="${commands.size()}">0</span>
             </button>
-        </form>
-    </div>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="processes-tab" data-bs-toggle="tab" data-bs-target="#processes-pane"
+                    type="button" role="tab" aria-controls="processes-pane" aria-selected="false">
+                <i class="bi bi-diagram-3"></i> Processes
+                <span th:if="${processes != null and !processes.isEmpty()}" class="badge bg-warning"
+                      th:text="${processes.size()}">0</span>
+            </button>
+        </li>
+    </ul>
 
-    <div th:if="${commands.isEmpty()}" class="alert alert-success">
-        <i class="bi bi-check-circle"></i> No commands in troubleshooting queue
-    </div>
+    <div class="tab-content" id="tsqTabContent">
+        <!-- Commands Tab -->
+        <div class="tab-pane fade show active" id="commands-pane" role="tabpanel" aria-labelledby="commands-tab">
+            <div class="d-flex justify-content-end mb-3">
+                <form th:action="@{/tsq/retry-all}" method="post" th:if="${commands != null and !commands.isEmpty()}">
+                    <input type="hidden" name="domain" th:value="${domain}"/>
+                    <button type="submit" class="btn btn-warning"
+                            onclick="return confirm('Retry all commands?')">
+                        <i class="bi bi-arrow-clockwise"></i> Retry All Commands
+                    </button>
+                </form>
+            </div>
 
-    <div th:unless="${commands.isEmpty()}" class="table-responsive">
+            <div th:if="${commands == null or commands.isEmpty()}" class="alert alert-success">
+                <i class="bi bi-check-circle"></i> No commands in troubleshooting queue
+            </div>
+
+            <div th:unless="${commands == null or commands.isEmpty()}" class="table-responsive">
         <table class="table table-hover">
             <thead>
                 <tr>
@@ -140,7 +166,138 @@
                 </tr>
             </tbody>
         </table>
+            </div>
+        </div>
+
+        <!-- Processes Tab -->
+        <div class="tab-pane fade" id="processes-pane" role="tabpanel" aria-labelledby="processes-tab">
+            <div class="d-flex justify-content-end mb-3">
+                <form th:action="@{/tsq/processes/retry-all}" method="post" th:if="${processes != null and !processes.isEmpty()}">
+                    <input type="hidden" name="domain" th:value="${domain}"/>
+                    <button type="submit" class="btn btn-warning"
+                            onclick="return confirm('Retry all processes?')">
+                        <i class="bi bi-arrow-clockwise"></i> Retry All Processes
+                    </button>
+                </form>
+            </div>
+
+            <div th:if="${processes == null or processes.isEmpty()}" class="alert alert-success">
+                <i class="bi bi-check-circle"></i> No processes in troubleshooting queue
+            </div>
+
+            <div th:unless="${processes == null or processes.isEmpty()}" class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Process ID</th>
+                            <th>Type</th>
+                            <th>Current Wait</th>
+                            <th>Error</th>
+                            <th>Updated At</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="proc : ${processes}"
+                            class="clickable-row"
+                            th:data-href="@{/payments/{id}(id=${proc.processId}, domain=${domain})}">
+                            <td>
+                                <code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code>
+                            </td>
+                            <td th:text="${proc.processType}">Type</td>
+                            <td>
+                                <span th:if="${proc.currentWait != null}" class="badge bg-info" th:text="${proc.currentWait}">wait</span>
+                                <span th:if="${proc.currentWait == null}" class="text-muted">-</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-danger" th:text="${proc.errorCode}">ERR</span>
+                                <small th:text="${#strings.abbreviate(proc.errorMessage, 50)}">message</small>
+                            </td>
+                            <td th:text="${#temporals.format(proc.updatedAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+                            <td class="text-end" onclick="event.stopPropagation()">
+                                <div class="btn-group btn-group-sm">
+                                    <form th:action="@{/tsq/processes/{id}/retry(id=${proc.processId})}" method="post" class="d-inline">
+                                        <input type="hidden" name="domain" th:value="${domain}"/>
+                                        <button type="submit" class="btn btn-outline-primary">
+                                            <i class="bi bi-arrow-clockwise"></i> Retry
+                                        </button>
+                                    </form>
+
+                                    <button type="button" class="btn btn-outline-success"
+                                            data-bs-toggle="modal"
+                                            th:data-bs-target="'#completeProcessModal' + ${proc.processId.toString().replace('-','')}">
+                                        <i class="bi bi-check-lg"></i> Complete
+                                    </button>
+
+                                    <button type="button" class="btn btn-outline-danger"
+                                            data-bs-toggle="modal"
+                                            th:data-bs-target="'#cancelProcessModal' + ${proc.processId.toString().replace('-','')}">
+                                        <i class="bi bi-x-lg"></i> Cancel
+                                    </button>
+                                </div>
+
+                                <!-- Complete Process Modal -->
+                                <div class="modal fade" th:id="'completeProcessModal' + ${proc.processId.toString().replace('-','')}" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <form th:action="@{/tsq/processes/{id}/complete(id=${proc.processId})}" method="post">
+                                                <input type="hidden" name="domain" th:value="${domain}"/>
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Complete Process Manually</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <div class="mb-3">
+                                                        <label class="form-label">State Overrides (JSON)</label>
+                                                        <textarea name="stateOverrides" class="form-control" rows="5">{}</textarea>
+                                                        <small class="text-muted">Optional JSON object to merge into process state</small>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                    <button type="submit" class="btn btn-success">Complete Process</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Cancel Process Modal -->
+                                <div class="modal fade" th:id="'cancelProcessModal' + ${proc.processId.toString().replace('-','')}" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <form th:action="@{/tsq/processes/{id}/cancel(id=${proc.processId})}" method="post">
+                                                <input type="hidden" name="domain" th:value="${domain}"/>
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Cancel Process</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <div class="mb-3">
+                                                        <div class="form-check">
+                                                            <input type="checkbox" name="runCompensations" class="form-check-input" id="runCompensations">
+                                                            <label class="form-check-label" for="runCompensations">
+                                                                Run compensations (undo completed steps)
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                                    <button type="submit" class="btn btn-danger">Cancel Process</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
+
     <script>
         // Initialize Bootstrap tooltips
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
