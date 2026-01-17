@@ -13,6 +13,7 @@ import com.ivamare.commandbus.ops.TroubleshootingQueue;
 import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
+import com.ivamare.commandbus.process.step.BatchOptions;
 import com.ivamare.commandbus.repository.AuditRepository;
 import com.ivamare.commandbus.repository.BatchRepository;
 import com.ivamare.commandbus.repository.CommandRepository;
@@ -194,11 +195,19 @@ public class E2EService {
 
     /**
      * Get all domains that have items in the troubleshooting queue.
+     * Includes both commands (IN_TROUBLESHOOTING_QUEUE) and processes (WAITING_FOR_TSQ).
      */
     @Transactional(readOnly = true)
     public List<String> getDomainsWithTsqItems() {
         return jdbcTemplate.queryForList(
-            "SELECT DISTINCT domain FROM commandbus.command WHERE status = 'IN_TROUBLESHOOTING_QUEUE' ORDER BY domain",
+            """
+            SELECT DISTINCT domain FROM (
+                SELECT domain FROM commandbus.command WHERE status = 'IN_TROUBLESHOOTING_QUEUE'
+                UNION
+                SELECT domain FROM commandbus.process WHERE status = 'WAITING_FOR_TSQ'
+            ) AS tsq_domains
+            ORDER BY domain
+            """,
             String.class
         );
     }
@@ -250,49 +259,77 @@ public class E2EService {
 
     /**
      * Cancel a TSQ process with optional compensations.
+     * For PROCESS_STEP processes, delegates to PaymentStepProcess which handles payment status.
      */
     @Transactional
     public void cancelTsqProcess(String domain, UUID processId, boolean runCompensations) {
-        // For now, just mark as CANCELED. Full compensation support requires ProcessStepManager.
-        String newStatus = runCompensations ? "COMPENSATED" : "CANCELED";
-        jdbcTemplate.update("""
-            UPDATE commandbus.process
-            SET status = ?,
-                completed_at = NOW(),
-                updated_at = NOW()
-            WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
-            """, newStatus, domain, processId);
+        // Check if this is a PROCESS_STEP process
+        if (isProcessStepProcess(domain, processId) && paymentStepProcess != null) {
+            // Delegate to PaymentStepProcess which handles payment status via onProcessCanceled hook
+            paymentStepProcess.cancelOverride(processId, runCompensations);
+        } else {
+            // Fallback for non-PROCESS_STEP processes (legacy SQL update)
+            String newStatus = runCompensations ? "COMPENSATED" : "CANCELED";
+            jdbcTemplate.update("""
+                UPDATE commandbus.process
+                SET status = ?,
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+                """, newStatus, domain, processId);
+        }
     }
 
     /**
      * Complete a TSQ process manually with optional state overrides.
+     * For PROCESS_STEP processes, delegates to PaymentStepProcess which handles payment status.
      */
     @Transactional
     public void completeTsqProcess(String domain, UUID processId, Map<String, Object> stateOverrides) {
-        if (stateOverrides != null && !stateOverrides.isEmpty()) {
-            try {
-                String overrideJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .writeValueAsString(stateOverrides);
+        // Check if this is a PROCESS_STEP process
+        if (isProcessStepProcess(domain, processId) && paymentStepProcess != null) {
+            // Delegate to PaymentStepProcess which handles payment status via onProcessCompleted hook
+            paymentStepProcess.completeOverride(processId, stateOverrides);
+        } else {
+            // Fallback for non-PROCESS_STEP processes (legacy SQL update)
+            if (stateOverrides != null && !stateOverrides.isEmpty()) {
+                try {
+                    String overrideJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .writeValueAsString(stateOverrides);
+                    jdbcTemplate.update("""
+                        UPDATE commandbus.process
+                        SET status = 'COMPLETED',
+                            state = state || ?::jsonb,
+                            completed_at = NOW(),
+                            updated_at = NOW()
+                        WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
+                        """, overrideJson, domain, processId);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to serialize state overrides", e);
+                }
+            } else {
                 jdbcTemplate.update("""
                     UPDATE commandbus.process
                     SET status = 'COMPLETED',
-                        state = state || ?::jsonb,
                         completed_at = NOW(),
                         updated_at = NOW()
                     WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
-                    """, overrideJson, domain, processId);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to serialize state overrides", e);
+                    """, domain, processId);
             }
-        } else {
-            jdbcTemplate.update("""
-                UPDATE commandbus.process
-                SET status = 'COMPLETED',
-                    completed_at = NOW(),
-                    updated_at = NOW()
-                WHERE domain = ? AND process_id = ? AND status = 'WAITING_FOR_TSQ'
-                """, domain, processId);
         }
+    }
+
+    /**
+     * Check if a process uses PROCESS_STEP execution model.
+     */
+    private boolean isProcessStepProcess(String domain, UUID processId) {
+        String sql = """
+            SELECT execution_model
+            FROM commandbus.process
+            WHERE domain = ? AND process_id = ?
+            """;
+        List<String> results = jdbcTemplate.queryForList(sql, String.class, domain, processId);
+        return !results.isEmpty() && "PROCESS_STEP".equals(results.get(0));
     }
 
     /**
@@ -889,24 +926,47 @@ public class E2EService {
                 .toList();
         }
 
-        // Filter based on derived status from process
-        // Map PaymentStatus to ProcessStatus conditions
+        // DRAFT status means payment has no associated process
+        if (status == PaymentStatus.DRAFT) {
+            String sql = """
+                SELECT pay.payment_id
+                FROM e2e.payment pay
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM commandbus.process p
+                    WHERE p.domain = 'payments'
+                      AND (p.state->>'payment_id' = pay.payment_id::text
+                           OR p.state->>'paymentId' = pay.payment_id::text)
+                )
+                ORDER BY pay.created_at DESC
+                LIMIT ? OFFSET ?
+                """;
+            List<UUID> paymentIds = jdbcTemplate.queryForList(sql, UUID.class, limit, offset);
+            return paymentIds.stream()
+                .map(id -> paymentRepository.findById(id, jdbcTemplate))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(this::toPaymentView)
+                .toList();
+        }
+
+        // For other statuses, query processes first (more efficient than joining all payments with all processes)
         String processStatusCondition = switch (status) {
-            case COMPLETE -> "p.status = 'COMPLETED'";
-            case FAILED -> "p.status = 'FAILED'";
-            case CANCELLED -> "p.status IN ('COMPENSATING', 'COMPENSATED', 'CANCELED')";
-            case PROCESSING -> "p.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ')";
-            case APPROVED -> "p.status = 'PENDING'";
-            case DRAFT -> "p.process_id IS NULL";
+            case COMPLETE -> "status = 'COMPLETED'";
+            case FAILED -> "status = 'FAILED'";
+            case CANCELLED -> "status IN ('COMPENSATING', 'COMPENSATED', 'CANCELED')";
+            case PROCESSING -> "status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ')";
+            case APPROVED -> "status = 'PENDING'";
+            case DRAFT -> throw new IllegalStateException("DRAFT handled above");
         };
 
+        // Query processes with matching status and extract payment_id from state
         String sql = """
-            SELECT pay.payment_id
-            FROM e2e.payment pay
-            LEFT JOIN commandbus.process p ON p.domain = 'payments'
-                AND p.state->>'payment_id' = pay.payment_id::text
-            WHERE %s
-            ORDER BY pay.created_at DESC
+            SELECT COALESCE(state->>'paymentId', state->>'payment_id')::uuid as payment_id
+            FROM commandbus.process
+            WHERE domain = 'payments'
+              AND %s
+              AND (state->>'paymentId' IS NOT NULL OR state->>'payment_id' IS NOT NULL)
+            ORDER BY updated_at DESC
             LIMIT ? OFFSET ?
             """.formatted(processStatusCondition);
 
@@ -938,12 +998,13 @@ public class E2EService {
      */
     @Transactional(readOnly = true)
     public List<ProcessAuditEntry> getPaymentAuditTrail(UUID paymentId) {
-        // Find process for this payment
+        // Find process for this payment (handles both snake_case and camelCase)
         String sql = """
             SELECT process_id FROM commandbus.process
-            WHERE domain = 'payments' AND state->>'payment_id' = ?
+            WHERE domain = 'payments'
+              AND (state->>'payment_id' = ? OR state->>'paymentId' = ?)
             """;
-        List<String> processIds = jdbcTemplate.queryForList(sql, String.class, paymentId.toString());
+        List<String> processIds = jdbcTemplate.queryForList(sql, String.class, paymentId.toString(), paymentId.toString());
 
         if (processIds.isEmpty()) {
             return List.of();
@@ -1001,11 +1062,11 @@ public class E2EService {
             if (paymentStepProcess == null) {
                 throw new IllegalStateException("PaymentStepProcess not configured for STEP_BASED execution");
             }
-            // Create states from payments and start batch
+            // Create states from payments and start batch with batchId
             List<PaymentStepState> states = payments.stream()
                 .map(p -> PaymentStepState.fromPayment(p, request.behavior()))
                 .toList();
-            paymentStepProcess.startBatch(states);
+            paymentStepProcess.startBatch(states, BatchOptions.withBatchId(batchId));
         } else {
             // Default to COMMAND_BASED
             if (paymentProcessManager == null) {
@@ -1019,6 +1080,7 @@ public class E2EService {
 
     /**
      * Get all payment batches with statistics.
+     * Uses batch_id column for efficient joining (supports both PROCESS_STEP and COMMAND_BASED).
      */
     @Transactional(readOnly = true)
     public List<PaymentBatchListItem> getPaymentBatches(int limit, int offset) {
@@ -1029,10 +1091,7 @@ public class E2EService {
                 COUNT(*) FILTER (WHERE ps.status IN ('FAILED', 'COMPENSATED', 'CANCELED')) as failed_count,
                 COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress_count
             FROM e2e.payment_batch b
-            LEFT JOIN e2e.payment_batch_item bi ON b.batch_id = bi.batch_id
-            LEFT JOIN e2e.payment p ON bi.payment_id = p.payment_id
-            LEFT JOIN commandbus.process ps ON ps.domain = 'payments'
-                AND ps.state->>'payment_id' = p.payment_id::text
+            LEFT JOIN commandbus.process ps ON ps.batch_id = b.batch_id
             GROUP BY b.batch_id, b.name, b.total_count, b.created_at
             ORDER BY b.created_at DESC
             LIMIT ? OFFSET ?
@@ -1108,17 +1167,15 @@ public class E2EService {
      */
     @Transactional(readOnly = true)
     public PaymentBatchStats getPaymentBatchStats(UUID batchId) {
+        // Use batch_id column for efficient joining
         String sql = """
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE ps.status = 'COMPLETED') as completed,
                 COUNT(*) FILTER (WHERE ps.status IN ('FAILED', 'COMPENSATED', 'CANCELED')) as failed,
                 COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress
-            FROM e2e.payment_batch_item bi
-            JOIN e2e.payment p ON bi.payment_id = p.payment_id
-            LEFT JOIN commandbus.process ps ON ps.domain = 'payments'
-                AND ps.state->>'payment_id' = p.payment_id::text
-            WHERE bi.batch_id = ?
+            FROM commandbus.process ps
+            WHERE ps.batch_id = ?
             """;
 
         return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new PaymentBatchStats(
@@ -1130,13 +1187,15 @@ public class E2EService {
     }
 
     private PaymentView toPaymentView(Payment payment) {
-        // Try to find associated process
+        // Try to find associated process (handles both snake_case and camelCase)
         com.ivamare.commandbus.process.ProcessMetadata<?, ?> process = null;
         String sql = """
             SELECT process_id FROM commandbus.process
-            WHERE domain = 'payments' AND state->>'payment_id' = ?
+            WHERE domain = 'payments'
+              AND (state->>'payment_id' = ? OR state->>'paymentId' = ?)
             """;
-        List<String> processIds = jdbcTemplate.queryForList(sql, String.class, payment.paymentId().toString());
+        List<String> processIds = jdbcTemplate.queryForList(sql, String.class,
+            payment.paymentId().toString(), payment.paymentId().toString());
 
         if (!processIds.isEmpty()) {
             process = processRepository.getById("payments", UUID.fromString(processIds.get(0))).orElse(null);

@@ -76,7 +76,7 @@ public class StepPaymentNetworkSimulator {
         }
 
         boolean zeroDelay = isZeroDelayMode(stepBehavior);
-        log.debug("Starting payment confirmation simulation for process {} (command={}), zeroDelay={}",
+        log.info("Starting payment confirmation simulation for process {} (command={}), zeroDelay={}",
             processId, commandId, zeroDelay);
 
         final PaymentStepBehavior behavior = stepBehavior;
@@ -244,7 +244,7 @@ public class StepPaymentNetworkSimulator {
             }
         });
 
-        log.debug("Sent L{} success response for process {} (ref={})", level, processId, reference);
+        log.info("Sent L{} success response for process {} (ref={})", level, processId, reference);
     }
 
     private void sendFailureResponse(UUID processId, int level, String errorCode, String errorMessage) {

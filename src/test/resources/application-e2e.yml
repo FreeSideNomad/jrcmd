@@ -39,6 +39,15 @@ commandbus:
     reply-queue: reporting__process_replies
     auto-start: true
     archive-messages: true  # Archive replies for debugging
+  process-step:
+    enabled: true
+    batch-size: 100                    # Processes to claim per poll (per worker)
+    processing-timeout-seconds: 60     # Timeout before stale claims are released
+    poll-interval-ms: 1000             # Poll for pending processes
+    retry-poll-interval-ms: 5000       # Poll for retry-due processes
+    timeout-check-interval-ms: 60000   # Check wait timeouts
+    deadline-check-interval-ms: 60000  # Check process deadlines
+    auto-start: true
 
 server:
   port: 8080

@@ -1,5 +1,6 @@
 package com.ivamare.commandbus.process.step;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ivamare.commandbus.process.ProcessState;
 
 import java.time.Instant;
@@ -78,6 +79,7 @@ public abstract class ProcessStepState implements ProcessState {
     /**
      * Get completed steps in execution order (for compensation).
      */
+    @JsonIgnore
     public List<StepRecord> getCompletedStepsInOrder() {
         return stepHistory.stream()
             .filter(s -> s.status() == StepStatus.COMPLETED)
@@ -87,6 +89,7 @@ public abstract class ProcessStepState implements ProcessState {
     /**
      * Get completed steps in reverse order (for compensation).
      */
+    @JsonIgnore
     public List<StepRecord> getCompletedStepsReversed() {
         List<StepRecord> completed = new ArrayList<>(getCompletedStepsInOrder());
         java.util.Collections.reverse(completed);
@@ -179,6 +182,7 @@ public abstract class ProcessStepState implements ProcessState {
     /**
      * Check if the state has an error recorded.
      */
+    @JsonIgnore
     public boolean hasError() {
         return errorCode != null || errorMessage != null;
     }
@@ -204,6 +208,7 @@ public abstract class ProcessStepState implements ProcessState {
     /**
      * Check if the process deadline has been exceeded.
      */
+    @JsonIgnore
     public boolean isDeadlineExceeded() {
         return processDeadline != null && Instant.now().isAfter(processDeadline);
     }

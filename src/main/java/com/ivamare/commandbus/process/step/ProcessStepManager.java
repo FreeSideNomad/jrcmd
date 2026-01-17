@@ -1,9 +1,12 @@
 package com.ivamare.commandbus.process.step;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.ivamare.commandbus.model.ReplyOutcome;
+import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
 import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
@@ -119,7 +122,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     private static ObjectMapper createObjectMapper() {
         return new ObjectMapper()
             .registerModule(new JavaTimeModule())
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     }
 
     // ========== Abstract Methods ==========
@@ -155,6 +159,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      * @return The exception type (TRANSIENT, BUSINESS, or PERMANENT)
      */
     protected ExceptionType classifyException(Exception e) {
+        if (e instanceof TerminalFailureException) {
+            return ExceptionType.TERMINAL;
+        }
         if (e instanceof StepBusinessRuleException) {
             return ExceptionType.BUSINESS;
         }
@@ -242,15 +249,16 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         return transactionTemplate.execute(status -> {
             List<UUID> processIds = new ArrayList<>(initialStates.size());
             Instant now = Instant.now();
+            UUID batchId = options.getBatchId();
 
             for (TState initialState : initialStates) {
                 UUID processId = UUID.randomUUID();
                 processIds.add(processId);
-                saveProcessDirect(processId, initialState, now);
+                saveProcessDirect(processId, initialState, now, batchId);
             }
 
-            log.info("Batch created {} ProcessStepManager processes type={}",
-                processIds.size(), getProcessType());
+            log.info("Batch created {} ProcessStepManager processes type={} batchId={}",
+                processIds.size(), getProcessType(), batchId);
 
             // Execute immediately if requested (rare for batches)
             if (options.isExecuteImmediately()) {
@@ -327,20 +335,42 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         transactionTemplate.executeWithoutResult(status -> {
             TState state = loadState(processId);
 
-            // Record the timeout
-            state.setErrorCode("WAIT_TIMEOUT");
-            state.setErrorMessage("Wait condition timed out for process " + processId);
-            persistState(processId, state);
+            // Get the current wait name for audit logging
+            String currentWait = getCurrentWaitName(processId);
+            String errorMessage = "Wait condition '" + currentWait + "' timed out for process " + processId;
 
-            processRepo.updateStateAtomicStep(
-                getDomain(), processId, null,
-                null, ProcessStatus.WAITING_FOR_TSQ.name(),
-                "WAIT_TIMEOUT", "Wait condition timed out", null, null, null,
-                jdbcTemplate
+            // Record the timeout in state
+            state.setErrorCode("WAIT_TIMEOUT");
+            state.setErrorMessage(errorMessage);
+
+            // Create audit entry for timeout
+            ProcessAuditEntry auditEntry = createAuditEntry(
+                currentWait, "WAIT_TIMEOUT", Instant.now(), ReplyOutcome.FAILED,
+                Map.of("errorCode", "WAIT_TIMEOUT", "errorMessage", errorMessage)
             );
 
-            log.warn("Process {} wait timed out, moved to TSQ", processId);
+            // Atomic update: state + status + audit in single stored procedure call
+            updateStateWithAudit(processId, state,
+                ProcessStatus.WAITING_FOR_TSQ.name(),
+                "WAIT_TIMEOUT", errorMessage,
+                null, null, null,
+                auditEntry
+            );
+
+            log.warn("Process {} wait '{}' timed out, moved to TSQ", processId, currentWait);
         });
+    }
+
+    /**
+     * Get the current wait name for a process.
+     */
+    protected String getCurrentWaitName(UUID processId) {
+        String sql = "SELECT current_wait FROM commandbus.process WHERE domain = ? AND process_id = ?";
+        try {
+            return jdbcTemplate.queryForObject(sql, String.class, getDomain(), processId);
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 
     /**
@@ -356,34 +386,40 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             DeadlineAction action = getDeadlineAction();
             log.info("Process {} deadline exceeded, action: {}", processId, action);
 
+            String errorMessage = "Process deadline exceeded";
+            ProcessAuditEntry auditEntry = createAuditEntry(
+                "DEADLINE", "DEADLINE_EXCEEDED", Instant.now(), ReplyOutcome.FAILED,
+                Map.of("errorCode", "DEADLINE_EXCEEDED", "errorMessage", errorMessage, "action", action.name())
+            );
+
             switch (action) {
                 case TSQ -> {
                     state.setErrorCode("DEADLINE_EXCEEDED");
-                    state.setErrorMessage("Process deadline exceeded");
-                    persistState(processId, state);
+                    state.setErrorMessage(errorMessage);
 
-                    processRepo.updateStateAtomicStep(
-                        getDomain(), processId, null,
-                        null, ProcessStatus.WAITING_FOR_TSQ.name(),
-                        "DEADLINE_EXCEEDED", "Process deadline exceeded", null, null, null,
-                        jdbcTemplate
+                    updateStateWithAudit(processId, state,
+                        ProcessStatus.WAITING_FOR_TSQ.name(),
+                        "DEADLINE_EXCEEDED", errorMessage,
+                        null, null, null,
+                        auditEntry
                     );
                 }
                 case COMPENSATE -> {
                     runCompensations(processId, state);
-                    processRepo.updateStateAtomicStep(
-                        getDomain(), processId, null,
-                        null, ProcessStatus.COMPENSATED.name(),
-                        "DEADLINE_EXCEEDED", "Process deadline exceeded", null, null, null,
-                        jdbcTemplate
+
+                    updateStateWithAudit(processId, state,
+                        ProcessStatus.COMPENSATED.name(),
+                        "DEADLINE_EXCEEDED", errorMessage,
+                        null, null, null,
+                        auditEntry
                     );
                 }
                 case FAIL -> {
-                    processRepo.updateStateAtomicStep(
-                        getDomain(), processId, null,
-                        null, ProcessStatus.FAILED.name(),
-                        "DEADLINE_EXCEEDED", "Process deadline exceeded", null, null, null,
-                        jdbcTemplate
+                    updateStateWithAudit(processId, state,
+                        ProcessStatus.FAILED.name(),
+                        "DEADLINE_EXCEEDED", errorMessage,
+                        null, null, null,
+                        auditEntry
                     );
                 }
             }
@@ -433,8 +469,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      */
     public void cancelOverride(UUID processId, boolean runCompensations) {
         transactionTemplate.executeWithoutResult(status -> {
+            TState state = loadState(processId);
+
             if (runCompensations) {
-                TState state = loadState(processId);
                 runCompensations(processId, state);
             }
 
@@ -444,6 +481,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 null, null, null, null, null,
                 jdbcTemplate
             );
+
+            // Call hook for subclasses to update external state
+            onProcessCanceled(processId, state);
 
             log.info("Process {} canceled (compensations={})", processId, runCompensations);
         });
@@ -473,8 +513,36 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 jdbcTemplate
             );
 
+            // Load state after update to include any state patches
+            TState state = loadState(processId);
+
+            // Call hook for subclasses to update external state
+            onProcessCompleted(processId, state);
+
             log.info("Process {} completed via override", processId);
         });
+    }
+
+    /**
+     * Hook called when a process is canceled via TSQ.
+     * Override to update external state (e.g., payment status).
+     *
+     * @param processId The canceled process ID
+     * @param state The process state at cancellation time
+     */
+    protected void onProcessCanceled(UUID processId, TState state) {
+        // Default: no-op. Override in subclass to update external state.
+    }
+
+    /**
+     * Hook called when a process is completed via TSQ override.
+     * Override to update external state (e.g., payment status).
+     *
+     * @param processId The completed process ID
+     * @param state The process state at completion time
+     */
+    protected void onProcessCompleted(UUID processId, TState state) {
+        // Default: no-op. Override in subclass to update external state.
     }
 
     // ========== Step Methods ==========
@@ -558,6 +626,31 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             }
         }
 
+        // Crash recovery: Check for incomplete step execution (status=STARTED means worker crashed mid-execution)
+        if (existingStep.isPresent() && existingStep.get().status() == StepStatus.STARTED) {
+            StepRecord incompleteStep = existingStep.get();
+            int existingAttempts = incompleteStep.attemptCount();
+
+            // Check if retries are exhausted
+            // maxRetries=0 means 1 attempt allowed, maxRetries=1 means 2 attempts, etc.
+            // If attemptCount > maxRetries, we've exceeded all allowed attempts
+            if (existingAttempts > options.maxRetries()) {
+                log.warn("Step {} in process {} has exhausted retries after crash (attempts={}, maxRetries={}), moving to TSQ",
+                    name, ctx.processId(), existingAttempts, options.maxRetries());
+                ctx.recordStepFailed(name, "RETRIES_EXHAUSTED_CRASH_RECOVERY",
+                    "Previous execution did not complete and retries exhausted");
+                logStepFailure(ctx.processId(), name, incompleteStep.startedAt(),
+                    "RETRIES_EXHAUSTED_CRASH_RECOVERY", "Previous step execution did not complete (possible crash) and no retries remaining");
+                throw new StepFailedException(name, "RETRIES_EXHAUSTED_CRASH_RECOVERY",
+                    "Previous step execution did not complete (possible crash) and no retries remaining", null);
+            }
+
+            // Still have retries - proceed with re-execution
+            // Don't increment attemptCount since we're re-trying the same attempt that failed
+            log.info("Step {} in process {} was incomplete (crash recovery), re-executing (attempt={}/{})",
+                name, ctx.processId(), existingAttempts, options.maxRetries() + 1);
+        }
+
         // Register compensation
         if (options.hasCompensation()) {
             ctx.registerCompensation(name, options.compensation());
@@ -565,7 +658,11 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
 
         // Record step start
         String requestJson = serializeRequest(state, options);
-        int attemptCount = existingStep.map(s -> s.attemptCount()).orElse(0) + 1;
+        // For crash recovery (STARTED status), keep same attemptCount; otherwise increment
+        boolean isCrashRecovery = existingStep.isPresent() && existingStep.get().status() == StepStatus.STARTED;
+        int attemptCount = isCrashRecovery
+            ? existingStep.get().attemptCount()  // Same attempt (re-try after crash)
+            : existingStep.map(s -> s.attemptCount()).orElse(0) + 1;  // New attempt
         StepRecord startedRecord = new StepRecord(
             name, StepStatus.STARTED, attemptCount, options.maxRetries(),
             Instant.now(), null, requestJson, null, null, null, null
@@ -591,11 +688,14 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             ctx.recordStepCompleted(name, responseJson);
             persistState(ctx.processId(), state);
 
+            // Log to audit trail
+            logStepSuccess(ctx.processId(), name, startedRecord.startedAt(), responseJson);
+
             log.debug("Step {} completed for process {}", name, ctx.processId());
             return result;
 
         } catch (Exception e) {
-            return handleStepException(name, options, ctx, e);
+            return handleStepException(name, options, ctx, e, startedRecord.startedAt());
         }
     }
 
@@ -637,6 +737,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             // Condition met - record and continue
             ctx.recordWaitSatisfied(name);
             persistState(ctx.processId(), state);
+            // Log to audit trail
+            logWaitSatisfied(ctx.processId(), name, Instant.now());
             log.debug("Wait {} satisfied for process {}", name, ctx.processId());
             return;
         }
@@ -771,7 +873,7 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      * Handle step exception based on classification.
      */
     private <R> R handleStepException(String name, StepOptions<TState, R> options,
-                                      ExecutionContext<TState> ctx, Exception e) {
+                                      ExecutionContext<TState> ctx, Exception e, Instant startedAt) {
         ExceptionType type = classifyException(e);
         TState state = ctx.state();
         int currentAttempt = ctx.getAttemptCount(name);
@@ -787,6 +889,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                         nextRetry, e.getClass().getSimpleName(), e.getMessage());
                     persistState(ctx.processId(), state);
 
+                    // Log retry to audit trail
+                    logStepRetry(ctx.processId(), name, startedAt, currentAttempt + 1, nextRetry, e.getMessage());
+
                     // Update denormalized columns
                     processRepo.updateStateAtomicStep(
                         getDomain(), ctx.processId(), null,
@@ -799,6 +904,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 } else {
                     // Retries exhausted - to TSQ
                     ctx.recordStepFailed(name, "RETRIES_EXHAUSTED", e.getMessage());
+                    // Log failure to audit trail
+                    logStepFailure(ctx.processId(), name, startedAt, "RETRIES_EXHAUSTED", e.getMessage());
                     throw new StepFailedException(name, "RETRIES_EXHAUSTED",
                         "All retry attempts failed: " + e.getMessage(), e);
                 }
@@ -808,6 +915,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 // Business rule failure - run compensations
                 ctx.recordStepFailed(name, "BUSINESS_RULE", e.getMessage());
                 persistState(ctx.processId(), state);
+                // Log failure to audit trail
+                logStepFailure(ctx.processId(), name, startedAt, "BUSINESS_RULE", e.getMessage());
                 runCompensations(ctx.processId(), state);
 
                 processRepo.updateStateAtomicStep(
@@ -820,13 +929,37 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 throw new StepFailedException(name, "BUSINESS_RULE", e.getMessage(), e);
             }
 
+            case TERMINAL -> {
+                // Terminal failure - FAILED status, no compensations
+                String errorCode = e instanceof TerminalFailureException tfe
+                    ? tfe.getErrorCode() : "TERMINAL_FAILURE";
+                ctx.recordStepFailed(name, errorCode, e.getMessage());
+                persistState(ctx.processId(), state);
+                // Log failure to audit trail
+                logStepFailure(ctx.processId(), name, startedAt, errorCode, e.getMessage());
+
+                processRepo.updateStateAtomicStep(
+                    getDomain(), ctx.processId(), null,
+                    null, ProcessStatus.FAILED.name(),
+                    errorCode, e.getMessage(), null, null, null,
+                    jdbcTemplate
+                );
+
+                throw new StepFailedException(name, errorCode, e.getMessage(), e);
+            }
+
             case PERMANENT -> {
                 // Permanent failure - to TSQ immediately
                 ctx.recordStepFailed(name, "PERMANENT_FAILURE", e.getMessage());
+                // Log failure to audit trail
+                logStepFailure(ctx.processId(), name, startedAt, "PERMANENT_FAILURE", e.getMessage());
                 throw new StepFailedException(name, "PERMANENT_FAILURE", e.getMessage(), e);
             }
 
-            default -> throw new StepFailedException(name, "UNKNOWN", e.getMessage(), e);
+            default -> {
+                logStepFailure(ctx.processId(), name, startedAt, "UNKNOWN", e.getMessage());
+                throw new StepFailedException(name, "UNKNOWN", e.getMessage(), e);
+            }
         }
     }
 
@@ -848,10 +981,15 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 Consumer<TState> compensation = compensations.get(step.name());
                 if (compensation != null) {
                     log.debug("Running compensation for step {} in process {}", step.name(), processId);
+                    Instant compStartedAt = Instant.now();
                     try {
                         compensation.accept(state);
+                        // Log successful compensation to audit trail
+                        logCompensation(processId, step.name(), compStartedAt, true);
                     } catch (Exception e) {
                         log.warn("Compensation for step {} failed: {}", step.name(), e.getMessage());
+                        // Log failed compensation to audit trail
+                        logCompensation(processId, step.name(), compStartedAt, false);
                         // Continue with other compensations
                     }
                 }
@@ -882,12 +1020,19 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      * Save a new process directly to the database.
      */
     protected void saveProcessDirect(UUID processId, TState state, Instant now) {
+        saveProcessDirect(processId, state, now, null);
+    }
+
+    /**
+     * Save a new process directly to the database with optional batch ID.
+     */
+    protected void saveProcessDirect(UUID processId, TState state, Instant now, UUID batchId) {
         String sql = """
             INSERT INTO commandbus.process (
                 domain, process_id, process_type, status, current_step,
                 state, error_code, error_message, execution_model,
-                created_at, updated_at, completed_at, deadline_at
-            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, 'PROCESS_STEP', ?, ?, ?, ?)
+                created_at, updated_at, completed_at, deadline_at, batch_id
+            ) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, 'PROCESS_STEP', ?, ?, ?, ?, ?)
             """;
 
         jdbcTemplate.update(sql,
@@ -902,7 +1047,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             java.sql.Timestamp.from(now),
             java.sql.Timestamp.from(now),
             null,  // Not completed
-            state.getProcessDeadline() != null ? java.sql.Timestamp.from(state.getProcessDeadline()) : null
+            state.getProcessDeadline() != null ? java.sql.Timestamp.from(state.getProcessDeadline()) : null,
+            batchId
         );
     }
 
@@ -973,5 +1119,127 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize side effect", e);
         }
+    }
+
+    // ========== Atomic State + Audit Updates ==========
+
+    /**
+     * Atomically update process state and insert audit entry.
+     * Uses stored procedure to ensure consistency between process state and audit trail.
+     *
+     * @param processId Process ID
+     * @param state Current state (will be serialized)
+     * @param newStatus New process status (null to keep current)
+     * @param errorCode Error code (null to keep current)
+     * @param errorMessage Error message (null to keep current)
+     * @param nextRetryAt Next retry time (for WAITING_FOR_RETRY)
+     * @param nextWaitTimeoutAt Wait timeout time (for WAITING_FOR_ASYNC)
+     * @param currentWait Current wait name (for WAITING_FOR_ASYNC)
+     * @param auditEntry Audit entry to insert (null to skip audit logging)
+     */
+    protected void updateStateWithAudit(UUID processId, TState state,
+                                         String newStatus,
+                                         String errorCode, String errorMessage,
+                                         Instant nextRetryAt, Instant nextWaitTimeoutAt,
+                                         String currentWait,
+                                         ProcessAuditEntry auditEntry) {
+        String stateJson = serializeState(state);
+        processRepo.updateStateWithAudit(
+            getDomain(), processId,
+            stateJson, null,  // Use full state JSON, not patch
+            null, newStatus,
+            errorCode, errorMessage,
+            nextRetryAt, nextWaitTimeoutAt, currentWait,
+            auditEntry,
+            jdbcTemplate
+        );
+    }
+
+    /**
+     * Create an audit entry for step execution.
+     */
+    protected ProcessAuditEntry createAuditEntry(String stepName, String commandType,
+                                                   Instant startedAt, ReplyOutcome outcome,
+                                                   Map<String, Object> responseData) {
+        return new ProcessAuditEntry(
+            stepName,
+            UUID.randomUUID(),  // Synthetic command ID
+            commandType,
+            Map.of(),  // No command data for inline steps
+            startedAt,
+            outcome,
+            responseData,
+            Instant.now()
+        );
+    }
+
+    // ========== Audit Logging (non-atomic, for backward compatibility) ==========
+
+    /**
+     * Log a step execution to the audit trail.
+     *
+     * @param processId Process ID
+     * @param stepName Step name
+     * @param commandType Type of step operation (STEP_EXECUTE, STEP_RETRY, WAIT_SATISFIED, COMPENSATION)
+     * @param startedAt When the step started
+     * @param outcome The outcome (SUCCESS, FAILED, BUSINESS_RULE_FAILED)
+     * @param responseData Response data (may be null)
+     */
+    protected void logStepAudit(UUID processId, String stepName, String commandType,
+                                 Instant startedAt, ReplyOutcome outcome, Map<String, Object> responseData) {
+        ProcessAuditEntry entry = createAuditEntry(stepName, commandType, startedAt, outcome, responseData);
+        processRepo.logStep(getDomain(), processId, entry, jdbcTemplate);
+    }
+
+    /**
+     * Log a successful step execution.
+     */
+    protected void logStepSuccess(UUID processId, String stepName, Instant startedAt, String responseJson) {
+        Map<String, Object> responseData = responseJson != null
+            ? Map.of("result", responseJson)
+            : Map.of();
+        logStepAudit(processId, stepName, "STEP_EXECUTE", startedAt, ReplyOutcome.SUCCESS, responseData);
+    }
+
+    /**
+     * Log a step failure.
+     */
+    protected void logStepFailure(UUID processId, String stepName, Instant startedAt,
+                                   String errorCode, String errorMessage) {
+        logStepAudit(processId, stepName, "STEP_EXECUTE", startedAt, ReplyOutcome.FAILED,
+            Map.of("errorCode", errorCode, "errorMessage", errorMessage != null ? errorMessage : ""));
+    }
+
+    /**
+     * Log a step scheduled for retry.
+     */
+    protected void logStepRetry(UUID processId, String stepName, Instant startedAt,
+                                 int attemptCount, Instant nextRetryAt, String errorMessage) {
+        logStepAudit(processId, stepName, "STEP_RETRY", startedAt, ReplyOutcome.FAILED,
+            Map.of("attemptCount", attemptCount, "nextRetryAt", nextRetryAt.toString(),
+                   "errorMessage", errorMessage != null ? errorMessage : "", "willRetry", true));
+    }
+
+    /**
+     * Log a wait condition satisfied.
+     */
+    protected void logWaitSatisfied(UUID processId, String waitName, Instant recordedAt) {
+        logStepAudit(processId, waitName, "WAIT_SATISFIED", recordedAt, ReplyOutcome.SUCCESS, Map.of());
+    }
+
+    /**
+     * Log a wait condition timeout (process moved to TSQ).
+     */
+    protected void logWaitTimeout(UUID processId, String waitName, Instant recordedAt, String errorMessage) {
+        logStepAudit(processId, waitName, "WAIT_TIMEOUT", recordedAt, ReplyOutcome.FAILED,
+            Map.of("errorCode", "WAIT_TIMEOUT", "errorMessage", errorMessage != null ? errorMessage : ""));
+    }
+
+    /**
+     * Log a compensation execution.
+     */
+    protected void logCompensation(UUID processId, String stepName, Instant startedAt, boolean success) {
+        logStepAudit(processId, stepName, "COMPENSATION", startedAt,
+            success ? ReplyOutcome.SUCCESS : ReplyOutcome.FAILED, Map.of());
     }
 }

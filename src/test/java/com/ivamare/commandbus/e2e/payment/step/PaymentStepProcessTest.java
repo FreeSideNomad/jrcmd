@@ -1,9 +1,11 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
+import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
+import com.ivamare.commandbus.process.step.ExceptionType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,9 @@ class PaymentStepProcessTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
+    @Mock
+    private PaymentRepository paymentRepository;
+
     private PaymentStepProcess paymentProcess;
 
     @BeforeEach
@@ -61,7 +66,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate);
+        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
     }
 
     @Test
@@ -413,5 +418,49 @@ class PaymentStepProcessTest {
         assertEquals("OPERATOR_REJECTED", finalState.getL3ErrorCode());
 
         simulator.shutdown();
+    }
+
+    @Test
+    @DisplayName("RiskDeclinedException should have correct error code")
+    void riskDeclinedExceptionShouldHaveCorrectErrorCode() {
+        RiskDeclinedException exception = new RiskDeclinedException("Risk declined for test payment");
+        assertEquals("RISK_DECLINED", exception.getErrorCode());
+        assertEquals("Risk declined for test payment", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("RiskDeclinedException should be classified as TERMINAL")
+    void riskDeclinedExceptionShouldBeClassifiedAsTerminal() {
+        // Create process with mocks
+        PaymentStepProcess process = new PaymentStepProcess(
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+
+        // Verify exception classification
+        ExceptionType type = invokeClassifyException(process, new RiskDeclinedException("Test"));
+        assertEquals(ExceptionType.TERMINAL, type);
+    }
+
+    @Test
+    @DisplayName("StepBusinessRuleException should still be classified as BUSINESS")
+    void stepBusinessRuleExceptionShouldStillBeClassifiedAsBusiness() {
+        PaymentStepProcess process = new PaymentStepProcess(
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+
+        ExceptionType type = invokeClassifyException(process, new com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException("Test"));
+        assertEquals(ExceptionType.BUSINESS, type);
+    }
+
+    /**
+     * Helper method to invoke protected classifyException method.
+     */
+    private ExceptionType invokeClassifyException(PaymentStepProcess process, Exception e) {
+        try {
+            java.lang.reflect.Method method = com.ivamare.commandbus.process.step.ProcessStepManager.class
+                .getDeclaredMethod("classifyException", Exception.class);
+            method.setAccessible(true);
+            return (ExceptionType) method.invoke(process, e);
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to invoke classifyException", ex);
+        }
     }
 }

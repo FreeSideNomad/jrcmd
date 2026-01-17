@@ -62,6 +62,7 @@ public class ProcessStepWorkerScheduler {
     @Scheduled(fixedRate = 60000)
     public void checkWaitTimeouts() {
         if (worker.isRunning()) {
+            log.debug("Checking for expired wait timeouts...");
             worker.checkWaitTimeouts();
         }
     }

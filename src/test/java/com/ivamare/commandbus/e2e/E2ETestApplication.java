@@ -1,6 +1,7 @@
 package com.ivamare.commandbus.e2e;
 
 import com.ivamare.commandbus.e2e.payment.PaymentProcessManager;
+import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
 import com.ivamare.commandbus.e2e.payment.step.StepPaymentNetworkSimulator;
 import com.ivamare.commandbus.pgmq.PgmqClient;
@@ -113,9 +114,10 @@ public class E2ETestApplication {
     public PaymentStepProcess paymentStepProcess(
             ProcessRepository processRepository,
             JdbcTemplate jdbcTemplate,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            PaymentRepository paymentRepository) {
         log.info("Creating PaymentStepProcess for step-based payments workflow");
-        return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate);
+        return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate, paymentRepository);
     }
 
     /**

@@ -28,5 +28,12 @@ public enum ExceptionType {
      * Permanent failure that moves process to TSQ immediately.
      * Examples: invalid configuration, data corruption, unrecoverable errors.
      */
-    PERMANENT
+    PERMANENT,
+
+    /**
+     * Terminal failure that ends the process with FAILED status.
+     * No compensations run. Used for definitive business decisions.
+     * Examples: risk declined, KYC rejected.
+     */
+    TERMINAL
 }

@@ -118,7 +118,8 @@ class ProcessStepManagerTest {
                 any(),
                 any(),
                 isNull(),
-                isNull()
+                isNull(),
+                isNull()  // batch_id
             );
         }
 
@@ -329,6 +330,145 @@ class ProcessStepManagerTest {
                 any(), any(), any(), any(), any(),
                 any(JdbcTemplate.class)
             );
+        }
+    }
+
+    @Nested
+    @DisplayName("step() crash recovery")
+    class CrashRecoveryTests {
+
+        @Test
+        @DisplayName("should move to TSQ when crash recovery detects exhausted retries")
+        void shouldMoveToTsqWhenCrashRecoveryDetectsExhaustedRetries() {
+            // State with STARTED step (incomplete due to crash) and attemptCount=2, maxRetries=1
+            // maxRetries=1 means: initial attempt + 1 retry = 2 attempts total
+            // attemptCount=2 means both attempts used, so retries are exhausted
+            String stateJson = """
+                {
+                    "data": "test",
+                    "stepHistory": [{
+                        "name": "myStep",
+                        "status": "STARTED",
+                        "attemptCount": 2,
+                        "maxRetries": 1,
+                        "startedAt": "2024-01-01T00:00:00Z"
+                    }],
+                    "waitHistory": [],
+                    "sideEffects": []
+                }
+                """;
+
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn(stateJson);
+
+            AtomicBoolean actionCalled = new AtomicBoolean(false);
+            manager.setExecuteAction(state -> {
+                // Step has maxRetries=1 (2 attempts total), attemptCount=2 (both used)
+                // Should NOT execute action, should fail to TSQ
+                manager.testStep("myStep", s -> {
+                    actionCalled.set(true);
+                    return "result";
+                }, 1, null);  // maxRetries=1
+            });
+
+            UUID processId = UUID.randomUUID();
+            manager.resume(processId);
+
+            assertFalse(actionCalled.get(), "Action should not be called when retries exhausted during crash recovery");
+            // Verify process moved to TSQ
+            verify(processRepo).updateStateAtomicStep(
+                anyString(), any(UUID.class), any(),
+                any(), eq("WAITING_FOR_TSQ"),
+                eq("RETRIES_EXHAUSTED_CRASH_RECOVERY"), any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+
+        @Test
+        @DisplayName("should re-execute step when crash recovery still has retries")
+        void shouldReExecuteWhenCrashRecoveryHasRetries() {
+            // State with STARTED step (incomplete due to crash) and attemptCount=1, maxRetries=2
+            String stateJson = """
+                {
+                    "data": "test",
+                    "stepHistory": [{
+                        "name": "myStep",
+                        "status": "STARTED",
+                        "attemptCount": 1,
+                        "maxRetries": 2,
+                        "startedAt": "2024-01-01T00:00:00Z"
+                    }],
+                    "waitHistory": [],
+                    "sideEffects": []
+                }
+                """;
+
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn(stateJson);
+            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+            AtomicInteger executionCount = new AtomicInteger(0);
+            manager.setExecuteAction(state -> {
+                // Step has maxRetries=2 (3 attempts), attemptCount=1 (still has retries)
+                // Should execute action
+                manager.testStep("myStep", s -> {
+                    executionCount.incrementAndGet();
+                    return "result";
+                }, 2, null);  // maxRetries=2
+            });
+
+            UUID processId = UUID.randomUUID();
+            manager.resume(processId);
+
+            assertEquals(1, executionCount.get(), "Action should be called during crash recovery with remaining retries");
+            // Process should complete, not go to TSQ
+            verify(processRepo).updateStateAtomicStep(
+                anyString(), any(UUID.class), any(),
+                any(), eq("COMPLETED"),
+                any(), any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+
+        @Test
+        @DisplayName("should keep same attemptCount when re-executing after crash")
+        void shouldKeepSameAttemptCountWhenReExecutingAfterCrash() {
+            // State with STARTED step, attemptCount=2, maxRetries=3
+            String stateJson = """
+                {
+                    "data": "test",
+                    "stepHistory": [{
+                        "name": "myStep",
+                        "status": "STARTED",
+                        "attemptCount": 2,
+                        "maxRetries": 3,
+                        "startedAt": "2024-01-01T00:00:00Z"
+                    }],
+                    "waitHistory": [],
+                    "sideEffects": []
+                }
+                """;
+
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn(stateJson);
+            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+            manager.setExecuteAction(state -> {
+                manager.testStep("myStep", s -> "result", 3, null);
+            });
+
+            UUID processId = UUID.randomUUID();
+            manager.resume(processId);
+
+            // Verify that step was recorded with attemptCount=2 (not incremented to 3)
+            ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
+            verify(processRepo, atLeastOnce()).updateState(
+                anyString(), any(UUID.class), stateCaptor.capture(), any(JdbcTemplate.class));
+
+            // Last persisted state should have attemptCount=2 for the completed step
+            String lastState = stateCaptor.getValue();
+            assertTrue(lastState.contains("\"attemptCount\":2"),
+                "attemptCount should remain 2 during crash recovery, not increment");
         }
     }
 
@@ -607,6 +747,10 @@ class ProcessStepManagerTest {
         void cancelOverrideShouldCancelWithoutCompensations() {
             UUID processId = UUID.randomUUID();
 
+            // State is now always loaded for hooks (onProcessCanceled)
+            when(processRepo.getStateJson(anyString(), eq(processId), any(JdbcTemplate.class)))
+                .thenReturn("{\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
             manager.cancelOverride(processId, false);
 
             verify(processRepo).updateStateAtomicStep(
@@ -657,6 +801,10 @@ class ProcessStepManagerTest {
             UUID processId = UUID.randomUUID();
             Map<String, Object> overrides = Map.of("completedManually", true, "overrideReason", "TSQ action");
 
+            // State is now loaded after update for hooks (onProcessCompleted)
+            when(processRepo.getStateJson(anyString(), eq(processId), any(JdbcTemplate.class)))
+                .thenReturn("{\"completedManually\":true,\"overrideReason\":\"TSQ action\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
             manager.completeOverride(processId, overrides);
 
             ArgumentCaptor<String> patchCaptor = ArgumentCaptor.forClass(String.class);
@@ -676,6 +824,10 @@ class ProcessStepManagerTest {
         @DisplayName("completeOverride() should complete without state overrides")
         void completeOverrideShouldCompleteWithoutStateOverrides() {
             UUID processId = UUID.randomUUID();
+
+            // State is now loaded after update for hooks (onProcessCompleted)
+            when(processRepo.getStateJson(anyString(), eq(processId), any(JdbcTemplate.class)))
+                .thenReturn("{\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
 
             manager.completeOverride(processId, null);
 
