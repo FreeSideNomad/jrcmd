@@ -3,13 +3,10 @@ package com.ivamare.commandbus.e2e.payment.step;
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStatus;
 import com.ivamare.commandbus.e2e.payment.RiskBehavior;
-import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.step.DeadlineAction;
 import com.ivamare.commandbus.process.step.ExceptionType;
-import com.ivamare.commandbus.process.step.ExecutionContext;
 import com.ivamare.commandbus.process.step.StepOptions;
-import com.ivamare.commandbus.process.step.StepStatus;
 import com.ivamare.commandbus.process.step.TestProcessStepManager;
 import com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException;
 import org.slf4j.Logger;
@@ -122,66 +119,6 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
         return ExceptionType.PERMANENT;
     }
 
-    /**
-     * Override step() to handle bookRisk DECLINED specially.
-     * When bookRisk is declined, update payment to FAILED and throw RiskDeclinedException
-     * (which bypasses compensation and sets process to FAILED).
-     */
-    @Override
-    protected <R> R step(String name, StepOptions<PaymentStepState, R> options) {
-        ExecutionContext<PaymentStepState> ctx = currentContext.get();
-        if (ctx == null) {
-            throw new IllegalStateException("step() called outside of execute() context");
-        }
-
-        PaymentStepState state = ctx.state();
-
-        // Skip behavior injection for replayed steps
-        var completedStep = ctx.getCompletedStep(name);
-        if (completedStep.isPresent() && completedStep.get().status() == StepStatus.COMPLETED) {
-            return super.step(name, options);
-        }
-
-        // Special handling for bookRisk DECLINED
-        if ("bookRisk".equals(name)) {
-            RiskBehavior riskBehavior = state.getBehavior() != null
-                ? state.getBehavior().bookRisk()
-                : RiskBehavior.defaults();
-
-            if (riskBehavior != null) {
-                // Check if this execution would result in DECLINED
-                double roll = random.nextDouble() * 100;
-                String approvalMethod = riskBehavior.determineApprovalMethod(roll);
-
-                if (approvalMethod == null) {
-                    // DECLINED - update payment to FAILED and throw terminal exception
-                    log.info("Risk check DECLINED for payment {} - setting status to FAILED",
-                        state.getPaymentId());
-                    updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
-                    throw new RiskDeclinedException("Risk assessment declined for payment " + state.getPaymentId());
-                }
-
-                // Store the approval method in state for the action to use
-                state.setRiskMethod(approvalMethod);
-            }
-        }
-
-        // For non-bookRisk steps, delegate to parent (which applies probabilistic behavior)
-        return super.step(name, options);
-    }
-
-    /**
-     * Override to skip behavior injection for bookRisk (handled in step() override above).
-     */
-    @Override
-    protected void applyProbabilisticBehavior(String stepName, ProbabilisticBehavior behavior) {
-        if ("bookRisk".equals(stepName)) {
-            // Skip - bookRisk behavior (including DECLINED) is handled in step() override
-            return;
-        }
-        super.applyProbabilisticBehavior(stepName, behavior);
-    }
-
     // ========== Workflow Execution ==========
 
     @Override
@@ -199,8 +136,32 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             .build());
 
         // Step 2: Book risk (with compensation)
+        // DECLINED check is done in the action - throws RiskDeclinedException (TERMINAL)
         step("bookRisk", StepOptions.<PaymentStepState, String>builder()
-            .action(this::executeRiskBooking)
+            .action(s -> {
+                // Check behavior for DECLINED before executing
+                RiskBehavior riskBehavior = s.getBehavior() != null
+                    ? s.getBehavior().bookRisk()
+                    : RiskBehavior.defaults();
+
+                if (riskBehavior != null) {
+                    double roll = random.nextDouble() * 100;
+                    String approvalMethod = riskBehavior.determineApprovalMethod(roll);
+
+                    if (approvalMethod == null) {
+                        // DECLINED - update payment and throw terminal exception
+                        log.info("Risk check DECLINED for payment {} - setting status to FAILED",
+                            s.getPaymentId());
+                        updatePaymentStatus(s.getPaymentId(), PaymentStatus.FAILED);
+                        throw new RiskDeclinedException(
+                            "Risk assessment declined for payment " + s.getPaymentId());
+                    }
+
+                    s.setRiskMethod(approvalMethod);
+                }
+
+                return executeRiskBooking(s);
+            })
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(1))
             .compensation(this::releaseRiskBooking)
