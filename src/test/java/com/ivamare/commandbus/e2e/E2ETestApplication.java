@@ -2,6 +2,7 @@ package com.ivamare.commandbus.e2e;
 
 import com.ivamare.commandbus.e2e.payment.PaymentProcessManager;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
+import com.ivamare.commandbus.e2e.payment.step.StepPaymentNetworkSimulator;
 import com.ivamare.commandbus.pgmq.PgmqClient;
 import com.ivamare.commandbus.process.BaseProcessManager;
 import com.ivamare.commandbus.process.ProcessReplyRouter;
@@ -115,6 +116,18 @@ public class E2ETestApplication {
             TransactionTemplate transactionTemplate) {
         log.info("Creating PaymentStepProcess for step-based payments workflow");
         return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate);
+    }
+
+    /**
+     * Create StepPaymentNetworkSimulator to simulate L1-L4 network responses.
+     * Wires itself to PaymentStepProcess to receive trigger calls.
+     */
+    @Bean
+    public StepPaymentNetworkSimulator stepPaymentNetworkSimulator(PaymentStepProcess paymentStepProcess) {
+        log.info("Creating StepPaymentNetworkSimulator for step-based payment confirmations");
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(paymentStepProcess);
+        paymentStepProcess.setNetworkSimulator(simulator);
+        return simulator;
     }
 
     /**
