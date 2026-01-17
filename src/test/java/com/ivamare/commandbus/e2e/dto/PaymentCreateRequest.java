@@ -10,6 +10,8 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * Request DTO for creating a payment.
+ *
+ * @param executionModel Execution model: "COMMAND_BASED" (BaseProcessManager) or "STEP_BASED" (ProcessStepManager)
  */
 public record PaymentCreateRequest(
     String debitTransit,
@@ -21,6 +23,7 @@ public record PaymentCreateRequest(
     Currency creditCurrency,
     LocalDate valueDate,
     Instant cutoffTimestamp,
+    String executionModel,
     PaymentStepBehavior behavior
 ) {
     /**
@@ -37,7 +40,15 @@ public record PaymentCreateRequest(
             Currency.EUR,
             LocalDate.now().plusDays(1),
             Instant.now().plus(24, ChronoUnit.HOURS),
+            "COMMAND_BASED",
             PaymentStepBehavior.defaults()
         );
+    }
+
+    /**
+     * Check if using STEP_BASED execution model (ProcessStepManager).
+     */
+    public boolean isStepBasedModel() {
+        return "STEP_BASED".equals(executionModel);
     }
 }

@@ -123,7 +123,6 @@ public class E2ETestApplication {
      */
     @Bean
     @Profile("!ui")
-    @ConditionalOnBean(PaymentStepProcess.class)
     public ProcessStepWorker processStepWorker(
             PaymentStepProcess paymentStepProcess,
             ProcessRepository processRepository) {

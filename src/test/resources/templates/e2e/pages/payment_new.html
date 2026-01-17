@@ -82,21 +82,33 @@
             </div>
             <div class="card-body">
                 <div class="row mb-3">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Amount</label>
                         <input type="number" name="debitAmount" class="form-control" required
                                step="0.01" min="0.01"
                                th:value="${request.debitAmount()}">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Value Date</label>
                         <input type="date" name="valueDate" class="form-control" required
                                th:value="${request.valueDate()}">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Cutoff (hours from now)</label>
                         <input type="number" name="cutoffHours" class="form-control"
                                min="1" max="168" value="24">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Execution Model</label>
+                        <select name="executionModel" class="form-select">
+                            <option value="COMMAND_BASED" th:selected="${request.executionModel() == null or request.executionModel() == 'COMMAND_BASED'}">
+                                COMMAND_BASED
+                            </option>
+                            <option value="STEP_BASED" th:selected="${request.executionModel() == 'STEP_BASED'}">
+                                STEP_BASED
+                            </option>
+                        </select>
+                        <small class="text-muted">Workflow execution approach</small>
                     </div>
                 </div>
             </div>

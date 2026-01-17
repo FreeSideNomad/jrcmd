@@ -3,6 +3,8 @@ package com.ivamare.commandbus.e2e.service;
 import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.dto.*;
 import com.ivamare.commandbus.e2e.payment.*;
+import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
+import com.ivamare.commandbus.e2e.payment.step.PaymentStepState;
 import com.ivamare.commandbus.e2e.process.OutputType;
 import com.ivamare.commandbus.e2e.process.StatementReportProcessManager;
 import com.ivamare.commandbus.e2e.process.StepBehavior;
@@ -40,6 +42,7 @@ public class E2EService {
     private final StatementReportProcessManager statementReportProcessManager;
     private final PaymentRepository paymentRepository;
     private final PaymentProcessManager paymentProcessManager;
+    private final PaymentStepProcess paymentStepProcess;
 
     public E2EService(
             JdbcTemplate jdbcTemplate,
@@ -51,7 +54,8 @@ public class E2EService {
             TroubleshootingQueue tsq,
             @Nullable StatementReportProcessManager statementReportProcessManager,
             @Nullable PaymentRepository paymentRepository,
-            @Nullable PaymentProcessManager paymentProcessManager) {
+            @Nullable PaymentProcessManager paymentProcessManager,
+            @Nullable PaymentStepProcess paymentStepProcess) {
         this.jdbcTemplate = jdbcTemplate;
         this.commandBus = commandBus;
         this.commandRepository = commandRepository;
@@ -62,6 +66,7 @@ public class E2EService {
         this.statementReportProcessManager = statementReportProcessManager;
         this.paymentRepository = paymentRepository;
         this.paymentProcessManager = paymentProcessManager;
+        this.paymentStepProcess = paymentStepProcess;
     }
 
     // ========== Dashboard ==========
@@ -827,18 +832,43 @@ public class E2EService {
 
     /**
      * Create a payment and start the payment process.
+     *
+     * @param executionModel "COMMAND_BASED" (BaseProcessManager) or "STEP_BASED" (ProcessStepManager)
      */
     @Transactional
-    public UUID createPayment(Payment payment, PaymentStepBehavior behavior) {
-        if (paymentRepository == null || paymentProcessManager == null) {
+    public UUID createPayment(Payment payment, PaymentStepBehavior behavior, String executionModel) {
+        if (paymentRepository == null) {
             throw new IllegalStateException("Payment components not configured");
         }
 
         // Save payment
         paymentRepository.save(payment);
 
-        // Start process
-        return paymentProcessManager.startPayment(payment, behavior);
+        // Start process based on execution model
+        if ("STEP_BASED".equals(executionModel)) {
+            if (paymentStepProcess == null) {
+                throw new IllegalStateException("PaymentStepProcess not configured for STEP_BASED execution");
+            }
+            // Create PaymentStepState from Payment
+            PaymentStepState state = PaymentStepState.fromPayment(payment, behavior);
+            return paymentStepProcess.start(state);
+        } else {
+            // Default to COMMAND_BASED
+            if (paymentProcessManager == null) {
+                throw new IllegalStateException("PaymentProcessManager not configured for COMMAND_BASED execution");
+            }
+            return paymentProcessManager.startPayment(payment, behavior);
+        }
+    }
+
+    /**
+     * Create a payment and start the payment process using COMMAND_BASED model.
+     * @deprecated Use {@link #createPayment(Payment, PaymentStepBehavior, String)} instead
+     */
+    @Deprecated
+    @Transactional
+    public UUID createPayment(Payment payment, PaymentStepBehavior behavior) {
+        return createPayment(payment, behavior, "COMMAND_BASED");
     }
 
     /**
@@ -928,7 +958,7 @@ public class E2EService {
      */
     @Transactional
     public UUID createPaymentBatch(PaymentBatchCreateRequest request) {
-        if (paymentRepository == null || paymentProcessManager == null) {
+        if (paymentRepository == null) {
             throw new IllegalStateException("Payment components not configured");
         }
 
@@ -966,9 +996,23 @@ public class E2EService {
         // Save batch and payments
         ((JdbcPaymentRepository) paymentRepository).saveBatch(batchId, request.name(), payments);
 
-        // Start processes for all payments in a single batch operation
-        // This is dramatically faster than starting processes one by one
-        paymentProcessManager.startPaymentBatch(payments, request.behavior());
+        // Start processes based on execution model
+        if (request.isStepBasedModel()) {
+            if (paymentStepProcess == null) {
+                throw new IllegalStateException("PaymentStepProcess not configured for STEP_BASED execution");
+            }
+            // Create states from payments and start batch
+            List<PaymentStepState> states = payments.stream()
+                .map(p -> PaymentStepState.fromPayment(p, request.behavior()))
+                .toList();
+            paymentStepProcess.startBatch(states);
+        } else {
+            // Default to COMMAND_BASED
+            if (paymentProcessManager == null) {
+                throw new IllegalStateException("PaymentProcessManager not configured for COMMAND_BASED execution");
+            }
+            paymentProcessManager.startPaymentBatch(payments, request.behavior());
+        }
 
         return batchId;
     }

@@ -11,7 +11,7 @@ import java.time.LocalDate;
 /**
  * Request DTO for creating a batch of payments.
  *
- * @param executionModel Execution model: "STEP_BASED" (BaseProcessManager) or "PROCESS_STEP" (ProcessStepManager)
+ * @param executionModel Execution model: "COMMAND_BASED" (BaseProcessManager) or "STEP_BASED" (ProcessStepManager)
  */
 public record PaymentBatchCreateRequest(
     String name,
@@ -38,16 +38,16 @@ public record PaymentBatchCreateRequest(
             Currency.EUR,
             LocalDate.now().plusDays(1),
             24,
-            "STEP_BASED",
+            "COMMAND_BASED",
             PaymentStepBehavior.defaults()
         );
     }
 
     /**
-     * Check if using PROCESS_STEP execution model.
+     * Check if using STEP_BASED execution model (ProcessStepManager).
      */
-    public boolean isProcessStepModel() {
-        return "PROCESS_STEP".equals(executionModel);
+    public boolean isStepBasedModel() {
+        return "STEP_BASED".equals(executionModel);
     }
 
     /**

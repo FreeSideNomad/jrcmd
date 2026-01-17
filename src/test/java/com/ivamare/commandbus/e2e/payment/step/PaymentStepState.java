@@ -467,6 +467,20 @@ public class PaymentStepState extends TestProcessStepState {
         this.l4ErrorMessage = errorMessage;
     }
 
+    // ========== Factory Methods ==========
+
+    /**
+     * Create PaymentStepState from a Payment entity.
+     */
+    public static PaymentStepState fromPayment(com.ivamare.commandbus.e2e.payment.Payment payment, PaymentStepBehavior behavior) {
+        PaymentStepState state = new PaymentStepState();
+        state.setPaymentId(payment.paymentId());
+        state.setBehavior(behavior);
+        // Set FX required based on different currencies
+        state.setFxRequired(!payment.debitCurrency().equals(payment.creditCurrency()));
+        return state;
+    }
+
     // ========== Builder ==========
 
     public static Builder builder() {
