@@ -36,6 +36,30 @@ public record PaymentStepBehavior(
     }
 
     /**
+     * Success behavior - all steps succeed with default delays.
+     * Alias for defaults() with clearer naming for test readability.
+     */
+    public static PaymentStepBehavior successBehavior() {
+        return defaults();
+    }
+
+    /**
+     * Fast path behavior - all steps succeed with zero delays.
+     * Useful for performance testing.
+     */
+    public static PaymentStepBehavior fastPathBehavior() {
+        return new PaymentStepBehavior(
+            RiskBehavior.defaults(),
+            ProbabilisticBehavior.zeroDuration(),
+            ProbabilisticBehavior.zeroDuration(),
+            ProbabilisticBehavior.zeroDuration(),
+            ProbabilisticBehavior.zeroDuration(),
+            ProbabilisticBehavior.zeroDuration(),
+            ProbabilisticBehavior.zeroDuration()
+        );
+    }
+
+    /**
      * Get the probabilistic behavior for a given step.
      */
     public ProbabilisticBehavior forStep(PaymentStep step) {

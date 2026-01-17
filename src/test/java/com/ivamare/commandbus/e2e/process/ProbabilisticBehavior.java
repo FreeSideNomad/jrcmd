@@ -46,6 +46,72 @@ public record ProbabilisticBehavior(
         return new ProbabilisticBehavior(0, 0, 0, 0, 0, 10, 100);
     }
 
+    /**
+     * Zero duration behavior - always succeeds instantly (for performance testing).
+     */
+    public static ProbabilisticBehavior zeroDuration() {
+        return new ProbabilisticBehavior(0, 0, 0, 0, 0, 0, 0);
+    }
+
+    /**
+     * Create a builder for custom behavior configuration.
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private double failPermanentPct = 0;
+        private double failTransientPct = 0;
+        private double failBusinessRulePct = 0;
+        private double timeoutPct = 0;
+        private double pendingPct = 0;
+        private int minDurationMs = 10;
+        private int maxDurationMs = 100;
+
+        public Builder failPermanentPct(double pct) {
+            this.failPermanentPct = pct;
+            return this;
+        }
+
+        public Builder failTransientPct(double pct) {
+            this.failTransientPct = pct;
+            return this;
+        }
+
+        public Builder failBusinessRulePct(double pct) {
+            this.failBusinessRulePct = pct;
+            return this;
+        }
+
+        public Builder timeoutPct(double pct) {
+            this.timeoutPct = pct;
+            return this;
+        }
+
+        public Builder pendingPct(double pct) {
+            this.pendingPct = pct;
+            return this;
+        }
+
+        public Builder minDurationMs(int ms) {
+            this.minDurationMs = ms;
+            return this;
+        }
+
+        public Builder maxDurationMs(int ms) {
+            this.maxDurationMs = ms;
+            return this;
+        }
+
+        public ProbabilisticBehavior build() {
+            return new ProbabilisticBehavior(
+                failPermanentPct, failTransientPct, failBusinessRulePct,
+                timeoutPct, pendingPct, minDurationMs, maxDurationMs
+            );
+        }
+    }
+
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("fail_permanent_pct", failPermanentPct);
