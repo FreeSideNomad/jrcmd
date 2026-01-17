@@ -2,6 +2,7 @@ package com.ivamare.commandbus.process;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,4 +104,97 @@ public interface ProcessRepository {
                            String newStep, String newStatus,
                            String errorCode, String errorMessage,
                            JdbcTemplate jdbcTemplate);
+
+    // ========== ProcessStepManager Support ==========
+
+    /**
+     * Find processes by execution model and status.
+     *
+     * @param domain Process domain
+     * @param executionModel Execution model (STEP_BASED or PROCESS_STEP)
+     * @param status Process status to match
+     * @return List of process IDs matching criteria
+     */
+    default List<UUID> findByExecutionModelAndStatus(String domain, String executionModel, ProcessStatus status) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Find processes due for retry.
+     *
+     * @param domain Process domain
+     * @param now Current time - processes with next_retry_at at or before now are returned
+     * @return List of process IDs due for retry
+     */
+    default List<UUID> findDueForRetry(String domain, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Find processes with expired wait timeouts.
+     *
+     * @param domain Process domain
+     * @param now Current time - processes with next_wait_timeout_at at or before now are returned
+     * @return List of process IDs with expired waits
+     */
+    default List<UUID> findExpiredWaits(String domain, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Find processes with exceeded deadlines.
+     *
+     * @param domain Process domain
+     * @param now Current time - processes with deadline_at at or before now are returned
+     * @return List of process IDs with exceeded deadlines
+     */
+    default List<UUID> findExpiredDeadlines(String domain, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Atomically update process state for ProcessStepManager.
+     * Extends updateStateAtomic with scheduler fields.
+     *
+     * @param domain              Process domain
+     * @param processId           Process ID
+     * @param statePatch          JSONB patch to merge into existing state
+     * @param newStep             New step name (null to keep current)
+     * @param newStatus           New status (null to keep current)
+     * @param errorCode           Error code (null to keep current)
+     * @param errorMessage        Error message (null to keep current)
+     * @param nextRetryAt         Next retry time (for WAITING_FOR_RETRY)
+     * @param nextWaitTimeoutAt   Wait timeout time (for WAITING_FOR_ASYNC)
+     * @param currentWait         Current wait name (for WAITING_FOR_ASYNC)
+     */
+    default void updateStateAtomicStep(String domain, UUID processId, String statePatch,
+                                       String newStep, String newStatus,
+                                       String errorCode, String errorMessage,
+                                       Instant nextRetryAt, Instant nextWaitTimeoutAt,
+                                       String currentWait,
+                                       JdbcTemplate jdbcTemplate) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Get raw state JSON for a process.
+     *
+     * @param domain Process domain
+     * @param processId Process ID
+     * @return State as JSON string
+     */
+    default String getStateJson(String domain, UUID processId, JdbcTemplate jdbcTemplate) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Update state JSON directly.
+     *
+     * @param domain Process domain
+     * @param processId Process ID
+     * @param stateJson Full state as JSON string
+     */
+    default void updateState(String domain, UUID processId, String stateJson, JdbcTemplate jdbcTemplate) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
 }

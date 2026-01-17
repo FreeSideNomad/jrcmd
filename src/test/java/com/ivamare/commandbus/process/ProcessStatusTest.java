@@ -9,14 +9,17 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProcessStatusTest {
 
     @Test
-    @DisplayName("should have all 9 required states")
-    void shouldHaveAllNineRequiredStates() {
+    @DisplayName("should have all 12 required states")
+    void shouldHaveAllTwelveRequiredStates() {
         ProcessStatus[] values = ProcessStatus.values();
 
-        assertEquals(9, values.length);
+        assertEquals(12, values.length);
         assertNotNull(ProcessStatus.PENDING);
         assertNotNull(ProcessStatus.IN_PROGRESS);
+        assertNotNull(ProcessStatus.EXECUTING);
         assertNotNull(ProcessStatus.WAITING_FOR_REPLY);
+        assertNotNull(ProcessStatus.WAITING_FOR_ASYNC);
+        assertNotNull(ProcessStatus.WAITING_FOR_RETRY);
         assertNotNull(ProcessStatus.WAITING_FOR_TSQ);
         assertNotNull(ProcessStatus.COMPENSATING);
         assertNotNull(ProcessStatus.COMPLETED);
@@ -49,7 +52,10 @@ class ProcessStatusTest {
     void isTerminalShouldReturnFalseForNonTerminalStatuses() {
         assertFalse(ProcessStatus.PENDING.isTerminal());
         assertFalse(ProcessStatus.IN_PROGRESS.isTerminal());
+        assertFalse(ProcessStatus.EXECUTING.isTerminal());
         assertFalse(ProcessStatus.WAITING_FOR_REPLY.isTerminal());
+        assertFalse(ProcessStatus.WAITING_FOR_ASYNC.isTerminal());
+        assertFalse(ProcessStatus.WAITING_FOR_RETRY.isTerminal());
         assertFalse(ProcessStatus.WAITING_FOR_TSQ.isTerminal());
         assertFalse(ProcessStatus.COMPENSATING.isTerminal());
     }

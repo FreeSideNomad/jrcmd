@@ -7,11 +7,20 @@ public enum ProcessStatus {
     /** Process created but not yet started */
     PENDING,
 
-    /** Currently executing a step */
+    /** Currently executing a step (BaseProcessManager) */
     IN_PROGRESS,
 
-    /** Waiting for command reply */
+    /** Currently executing (ProcessStepManager) - transient status during execute() */
+    EXECUTING,
+
+    /** Waiting for command reply (BaseProcessManager) */
     WAITING_FOR_REPLY,
+
+    /** Waiting for async response (ProcessStepManager) - paused at wait() */
+    WAITING_FOR_ASYNC,
+
+    /** Waiting for scheduled retry (ProcessStepManager) - step failed with transient error */
+    WAITING_FOR_RETRY,
 
     /** Command failed and is in TSQ awaiting operator action */
     WAITING_FOR_TSQ,
