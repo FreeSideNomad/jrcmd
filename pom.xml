@@ -110,6 +110,14 @@
             <version>${postgresql.version}</version>
         </dependency>
 
+        <!-- Bucket4j for rate limiting (optional) -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-postgresql</artifactId>
+            <version>8.14.0</version>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Jackson for JSON -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

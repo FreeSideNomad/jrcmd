@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -445,5 +446,97 @@ public class JdbcProcessRepository implements ProcessRepository {
 
         log.debug("Atomic state update for process {}.{} - step={}, status={}",
             domain, processId, newStep, newStatus);
+    }
+
+    // ========== ProcessStepManager Support ==========
+
+    @Override
+    public List<UUID> findByExecutionModelAndStatus(String domain, String executionModel, ProcessStatus status) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND execution_model = ? AND status = ?
+            ORDER BY created_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, executionModel, status.name());
+    }
+
+    @Override
+    public List<UUID> findDueForRetry(String domain, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND status = 'WAITING_FOR_RETRY'
+              AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+            ORDER BY next_retry_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, Timestamp.from(now));
+    }
+
+    @Override
+    public List<UUID> findExpiredWaits(String domain, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND status = 'WAITING_FOR_ASYNC'
+              AND next_wait_timeout_at IS NOT NULL AND next_wait_timeout_at <= ?
+            ORDER BY next_wait_timeout_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, Timestamp.from(now));
+    }
+
+    @Override
+    public List<UUID> findExpiredDeadlines(String domain, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ?
+              AND status NOT IN ('COMPLETED', 'FAILED', 'COMPENSATED', 'CANCELED')
+              AND deadline_at IS NOT NULL AND deadline_at <= ?
+            ORDER BY deadline_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, Timestamp.from(now));
+    }
+
+    @Override
+    public void updateStateAtomicStep(String domain, UUID processId, String statePatch,
+                                      String newStep, String newStatus,
+                                      String errorCode, String errorMessage,
+                                      Instant nextRetryAt, Instant nextWaitTimeoutAt,
+                                      String currentWait,
+                                      JdbcTemplate jdbc) {
+        String sql = "SELECT commandbus.sp_update_process_state_step(?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?)";
+
+        jdbc.queryForObject(sql, (rs, rowNum) -> null,
+            domain,
+            processId,
+            statePatch,
+            newStep,
+            newStatus,
+            errorCode,
+            errorMessage,
+            nextRetryAt != null ? Timestamp.from(nextRetryAt) : null,
+            nextWaitTimeoutAt != null ? Timestamp.from(nextWaitTimeoutAt) : null,
+            currentWait
+        );
+
+        log.debug("Atomic step state update for process {}.{} - step={}, status={}, wait={}",
+            domain, processId, newStep, newStatus, currentWait);
+    }
+
+    @Override
+    public String getStateJson(String domain, UUID processId, JdbcTemplate jdbc) {
+        String sql = "SELECT state::text FROM commandbus.process WHERE domain = ? AND process_id = ?";
+        return jdbc.queryForObject(sql, String.class, domain, processId);
+    }
+
+    @Override
+    public void updateState(String domain, UUID processId, String stateJson, JdbcTemplate jdbc) {
+        String sql = "UPDATE commandbus.process SET state = ?::jsonb, updated_at = NOW() WHERE domain = ? AND process_id = ?";
+        jdbc.update(sql, stateJson, domain, processId);
     }
 }

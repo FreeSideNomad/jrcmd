@@ -210,7 +210,8 @@ public record PaymentView(
             return paymentStatus.name();
         }
         return switch (processStatus) {
-            case PENDING, IN_PROGRESS, WAITING_FOR_REPLY -> currentStep != null ? currentStep : "PROCESSING";
+            case PENDING, IN_PROGRESS, EXECUTING, WAITING_FOR_REPLY,
+                 WAITING_FOR_ASYNC, WAITING_FOR_RETRY -> currentStep != null ? currentStep : "PROCESSING";
             case COMPLETED -> "COMPLETE";
             case COMPENSATING, COMPENSATED, CANCELED -> "CANCELLED";
             case WAITING_FOR_TSQ -> "NEEDS_ATTENTION";
