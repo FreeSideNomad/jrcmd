@@ -1,8 +1,10 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.ivamare.commandbus.e2e.payment.PaymentStep;
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
-import com.ivamare.commandbus.process.step.ProcessStepState;
+import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
+import com.ivamare.commandbus.process.step.TestProcessStepState;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -11,15 +13,21 @@ import java.util.UUID;
 /**
  * State for step-based payment processing workflow.
  *
- * <p>Extends ProcessStepState to leverage framework-managed tracking
- * (stepHistory, waitHistory, sideEffects) while adding domain-specific
- * payment fields.
+ * <p>Extends TestProcessStepState to leverage framework-managed tracking
+ * (stepHistory, waitHistory, sideEffects) and probabilistic behavior
+ * injection, while adding domain-specific payment fields.
  *
  * <p>This state class is used with ProcessStepManager for deterministic
  * replay-style workflow execution.
+ *
+ * <p>Supports both:
+ * <ul>
+ *   <li>PaymentStepBehavior - structured behavior for payment steps</li>
+ *   <li>Generic step behaviors from TestProcessStepState</li>
+ * </ul>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PaymentStepState extends ProcessStepState {
+public class PaymentStepState extends TestProcessStepState {
 
     // Payment identity
     private UUID paymentId;
@@ -310,6 +318,50 @@ public class PaymentStepState extends ProcessStepState {
         this.behavior = behavior;
     }
 
+    /**
+     * Get behavior for a step, delegating to PaymentStepBehavior if set,
+     * otherwise falling back to the generic step behaviors map.
+     *
+     * <p>Step name mapping to PaymentStep enum:
+     * <ul>
+     *   <li>"bookRisk" → BOOK_RISK</li>
+     *   <li>"bookFx" → BOOK_FX</li>
+     *   <li>"submitPayment" → SUBMIT_PAYMENT</li>
+     * </ul>
+     */
+    @Override
+    public ProbabilisticBehavior getBehaviorForStep(String stepName) {
+        // If PaymentStepBehavior is set, delegate to it
+        if (behavior != null) {
+            PaymentStep paymentStep = mapStepName(stepName);
+            if (paymentStep != null) {
+                return behavior.forStep(paymentStep);
+            }
+        }
+        // Fall back to generic step behaviors
+        return super.getBehaviorForStep(stepName);
+    }
+
+    /**
+     * Map step name string to PaymentStep enum.
+     */
+    private PaymentStep mapStepName(String stepName) {
+        return switch (stepName) {
+            case "bookRisk" -> PaymentStep.BOOK_RISK;
+            case "bookFx" -> PaymentStep.BOOK_FX;
+            case "submitPayment" -> PaymentStep.SUBMIT_PAYMENT;
+            case "awaitRiskApproval" -> PaymentStep.AWAIT_RISK_APPROVAL;
+            case "awaitConfirmations" -> PaymentStep.AWAIT_CONFIRMATIONS;
+            case "unwindRisk" -> PaymentStep.UNWIND_RISK;
+            case "unwindFx" -> PaymentStep.UNWIND_FX;
+            case "updateStatusProcessing" -> PaymentStep.UPDATE_STATUS_PROCESSING;
+            case "updateStatusComplete" -> PaymentStep.UPDATE_STATUS_COMPLETE;
+            case "updateStatusFailed" -> PaymentStep.UPDATE_STATUS_FAILED;
+            case "updateStatusCancelled" -> PaymentStep.UPDATE_STATUS_CANCELLED;
+            default -> null;
+        };
+    }
+
     // ========== Helper Methods ==========
 
     /**
@@ -413,6 +465,20 @@ public class PaymentStepState extends ProcessStepState {
         this.l4Reference = null;
         this.l4ErrorCode = errorCode;
         this.l4ErrorMessage = errorMessage;
+    }
+
+    // ========== Factory Methods ==========
+
+    /**
+     * Create PaymentStepState from a Payment entity.
+     */
+    public static PaymentStepState fromPayment(com.ivamare.commandbus.e2e.payment.Payment payment, PaymentStepBehavior behavior) {
+        PaymentStepState state = new PaymentStepState();
+        state.setPaymentId(payment.paymentId());
+        state.setBehavior(behavior);
+        // Set FX required based on different currencies
+        state.setFxRequired(!payment.debitCurrency().equals(payment.creditCurrency()));
+        return state;
     }
 
     // ========== Builder ==========

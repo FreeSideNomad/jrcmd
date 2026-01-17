@@ -66,6 +66,7 @@ public class PaymentController {
             @RequestParam String creditCurrency,
             @RequestParam String valueDate,
             @RequestParam(defaultValue = "24") int cutoffHours,
+            @RequestParam(defaultValue = "COMMAND_BASED") String executionModel,
             RedirectAttributes redirectAttributes) {
 
         try {
@@ -79,9 +80,9 @@ public class PaymentController {
                 .cutoffTimestamp(Instant.now().plus(cutoffHours, ChronoUnit.HOURS))
                 .build();
 
-            UUID processId = e2eService.createPayment(payment, PaymentStepBehavior.defaults());
+            UUID processId = e2eService.createPayment(payment, PaymentStepBehavior.defaults(), executionModel);
 
-            redirectAttributes.addFlashAttribute("success", "Payment created and processing started");
+            redirectAttributes.addFlashAttribute("success", "Payment created with " + executionModel + " execution model");
             return "redirect:/payments/" + payment.paymentId();
 
         } catch (IllegalArgumentException e) {
@@ -143,6 +144,7 @@ public class PaymentController {
             @RequestParam String creditCurrency,
             @RequestParam String valueDate,
             @RequestParam(defaultValue = "24") int cutoffHours,
+            @RequestParam(defaultValue = "STEP_BASED") String executionModel,
             // Risk behavior
             @RequestParam(defaultValue = "70") double riskApprovedBalancePct,
             @RequestParam(defaultValue = "20") double riskApprovedLimitPct,
@@ -215,6 +217,7 @@ public class PaymentController {
             Currency.valueOf(creditCurrency),
             LocalDate.parse(valueDate),
             cutoffHours,
+            executionModel,
             behavior
         );
 

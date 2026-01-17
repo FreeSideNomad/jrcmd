@@ -28,8 +28,8 @@ public class PendingNetworkResponseRepository {
     private static final String INSERT_SQL = """
         INSERT INTO e2e.pending_network_response (
             id, payment_id, process_id, correlation_id, command_id,
-            level, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            level, execution_model, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
     private static final String UPDATE_SQL = """
@@ -40,7 +40,7 @@ public class PendingNetworkResponseRepository {
 
     private static final String SELECT_BASE = """
         SELECT id, payment_id, process_id, correlation_id, command_id,
-               level, status, created_at, resolved_at, resolved_by, resolution_notes
+               level, execution_model, status, created_at, resolved_at, resolved_by, resolution_notes
         FROM e2e.pending_network_response
         """;
 
@@ -55,6 +55,7 @@ public class PendingNetworkResponseRepository {
             UUID.fromString(rs.getString("correlation_id")),
             UUID.fromString(rs.getString("command_id")),
             rs.getInt("level"),
+            rs.getString("execution_model"),
             ResponseStatus.valueOf(rs.getString("status")),
             toInstant(rs.getTimestamp("created_at")),
             toInstant(rs.getTimestamp("resolved_at")),
@@ -82,6 +83,7 @@ public class PendingNetworkResponseRepository {
             response.correlationId(),
             response.commandId(),
             response.level(),
+            response.executionModel(),
             response.status().name(),
             toTimestamp(response.createdAt())
         );

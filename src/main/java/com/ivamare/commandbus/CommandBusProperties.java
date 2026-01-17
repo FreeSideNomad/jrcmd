@@ -51,9 +51,14 @@ public class CommandBusProperties {
     private BatchProperties batch = new BatchProperties();
 
     /**
-     * Process-specific configuration.
+     * Process-specific configuration (for BaseProcessManager with PGMQ).
      */
     private ProcessProperties process = new ProcessProperties();
+
+    /**
+     * Process step configuration (for ProcessStepManager with deterministic replay).
+     */
+    private ProcessStepProperties processStep = new ProcessStepProperties();
 
     // Getters and setters
 
@@ -103,6 +108,14 @@ public class CommandBusProperties {
 
     public void setProcess(ProcessProperties process) {
         this.process = process;
+    }
+
+    public ProcessStepProperties getProcessStep() {
+        return processStep;
+    }
+
+    public void setProcessStep(ProcessStepProperties processStep) {
+        this.processStep = processStep;
     }
 
     /**
@@ -318,6 +331,136 @@ public class CommandBusProperties {
 
         public void setArchiveMessages(boolean archiveMessages) {
             this.archiveMessages = archiveMessages;
+        }
+    }
+
+    /**
+     * ProcessStepManager configuration properties.
+     *
+     * <p>Example configuration:
+     * <pre>
+     * commandbus:
+     *   process-step:
+     *     enabled: true
+     *     batch-size: 100
+     *     processing-timeout-seconds: 60
+     *     poll-interval-ms: 1000
+     *     retry-poll-interval-ms: 5000
+     *     timeout-check-interval-ms: 60000
+     *     deadline-check-interval-ms: 60000
+     *     auto-start: true
+     * </pre>
+     */
+    public static class ProcessStepProperties {
+
+        /**
+         * Enable/disable ProcessStepWorker.
+         */
+        private boolean enabled = false;
+
+        /**
+         * Number of processes to claim per poll cycle.
+         * Each worker claims this many processes atomically using FOR UPDATE SKIP LOCKED.
+         * Should be proportional to expected throughput and virtual thread capacity.
+         */
+        private int batchSize = 100;
+
+        /**
+         * Processing timeout in seconds.
+         * If a worker crashes, processes claimed longer than this timeout
+         * are automatically released for other workers to pick up.
+         */
+        private int processingTimeoutSeconds = 60;
+
+        /**
+         * Poll interval in milliseconds for pending processes.
+         */
+        private long pollIntervalMs = 1000;
+
+        /**
+         * Poll interval in milliseconds for retry-due processes.
+         */
+        private long retryPollIntervalMs = 5000;
+
+        /**
+         * Interval in milliseconds for checking wait timeouts.
+         */
+        private long timeoutCheckIntervalMs = 60000;
+
+        /**
+         * Interval in milliseconds for checking process deadlines.
+         */
+        private long deadlineCheckIntervalMs = 60000;
+
+        /**
+         * Auto-start ProcessStepWorker on application ready.
+         */
+        private boolean autoStart = false;
+
+        // Getters and setters
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public int getProcessingTimeoutSeconds() {
+            return processingTimeoutSeconds;
+        }
+
+        public void setProcessingTimeoutSeconds(int processingTimeoutSeconds) {
+            this.processingTimeoutSeconds = processingTimeoutSeconds;
+        }
+
+        public long getPollIntervalMs() {
+            return pollIntervalMs;
+        }
+
+        public void setPollIntervalMs(long pollIntervalMs) {
+            this.pollIntervalMs = pollIntervalMs;
+        }
+
+        public long getRetryPollIntervalMs() {
+            return retryPollIntervalMs;
+        }
+
+        public void setRetryPollIntervalMs(long retryPollIntervalMs) {
+            this.retryPollIntervalMs = retryPollIntervalMs;
+        }
+
+        public long getTimeoutCheckIntervalMs() {
+            return timeoutCheckIntervalMs;
+        }
+
+        public void setTimeoutCheckIntervalMs(long timeoutCheckIntervalMs) {
+            this.timeoutCheckIntervalMs = timeoutCheckIntervalMs;
+        }
+
+        public long getDeadlineCheckIntervalMs() {
+            return deadlineCheckIntervalMs;
+        }
+
+        public void setDeadlineCheckIntervalMs(long deadlineCheckIntervalMs) {
+            this.deadlineCheckIntervalMs = deadlineCheckIntervalMs;
+        }
+
+        public boolean isAutoStart() {
+            return autoStart;
+        }
+
+        public void setAutoStart(boolean autoStart) {
+            this.autoStart = autoStart;
         }
     }
 }

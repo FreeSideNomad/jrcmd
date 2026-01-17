@@ -20,6 +20,7 @@ import java.util.UUID;
  * @param currency       Debit currency for display
  * @param debitAccount   Source account for display
  * @param creditAccount  Destination account for display
+ * @param executionModel Execution model (STEP_BASED or PROCESS_STEP)
  * @param status         Queue item status (PENDING, APPROVED, REJECTED)
  * @param createdAt      When item was queued
  * @param resolvedAt     When operator took action
@@ -36,6 +37,7 @@ public record PendingApproval(
     String currency,
     String debitAccount,
     String creditAccount,
+    String executionModel,
     ApprovalStatus status,
     Instant createdAt,
     Instant resolvedAt,
@@ -52,7 +54,7 @@ public record PendingApproval(
     }
 
     /**
-     * Create a new pending approval entry.
+     * Create a new pending approval entry for STEP_BASED execution model (default).
      */
     public static PendingApproval create(
             UUID paymentId,
@@ -63,6 +65,23 @@ public record PendingApproval(
             String currency,
             String debitAccount,
             String creditAccount) {
+        return create(paymentId, processId, correlationId, commandId,
+            amount, currency, debitAccount, creditAccount, "STEP_BASED");
+    }
+
+    /**
+     * Create a new pending approval entry with specified execution model.
+     */
+    public static PendingApproval create(
+            UUID paymentId,
+            UUID processId,
+            UUID correlationId,
+            UUID commandId,
+            BigDecimal amount,
+            String currency,
+            String debitAccount,
+            String creditAccount,
+            String executionModel) {
         return new PendingApproval(
             UUID.randomUUID(),
             paymentId,
@@ -73,6 +92,7 @@ public record PendingApproval(
             currency,
             debitAccount,
             creditAccount,
+            executionModel,
             ApprovalStatus.PENDING,
             Instant.now(),
             null,
@@ -95,12 +115,20 @@ public record PendingApproval(
             currency,
             debitAccount,
             creditAccount,
+            executionModel,
             status,
             createdAt,
             Instant.now(),
             operator,
             notes
         );
+    }
+
+    /**
+     * Check if this approval uses the PROCESS_STEP execution model.
+     */
+    public boolean isProcessStepModel() {
+        return "PROCESS_STEP".equals(executionModel);
     }
 
     /**

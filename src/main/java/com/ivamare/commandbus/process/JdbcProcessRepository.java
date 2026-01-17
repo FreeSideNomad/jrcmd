@@ -463,6 +463,44 @@ public class JdbcProcessRepository implements ProcessRepository {
     }
 
     @Override
+    public List<UUID> claimPendingProcesses(String domain, String processType, int batchSize) {
+        return claimPendingProcesses(domain, processType, batchSize, 60);
+    }
+
+    /**
+     * Claim pending processes with custom timeout.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param batchSize Maximum number of processes to claim
+     * @param processingTimeoutSeconds Timeout for stale claim detection
+     * @return List of claimed process IDs
+     */
+    public List<UUID> claimPendingProcesses(String domain, String processType, int batchSize, int processingTimeoutSeconds) {
+        String sql = "SELECT process_id FROM commandbus.sp_claim_pending_processes(?, ?, ?, ?)";
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, processType, batchSize, processingTimeoutSeconds);
+    }
+
+    @Override
+    public List<UUID> claimDueForRetry(String domain, String processType, Instant now, int batchSize) {
+        return claimDueForRetry(domain, processType, batchSize, 60);
+    }
+
+    /**
+     * Claim retry-due processes with custom timeout.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param batchSize Maximum number of processes to claim
+     * @param processingTimeoutSeconds Timeout for stale claim detection
+     * @return List of claimed process IDs
+     */
+    public List<UUID> claimDueForRetry(String domain, String processType, int batchSize, int processingTimeoutSeconds) {
+        String sql = "SELECT process_id FROM commandbus.sp_claim_retry_processes(?, ?, ?, ?)";
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, processType, batchSize, processingTimeoutSeconds);
+    }
+
+    @Override
     public List<UUID> findDueForRetry(String domain, Instant now) {
         String sql = """
             SELECT process_id
@@ -473,6 +511,19 @@ public class JdbcProcessRepository implements ProcessRepository {
             """;
 
         return jdbcTemplate.queryForList(sql, UUID.class, domain, Timestamp.from(now));
+    }
+
+    @Override
+    public List<UUID> findDueForRetry(String domain, String processType, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND process_type = ? AND status = 'WAITING_FOR_RETRY'
+              AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+            ORDER BY next_retry_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, processType, Timestamp.from(now));
     }
 
     @Override
@@ -489,6 +540,19 @@ public class JdbcProcessRepository implements ProcessRepository {
     }
 
     @Override
+    public List<UUID> findExpiredWaits(String domain, String processType, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND process_type = ? AND status = 'WAITING_FOR_ASYNC'
+              AND next_wait_timeout_at IS NOT NULL AND next_wait_timeout_at <= ?
+            ORDER BY next_wait_timeout_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, processType, Timestamp.from(now));
+    }
+
+    @Override
     public List<UUID> findExpiredDeadlines(String domain, Instant now) {
         String sql = """
             SELECT process_id
@@ -500,6 +564,20 @@ public class JdbcProcessRepository implements ProcessRepository {
             """;
 
         return jdbcTemplate.queryForList(sql, UUID.class, domain, Timestamp.from(now));
+    }
+
+    @Override
+    public List<UUID> findExpiredDeadlines(String domain, String processType, Instant now) {
+        String sql = """
+            SELECT process_id
+            FROM commandbus.process
+            WHERE domain = ? AND process_type = ?
+              AND status NOT IN ('COMPLETED', 'FAILED', 'COMPENSATED', 'CANCELED')
+              AND deadline_at IS NOT NULL AND deadline_at <= ?
+            ORDER BY deadline_at ASC
+            """;
+
+        return jdbcTemplate.queryForList(sql, UUID.class, domain, processType, Timestamp.from(now));
     }
 
     @Override
@@ -538,5 +616,48 @@ public class JdbcProcessRepository implements ProcessRepository {
     public void updateState(String domain, UUID processId, String stateJson, JdbcTemplate jdbc) {
         String sql = "UPDATE commandbus.process SET state = ?::jsonb, updated_at = NOW() WHERE domain = ? AND process_id = ?";
         jdbc.update(sql, stateJson, domain, processId);
+    }
+
+    @Override
+    public void updateStateWithAudit(String domain, UUID processId,
+                                      String stateJson, String statePatch,
+                                      String newStep, String newStatus,
+                                      String errorCode, String errorMessage,
+                                      Instant nextRetryAt, Instant nextWaitTimeoutAt,
+                                      String currentWait,
+                                      ProcessAuditEntry auditEntry,
+                                      JdbcTemplate jdbc) {
+        String sql = """
+            SELECT commandbus.sp_update_process_with_audit(
+                ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?
+            )
+            """;
+
+        jdbc.queryForObject(sql, (rs, rowNum) -> null,
+            domain,
+            processId,
+            stateJson,
+            statePatch,
+            newStep,
+            newStatus,
+            errorCode,
+            errorMessage,
+            nextRetryAt != null ? Timestamp.from(nextRetryAt) : null,
+            nextWaitTimeoutAt != null ? Timestamp.from(nextWaitTimeoutAt) : null,
+            currentWait,
+            // Audit entry parameters
+            auditEntry != null ? auditEntry.stepName() : null,
+            auditEntry != null ? auditEntry.commandId() : null,
+            auditEntry != null ? auditEntry.commandType() : null,
+            auditEntry != null ? serializeMap(auditEntry.commandData()) : null,
+            auditEntry != null && auditEntry.sentAt() != null ? Timestamp.from(auditEntry.sentAt()) : null,
+            auditEntry != null && auditEntry.replyOutcome() != null ? auditEntry.replyOutcome().name() : null,
+            auditEntry != null ? serializeMap(auditEntry.replyData()) : null,
+            auditEntry != null && auditEntry.receivedAt() != null ? Timestamp.from(auditEntry.receivedAt()) : null
+        );
+
+        log.debug("Atomic state+audit update for process {}.{} - step={}, status={}",
+            domain, processId, newStep, newStatus);
     }
 }

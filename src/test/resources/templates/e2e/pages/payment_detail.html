@@ -279,7 +279,7 @@
                 </thead>
                 <tbody>
                     <tr th:each="entry : ${auditTrail}">
-                        <td><code th:text="${#temporals.format(entry.sentAt(), 'HH:mm:ss.SSS')}">time</code></td>
+                        <td><code th:text="${#temporals.format(entry.sentAt(), 'HH:mm:ss.SSSSS')}">time</code></td>
                         <td th:text="${entry.stepName()}">STEP</td>
                         <td th:text="${entry.commandType()}">Type</td>
                         <td>

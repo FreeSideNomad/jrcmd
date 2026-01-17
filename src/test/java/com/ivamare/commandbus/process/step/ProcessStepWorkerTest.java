@@ -1,7 +1,6 @@
 package com.ivamare.commandbus.process.step;
 
 import com.ivamare.commandbus.process.ProcessRepository;
-import com.ivamare.commandbus.process.ProcessStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +34,7 @@ class ProcessStepWorkerTest {
         MockitoAnnotations.openMocks(this);
 
         when(processManager.getDomain()).thenReturn("test-domain");
+        when(processManager.getProcessType()).thenReturn("test-type");
         when(processManager.getExecutionModel()).thenReturn("PROCESS_STEP");
 
         worker = new ProcessStepWorker(List.of(processManager), processRepo);
@@ -56,7 +56,7 @@ class ProcessStepWorkerTest {
     @DisplayName("should poll pending processes and execute")
     void shouldPollPendingProcessesAndExecute() throws InterruptedException {
         UUID processId = UUID.randomUUID();
-        when(processRepo.findByExecutionModelAndStatus(eq("test-domain"), eq("PROCESS_STEP"), eq(ProcessStatus.PENDING)))
+        when(processRepo.claimPendingProcesses(eq("test-domain"), eq("test-type"), anyInt()))
             .thenReturn(List.of(processId));
 
         worker.start();
@@ -72,7 +72,7 @@ class ProcessStepWorkerTest {
     @DisplayName("should poll retries and execute")
     void shouldPollRetriesAndExecute() throws InterruptedException {
         UUID processId = UUID.randomUUID();
-        when(processRepo.findDueForRetry(eq("test-domain"), any(Instant.class)))
+        when(processRepo.claimDueForRetry(eq("test-domain"), eq("test-type"), any(Instant.class), anyInt()))
             .thenReturn(List.of(processId));
 
         worker.start();
@@ -88,7 +88,7 @@ class ProcessStepWorkerTest {
     @DisplayName("should check wait timeouts and handle")
     void shouldCheckWaitTimeoutsAndHandle() throws InterruptedException {
         UUID processId = UUID.randomUUID();
-        when(processRepo.findExpiredWaits(eq("test-domain"), any(Instant.class)))
+        when(processRepo.findExpiredWaits(eq("test-domain"), eq("test-type"), any(Instant.class)))
             .thenReturn(List.of(processId));
 
         worker.start();
@@ -104,7 +104,7 @@ class ProcessStepWorkerTest {
     @DisplayName("should check deadlines and handle")
     void shouldCheckDeadlinesAndHandle() throws InterruptedException {
         UUID processId = UUID.randomUUID();
-        when(processRepo.findExpiredDeadlines(eq("test-domain"), any(Instant.class)))
+        when(processRepo.findExpiredDeadlines(eq("test-domain"), eq("test-type"), any(Instant.class)))
             .thenReturn(List.of(processId));
 
         worker.start();
@@ -144,7 +144,7 @@ class ProcessStepWorkerTest {
     @DisplayName("should handle exceptions during process execution")
     void shouldHandleExceptionsDuringProcessExecution() throws InterruptedException {
         UUID processId = UUID.randomUUID();
-        when(processRepo.findByExecutionModelAndStatus(eq("test-domain"), eq("PROCESS_STEP"), eq(ProcessStatus.PENDING)))
+        when(processRepo.claimPendingProcesses(eq("test-domain"), eq("test-type"), anyInt()))
             .thenReturn(List.of(processId));
         doThrow(new RuntimeException("Test error")).when(processManager).resume(processId);
 
@@ -161,7 +161,7 @@ class ProcessStepWorkerTest {
     @Test
     @DisplayName("should handle exceptions during repository queries")
     void shouldHandleExceptionsDuringRepositoryQueries() {
-        when(processRepo.findByExecutionModelAndStatus(anyString(), anyString(), any()))
+        when(processRepo.claimPendingProcesses(anyString(), anyString(), anyInt()))
             .thenThrow(new RuntimeException("Database error"));
 
         worker.start();
@@ -177,7 +177,7 @@ class ProcessStepWorkerTest {
         UUID processId2 = UUID.randomUUID();
         UUID processId3 = UUID.randomUUID();
 
-        when(processRepo.findByExecutionModelAndStatus(eq("test-domain"), eq("PROCESS_STEP"), eq(ProcessStatus.PENDING)))
+        when(processRepo.claimPendingProcesses(eq("test-domain"), eq("test-type"), anyInt()))
             .thenReturn(List.of(processId1, processId2, processId3));
 
         AtomicInteger executionCount = new AtomicInteger(0);
@@ -202,6 +202,7 @@ class ProcessStepWorkerTest {
     void shouldWorkWithMultipleManagers() throws InterruptedException {
         ProcessStepManager<?> manager2 = mock(ProcessStepManager.class);
         when(manager2.getDomain()).thenReturn("domain2");
+        when(manager2.getProcessType()).thenReturn("type2");
         when(manager2.getExecutionModel()).thenReturn("PROCESS_STEP");
 
         ProcessStepWorker multiWorker = new ProcessStepWorker(
@@ -210,9 +211,9 @@ class ProcessStepWorkerTest {
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
 
-        when(processRepo.findByExecutionModelAndStatus(eq("test-domain"), eq("PROCESS_STEP"), eq(ProcessStatus.PENDING)))
+        when(processRepo.claimPendingProcesses(eq("test-domain"), eq("test-type"), anyInt()))
             .thenReturn(List.of(id1));
-        when(processRepo.findByExecutionModelAndStatus(eq("domain2"), eq("PROCESS_STEP"), eq(ProcessStatus.PENDING)))
+        when(processRepo.claimPendingProcesses(eq("domain2"), eq("type2"), anyInt()))
             .thenReturn(List.of(id2));
 
         multiWorker.start();
@@ -224,5 +225,123 @@ class ProcessStepWorkerTest {
         verify(manager2).resume(id2);
 
         multiWorker.stop();
+    }
+
+    @Test
+    @DisplayName("should handle empty results from pending processes poll")
+    void shouldHandleEmptyPendingResults() {
+        when(processRepo.claimPendingProcesses(eq("test-domain"), eq("test-type"), anyInt()))
+            .thenReturn(List.of());
+
+        worker.start();
+        worker.pollPendingProcesses();
+
+        // Verify repository was called but manager resume was not
+        verify(processRepo).claimPendingProcesses(anyString(), anyString(), anyInt());
+        verify(processManager, never()).resume(any());
+    }
+
+    @Test
+    @DisplayName("should handle empty results from retry poll")
+    void shouldHandleEmptyRetryResults() {
+        when(processRepo.claimDueForRetry(eq("test-domain"), eq("test-type"), any(Instant.class), anyInt()))
+            .thenReturn(List.of());
+
+        worker.start();
+        worker.pollRetries();
+
+        verify(processRepo).claimDueForRetry(anyString(), anyString(), any(Instant.class), anyInt());
+        verify(processManager, never()).resume(any());
+    }
+
+    @Test
+    @DisplayName("should handle empty results from wait timeouts check")
+    void shouldHandleEmptyWaitTimeoutResults() {
+        when(processRepo.findExpiredWaits(eq("test-domain"), eq("test-type"), any(Instant.class)))
+            .thenReturn(List.of());
+
+        worker.start();
+        worker.checkWaitTimeouts();
+
+        verify(processRepo).findExpiredWaits(anyString(), anyString(), any(Instant.class));
+        verify(processManager, never()).handleWaitTimeout(any());
+    }
+
+    @Test
+    @DisplayName("should handle empty results from deadlines check")
+    void shouldHandleEmptyDeadlineResults() {
+        when(processRepo.findExpiredDeadlines(eq("test-domain"), eq("test-type"), any(Instant.class)))
+            .thenReturn(List.of());
+
+        worker.start();
+        worker.checkDeadlines();
+
+        verify(processRepo).findExpiredDeadlines(anyString(), anyString(), any(Instant.class));
+        verify(processManager, never()).handleDeadlineExceeded(any());
+    }
+
+    @Test
+    @DisplayName("should handle exception during timeout handling")
+    void shouldHandleExceptionDuringTimeoutHandling() throws InterruptedException {
+        UUID processId = UUID.randomUUID();
+        when(processRepo.findExpiredWaits(eq("test-domain"), eq("test-type"), any(Instant.class)))
+            .thenReturn(List.of(processId));
+        doThrow(new RuntimeException("Timeout handling error")).when(processManager).handleWaitTimeout(processId);
+
+        worker.start();
+        worker.checkWaitTimeouts();
+
+        Thread.sleep(100);
+
+        verify(processManager).handleWaitTimeout(processId);
+    }
+
+    @Test
+    @DisplayName("should handle exception during deadline handling")
+    void shouldHandleExceptionDuringDeadlineHandling() throws InterruptedException {
+        UUID processId = UUID.randomUUID();
+        when(processRepo.findExpiredDeadlines(eq("test-domain"), eq("test-type"), any(Instant.class)))
+            .thenReturn(List.of(processId));
+        doThrow(new RuntimeException("Deadline handling error")).when(processManager).handleDeadlineExceeded(processId);
+
+        worker.start();
+        worker.checkDeadlines();
+
+        Thread.sleep(100);
+
+        verify(processManager).handleDeadlineExceeded(processId);
+    }
+
+    @Test
+    @DisplayName("should handle repository exception during retry poll")
+    void shouldHandleRepositoryExceptionDuringRetryPoll() {
+        when(processRepo.claimDueForRetry(anyString(), anyString(), any(Instant.class), anyInt()))
+            .thenThrow(new RuntimeException("Database error"));
+
+        worker.start();
+
+        assertDoesNotThrow(() -> worker.pollRetries());
+    }
+
+    @Test
+    @DisplayName("should handle repository exception during wait timeouts check")
+    void shouldHandleRepositoryExceptionDuringWaitTimeoutsCheck() {
+        when(processRepo.findExpiredWaits(anyString(), anyString(), any(Instant.class)))
+            .thenThrow(new RuntimeException("Database error"));
+
+        worker.start();
+
+        assertDoesNotThrow(() -> worker.checkWaitTimeouts());
+    }
+
+    @Test
+    @DisplayName("should handle repository exception during deadlines check")
+    void shouldHandleRepositoryExceptionDuringDeadlinesCheck() {
+        when(processRepo.findExpiredDeadlines(anyString(), anyString(), any(Instant.class)))
+            .thenThrow(new RuntimeException("Database error"));
+
+        worker.start();
+
+        assertDoesNotThrow(() -> worker.checkDeadlines());
     }
 }

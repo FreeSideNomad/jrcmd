@@ -36,11 +36,11 @@
                     <div class="col-md-3">
                         <label class="form-label">Execution Model</label>
                         <select name="executionModel" class="form-select">
-                            <option value="STEP_BASED" th:selected="${request.executionModel() == null or request.executionModel() == 'STEP_BASED'}">
-                                STEP_BASED (Command-based)
+                            <option value="COMMAND_BASED" th:selected="${request.executionModel() == null or request.executionModel() == 'COMMAND_BASED'}">
+                                COMMAND_BASED
                             </option>
-                            <option value="PROCESS_STEP" th:selected="${request.executionModel() == 'PROCESS_STEP'}">
-                                PROCESS_STEP (Deterministic Replay)
+                            <option value="STEP_BASED" th:selected="${request.executionModel() == 'STEP_BASED'}">
+                                STEP_BASED
                             </option>
                         </select>
                         <small class="text-muted">Workflow execution approach</small>

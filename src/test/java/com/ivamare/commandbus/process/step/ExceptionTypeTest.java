@@ -9,14 +9,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExceptionTypeTest {
 
     @Test
-    @DisplayName("should have all 3 required types")
-    void shouldHaveAllThreeRequiredTypes() {
+    @DisplayName("should have all 4 required types")
+    void shouldHaveAllFourRequiredTypes() {
         ExceptionType[] values = ExceptionType.values();
 
-        assertEquals(3, values.length);
+        assertEquals(4, values.length);
         assertNotNull(ExceptionType.TRANSIENT);
         assertNotNull(ExceptionType.BUSINESS);
         assertNotNull(ExceptionType.PERMANENT);
+        assertNotNull(ExceptionType.TERMINAL);
     }
 
     @Test
@@ -35,5 +36,6 @@ class ExceptionTypeTest {
         assertEquals(0, ExceptionType.TRANSIENT.ordinal());
         assertEquals(1, ExceptionType.BUSINESS.ordinal());
         assertEquals(2, ExceptionType.PERMANENT.ordinal());
+        assertEquals(3, ExceptionType.TERMINAL.ordinal());
     }
 }

@@ -1,12 +1,16 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
-import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
+import com.ivamare.commandbus.e2e.payment.PaymentRepository;
+import com.ivamare.commandbus.e2e.payment.PaymentStatus;
+import com.ivamare.commandbus.e2e.payment.RiskBehavior;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.step.DeadlineAction;
 import com.ivamare.commandbus.process.step.ExceptionType;
-import com.ivamare.commandbus.process.step.ProcessStepManager;
+import com.ivamare.commandbus.process.step.ExecutionContext;
 import com.ivamare.commandbus.process.step.StepOptions;
+import com.ivamare.commandbus.process.step.StepStatus;
+import com.ivamare.commandbus.process.step.TestProcessStepManager;
 import com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +47,7 @@ import java.util.UUID;
  *   <li>Moves to TSQ on permanent failure</li>
  * </ul>
  */
-public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
+public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState> {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentStepProcess.class);
 
@@ -53,14 +57,19 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
     // Services for step execution (simulated)
     private final Random random = new Random();
 
+    // Payment repository for status updates
+    private final PaymentRepository paymentRepository;
+
     // Network simulator for async responses (optional, set if testing)
     private StepPaymentNetworkSimulator networkSimulator;
 
     public PaymentStepProcess(
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            PaymentRepository paymentRepository) {
         super(processRepo, jdbcTemplate, transactionTemplate);
+        this.paymentRepository = paymentRepository;
     }
 
     /**
@@ -97,6 +106,9 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
 
     @Override
     protected ExceptionType classifyException(Exception e) {
+        if (e instanceof RiskDeclinedException) {
+            return ExceptionType.TERMINAL;
+        }
         if (e instanceof StepBusinessRuleException) {
             return ExceptionType.BUSINESS;
         }
@@ -110,73 +122,150 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         return ExceptionType.PERMANENT;
     }
 
+    /**
+     * Override step() to handle bookRisk DECLINED specially.
+     * When bookRisk is declined, update payment to FAILED and throw RiskDeclinedException
+     * (which bypasses compensation and sets process to FAILED).
+     */
+    @Override
+    protected <R> R step(String name, StepOptions<PaymentStepState, R> options) {
+        ExecutionContext<PaymentStepState> ctx = currentContext.get();
+        if (ctx == null) {
+            throw new IllegalStateException("step() called outside of execute() context");
+        }
+
+        PaymentStepState state = ctx.state();
+
+        // Skip behavior injection for replayed steps
+        var completedStep = ctx.getCompletedStep(name);
+        if (completedStep.isPresent() && completedStep.get().status() == StepStatus.COMPLETED) {
+            return super.step(name, options);
+        }
+
+        // Special handling for bookRisk DECLINED
+        if ("bookRisk".equals(name)) {
+            RiskBehavior riskBehavior = state.getBehavior() != null
+                ? state.getBehavior().bookRisk()
+                : RiskBehavior.defaults();
+
+            if (riskBehavior != null) {
+                // Check if this execution would result in DECLINED
+                double roll = random.nextDouble() * 100;
+                String approvalMethod = riskBehavior.determineApprovalMethod(roll);
+
+                if (approvalMethod == null) {
+                    // DECLINED - update payment to FAILED and throw terminal exception
+                    log.info("Risk check DECLINED for payment {} - setting status to FAILED",
+                        state.getPaymentId());
+                    updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
+                    throw new RiskDeclinedException("Risk assessment declined for payment " + state.getPaymentId());
+                }
+
+                // Store the approval method in state for the action to use
+                state.setRiskMethod(approvalMethod);
+            }
+        }
+
+        // For non-bookRisk steps, delegate to parent (which applies probabilistic behavior)
+        return super.step(name, options);
+    }
+
+    /**
+     * Override to skip behavior injection for bookRisk (handled in step() override above).
+     */
+    @Override
+    protected void applyProbabilisticBehavior(String stepName, ProbabilisticBehavior behavior) {
+        if ("bookRisk".equals(stepName)) {
+            // Skip - bookRisk behavior (including DECLINED) is handled in step() override
+            return;
+        }
+        super.applyProbabilisticBehavior(stepName, behavior);
+    }
+
     // ========== Workflow Execution ==========
 
     @Override
     protected void execute(PaymentStepState state) {
-        PaymentStepBehavior behavior = state.getBehavior();
+        // Behavior injection is now handled automatically by TestProcessStepManager
+        // based on state.getBehaviorForStep(stepName) which delegates to PaymentStepBehavior
 
-        // Step 1: Book risk (with compensation)
-        step("bookRisk", StepOptions.<PaymentStepState, String>builder()
-            .action(s -> executeRiskBooking(s, behavior != null ? behavior.bookRisk().toProbabilistic() : null))
-            .maxRetries(3)
-            .retryDelay(Duration.ofSeconds(1))
-            .compensation(s -> releaseRiskBooking(s))
+        // Step 1: Update payment status to PROCESSING (with compensation to CANCELLED)
+        step("updateStatusProcessing", StepOptions.<PaymentStepState, Void>builder()
+            .action(s -> {
+                updatePaymentStatus(s.getPaymentId(), PaymentStatus.PROCESSING);
+                return null;
+            })
+            .compensation(s -> updatePaymentStatus(s.getPaymentId(), PaymentStatus.CANCELLED))
             .build());
 
-        // Step 2: Book FX if needed (with compensation)
+        // Step 2: Book risk (with compensation)
+        step("bookRisk", StepOptions.<PaymentStepState, String>builder()
+            .action(this::executeRiskBooking)
+            .maxRetries(3)
+            .retryDelay(Duration.ofSeconds(1))
+            .compensation(this::releaseRiskBooking)
+            .build());
+
+        // Step 3: Book FX if needed (with compensation)
         if (shouldBookFx(state)) {
             step("bookFx", StepOptions.<PaymentStepState, Long>builder()
-                .action(s -> executeFxBooking(s, behavior != null ? behavior.bookFx() : null))
+                .action(this::executeFxBooking)
                 .maxRetries(2)
                 .retryDelay(Duration.ofMillis(500))
-                .compensation(s -> releaseFxBooking(s))
+                .compensation(this::releaseFxBooking)
                 .build());
         }
 
-        // Step 3: Submit to payment network
+        // Step 4: Submit to payment network
         step("submitPayment", StepOptions.<PaymentStepState, String>builder()
-            .action(s -> executeSubmission(s, behavior != null ? behavior.submitPayment() : null))
+            .action(this::executeSubmission)
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(2))
             .build());
 
-        // Wait for L1 confirmation
-        wait("awaitL1", () -> state.getL1CompletedAt() != null, Duration.ofMinutes(30));
+        // Wait for L1 confirmation (30 seconds for testing, increase for production)
+        wait("awaitL1", () -> state.getL1CompletedAt() != null, Duration.ofSeconds(30));
         if (state.getL1ErrorCode() != null) {
             throw new StepBusinessRuleException("L1 failed: " + state.getL1ErrorCode());
         }
 
         // Wait for L2 confirmation
-        wait("awaitL2", () -> state.getL2CompletedAt() != null, Duration.ofHours(1));
+        wait("awaitL2", () -> state.getL2CompletedAt() != null, Duration.ofSeconds(30));
         if (state.getL2ErrorCode() != null) {
             throw new StepBusinessRuleException("L2 failed: " + state.getL2ErrorCode());
         }
 
         // Wait for L3 confirmation
-        wait("awaitL3", () -> state.getL3CompletedAt() != null, Duration.ofHours(2));
+        wait("awaitL3", () -> state.getL3CompletedAt() != null, Duration.ofSeconds(30));
         if (state.getL3ErrorCode() != null) {
             throw new StepBusinessRuleException("L3 failed: " + state.getL3ErrorCode());
         }
 
         // Wait for L4 confirmation (final settlement)
-        wait("awaitL4", () -> state.getL4CompletedAt() != null, Duration.ofHours(4));
+        wait("awaitL4", () -> state.getL4CompletedAt() != null, Duration.ofSeconds(30));
         if (state.getL4ErrorCode() != null) {
             throw new StepBusinessRuleException("L4 failed: " + state.getL4ErrorCode());
         }
+
+        // Step 5: Update payment status to COMPLETE
+        step("updateStatusComplete", StepOptions.<PaymentStepState, Void>builder()
+            .action(s -> {
+                updatePaymentStatus(s.getPaymentId(), PaymentStatus.COMPLETE);
+                return null;
+            })
+            .build());
 
         log.info("Payment {} completed successfully with all L1-L4 confirmations", state.getPaymentId());
     }
 
     // ========== Step Implementations ==========
 
-    private String executeRiskBooking(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Execute risk booking for the payment.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private String executeRiskBooking(PaymentStepState state) {
         log.debug("Executing risk booking for payment {}", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "bookRisk");
-        }
 
         // Generate risk reference
         String riskRef = "RISK-" + UUID.randomUUID().toString().substring(0, 8);
@@ -198,13 +287,12 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         return state.isFxRequired();
     }
 
-    private Long executeFxBooking(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Execute FX booking for the payment.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private Long executeFxBooking(PaymentStepState state) {
         log.debug("Executing FX booking for payment {}", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "bookFx");
-        }
 
         // Generate FX contract
         Long contractId = Math.abs(random.nextLong()) % 1000000;
@@ -224,13 +312,12 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         // In production, this would call the FX service to release the contract
     }
 
-    private String executeSubmission(PaymentStepState state, ProbabilisticBehavior behavior) {
+    /**
+     * Submit payment to the network.
+     * Behavior injection is handled by TestProcessStepManager.
+     */
+    private String executeSubmission(PaymentStepState state) {
         log.debug("Submitting payment {} to network", state.getPaymentId());
-
-        // Simulate probabilistic behavior
-        if (behavior != null) {
-            simulateBehavior(behavior, "submitPayment");
-        }
 
         // Generate submission reference
         String submissionRef = "NET-" + UUID.randomUUID().toString().substring(0, 8);
@@ -242,10 +329,13 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         log.info("Payment {} submitted to network with ref {}", state.getPaymentId(), submissionRef);
 
         // Trigger network simulator to start sending async responses
+        // Use the actual process ID from execution context, not the payment ID
         if (networkSimulator != null) {
+            UUID processId = getCurrentProcessId();
+            log.info("Triggering network simulator for process {} (payment {})", processId, state.getPaymentId());
             networkSimulator.simulatePaymentConfirmations(
                 commandId,
-                state.getPaymentId(),
+                processId,  // Use actual process ID, not payment ID
                 state.getBehavior()
             );
         }
@@ -253,39 +343,45 @@ public class PaymentStepProcess extends ProcessStepManager<PaymentStepState> {
         return submissionRef;
     }
 
-    // ========== Simulation Helpers ==========
+    /**
+     * Get the current process ID from execution context.
+     */
+    private UUID getCurrentProcessId() {
+        return currentContext.get().processId();
+    }
 
-    private void simulateBehavior(ProbabilisticBehavior behavior, String stepName) {
-        double roll = random.nextDouble() * 100;
-        double cumulative = 0;
+    /**
+     * Update payment status in the database.
+     */
+    private void updatePaymentStatus(UUID paymentId, PaymentStatus status) {
+        log.debug("Updating payment {} status to {}", paymentId, status);
+        paymentRepository.updateStatus(paymentId, status, jdbcTemplate);
+        log.info("Payment {} status updated to {}", paymentId, status);
+    }
 
-        // Check for permanent failure
-        cumulative += behavior.failPermanentPct();
-        if (roll < cumulative) {
-            throw new RuntimeException("Permanent failure in " + stepName);
+    // ========== TSQ Callbacks ==========
+
+    /**
+     * Called when process is canceled via TSQ.
+     * Updates payment status to CANCELLED.
+     */
+    @Override
+    protected void onProcessCanceled(UUID processId, PaymentStepState state) {
+        if (state.getPaymentId() != null) {
+            log.info("TSQ cancel: updating payment {} to CANCELLED", state.getPaymentId());
+            updatePaymentStatus(state.getPaymentId(), PaymentStatus.CANCELLED);
         }
+    }
 
-        // Check for transient failure
-        cumulative += behavior.failTransientPct();
-        if (roll < cumulative) {
-            throw new RuntimeException("Transient timeout in " + stepName);
-        }
-
-        // Check for business rule failure
-        cumulative += behavior.failBusinessRulePct();
-        if (roll < cumulative) {
-            throw new StepBusinessRuleException("Business rule violation in " + stepName);
-        }
-
-        // Simulate latency
-        int latency = behavior.minDurationMs() +
-            random.nextInt(Math.max(1, behavior.maxDurationMs() - behavior.minDurationMs()));
-        if (latency > 0) {
-            try {
-                Thread.sleep(latency);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+    /**
+     * Called when process is completed via TSQ override.
+     * Updates payment status to COMPLETE.
+     */
+    @Override
+    protected void onProcessCompleted(UUID processId, PaymentStepState state) {
+        if (state.getPaymentId() != null) {
+            log.info("TSQ complete: updating payment {} to COMPLETE", state.getPaymentId());
+            updatePaymentStatus(state.getPaymentId(), PaymentStatus.COMPLETE);
         }
     }
 }

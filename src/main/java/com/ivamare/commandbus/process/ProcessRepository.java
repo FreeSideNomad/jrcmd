@@ -120,6 +120,37 @@ public interface ProcessRepository {
     }
 
     /**
+     * Atomically claim pending processes for execution.
+     *
+     * <p>Uses SELECT FOR UPDATE SKIP LOCKED to ensure only one worker claims each process.
+     * Claimed processes are atomically updated to IN_PROGRESS status.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param batchSize Maximum number of processes to claim
+     * @return List of claimed process IDs (already updated to IN_PROGRESS)
+     */
+    default List<UUID> claimPendingProcesses(String domain, String processType, int batchSize) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Atomically claim processes due for retry.
+     *
+     * <p>Uses SELECT FOR UPDATE SKIP LOCKED to ensure only one worker claims each process.
+     * Claimed processes are atomically updated to IN_PROGRESS status.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param now Current time - processes with next_retry_at at or before now are claimed
+     * @param batchSize Maximum number of processes to claim
+     * @return List of claimed process IDs (already updated to IN_PROGRESS)
+     */
+    default List<UUID> claimDueForRetry(String domain, String processType, Instant now, int batchSize) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
      * Find processes due for retry.
      *
      * @param domain Process domain
@@ -127,6 +158,18 @@ public interface ProcessRepository {
      * @return List of process IDs due for retry
      */
     default List<UUID> findDueForRetry(String domain, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Find processes due for retry, filtered by process type.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param now Current time - processes with next_retry_at at or before now are returned
+     * @return List of process IDs due for retry
+     */
+    default List<UUID> findDueForRetry(String domain, String processType, Instant now) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
@@ -142,6 +185,18 @@ public interface ProcessRepository {
     }
 
     /**
+     * Find processes with expired wait timeouts, filtered by process type.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param now Current time - processes with next_wait_timeout_at at or before now are returned
+     * @return List of process IDs with expired waits
+     */
+    default List<UUID> findExpiredWaits(String domain, String processType, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
      * Find processes with exceeded deadlines.
      *
      * @param domain Process domain
@@ -149,6 +204,18 @@ public interface ProcessRepository {
      * @return List of process IDs with exceeded deadlines
      */
     default List<UUID> findExpiredDeadlines(String domain, Instant now) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Find processes with exceeded deadlines, filtered by process type.
+     *
+     * @param domain Process domain
+     * @param processType Process type to filter by
+     * @param now Current time - processes with deadline_at at or before now are returned
+     * @return List of process IDs with exceeded deadlines
+     */
+    default List<UUID> findExpiredDeadlines(String domain, String processType, Instant now) {
         throw new UnsupportedOperationException("Not implemented");
     }
 
@@ -195,6 +262,34 @@ public interface ProcessRepository {
      * @param stateJson Full state as JSON string
      */
     default void updateState(String domain, UUID processId, String stateJson, JdbcTemplate jdbcTemplate) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Atomically update process state and insert audit entry in a single transaction.
+     * This ensures consistency between process state and audit trail.
+     *
+     * @param domain              Process domain
+     * @param processId           Process ID
+     * @param stateJson           Full state JSON (replaces entire state, null to use statePatch)
+     * @param statePatch          State JSONB patch (merged with existing state, ignored if stateJson provided)
+     * @param newStep             New step name (null to keep current)
+     * @param newStatus           New status (null to keep current)
+     * @param errorCode           Error code (null to keep current)
+     * @param errorMessage        Error message (null to keep current)
+     * @param nextRetryAt         Next retry time (for WAITING_FOR_RETRY)
+     * @param nextWaitTimeoutAt   Wait timeout time (for WAITING_FOR_ASYNC)
+     * @param currentWait         Current wait name (for WAITING_FOR_ASYNC)
+     * @param auditEntry          Audit entry to insert (null to skip audit logging)
+     */
+    default void updateStateWithAudit(String domain, UUID processId,
+                                       String stateJson, String statePatch,
+                                       String newStep, String newStatus,
+                                       String errorCode, String errorMessage,
+                                       Instant nextRetryAt, Instant nextWaitTimeoutAt,
+                                       String currentWait,
+                                       ProcessAuditEntry auditEntry,
+                                       JdbcTemplate jdbcTemplate) {
         throw new UnsupportedOperationException("Not implemented");
     }
 }

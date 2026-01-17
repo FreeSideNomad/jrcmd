@@ -1,5 +1,6 @@
 package com.ivamare.commandbus.process.step;
 
+import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,6 +94,10 @@ class TsqIntegrationTest {
     void cancelOverrideWithoutCompensationsShouldJustCancel() {
         UUID processId = UUID.randomUUID();
 
+        // State is now always loaded for hooks (onProcessCanceled)
+        when(processRepo.getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate)))
+            .thenReturn("{\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
         manager.cancelOverride(processId, false);
 
         verify(processRepo).updateStateAtomicStep(
@@ -102,8 +107,8 @@ class TsqIntegrationTest {
             eq(jdbcTemplate)
         );
 
-        // Should not load state if compensations not requested
-        verify(processRepo, never()).getStateJson(anyString(), any(UUID.class), any());
+        // State is loaded for hooks even when compensations not requested
+        verify(processRepo).getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate));
     }
 
     @Test
@@ -145,6 +150,10 @@ class TsqIntegrationTest {
     void completeOverrideWithoutStateOverridesShouldCompleteProcess() {
         UUID processId = UUID.randomUUID();
 
+        // State is loaded after update for hooks (onProcessCompleted)
+        when(processRepo.getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate)))
+            .thenReturn("{\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
         manager.completeOverride(processId, null);
 
         verify(processRepo).updateStateAtomicStep(
@@ -153,12 +162,19 @@ class TsqIntegrationTest {
             isNull(), isNull(), isNull(), isNull(), isNull(),
             eq(jdbcTemplate)
         );
+
+        // State is loaded for hooks
+        verify(processRepo).getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate));
     }
 
     @Test
     @DisplayName("completeOverride with empty state overrides should complete process")
     void completeOverrideWithEmptyStateOverridesShouldCompleteProcess() {
         UUID processId = UUID.randomUUID();
+
+        // State is loaded after update for hooks (onProcessCompleted)
+        when(processRepo.getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate)))
+            .thenReturn("{\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
 
         manager.completeOverride(processId, Map.of());
 
@@ -168,6 +184,9 @@ class TsqIntegrationTest {
             isNull(), isNull(), isNull(), isNull(), isNull(),
             eq(jdbcTemplate)
         );
+
+        // State is loaded for hooks
+        verify(processRepo).getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate));
     }
 
     @Test
@@ -178,6 +197,10 @@ class TsqIntegrationTest {
             "status", "MANUALLY_COMPLETED",
             "completedBy", "operator"
         );
+
+        // State is loaded after update for hooks (onProcessCompleted)
+        when(processRepo.getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate)))
+            .thenReturn("{\"status\":\"MANUALLY_COMPLETED\",\"completedBy\":\"operator\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
 
         manager.completeOverride(processId, overrides);
 
@@ -193,6 +216,9 @@ class TsqIntegrationTest {
         assertNotNull(statePatch);
         assertTrue(statePatch.contains("MANUALLY_COMPLETED"));
         assertTrue(statePatch.contains("operator"));
+
+        // State is loaded for hooks
+        verify(processRepo).getStateJson(eq("test-domain"), eq(processId), eq(jdbcTemplate));
     }
 
     @Test
@@ -206,11 +232,17 @@ class TsqIntegrationTest {
 
         manager.handleWaitTimeout(processId);
 
-        verify(processRepo).updateStateAtomicStep(
-            eq("test-domain"), eq(processId), isNull(),
-            isNull(), eq("WAITING_FOR_TSQ"),
-            eq("WAIT_TIMEOUT"), eq("Wait condition timed out"),
-            isNull(), isNull(), isNull(),
+        // Verify atomic state + audit update was called
+        verify(processRepo).updateStateWithAudit(
+            eq("test-domain"), eq(processId),
+            argThat(json -> json != null && json.contains("WAIT_TIMEOUT")),  // state JSON with error
+            isNull(),  // no state patch
+            isNull(),  // no step
+            eq("WAITING_FOR_TSQ"),  // new status
+            eq("WAIT_TIMEOUT"),  // error code
+            argThat(msg -> msg != null && msg.contains("timed out")),  // error message
+            isNull(), isNull(), isNull(),  // no retry/timeout/wait
+            argThat(audit -> audit != null && "WAIT_TIMEOUT".equals(audit.commandType())),  // audit entry
             eq(jdbcTemplate)
         );
     }
@@ -227,11 +259,17 @@ class TsqIntegrationTest {
         // Default action is TSQ
         manager.handleDeadlineExceeded(processId);
 
-        verify(processRepo).updateStateAtomicStep(
-            eq("test-domain"), eq(processId), isNull(),
-            isNull(), eq("WAITING_FOR_TSQ"),
-            eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
-            isNull(), isNull(), isNull(),
+        // Verify atomic state + audit update was called
+        verify(processRepo).updateStateWithAudit(
+            eq("test-domain"), eq(processId),
+            argThat(json -> json != null && json.contains("DEADLINE_EXCEEDED")),  // state JSON with error
+            isNull(),  // no state patch
+            isNull(),  // no step
+            eq("WAITING_FOR_TSQ"),  // new status
+            eq("DEADLINE_EXCEEDED"),  // error code
+            eq("Process deadline exceeded"),  // error message
+            isNull(), isNull(), isNull(),  // no retry/timeout/wait
+            argThat(audit -> audit != null && "DEADLINE_EXCEEDED".equals(audit.commandType())),  // audit entry
             eq(jdbcTemplate)
         );
     }
@@ -255,11 +293,17 @@ class TsqIntegrationTest {
 
         failManager.handleDeadlineExceeded(processId);
 
-        verify(processRepo).updateStateAtomicStep(
-            eq("test-domain"), eq(processId), isNull(),
-            isNull(), eq("FAILED"),
-            eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
-            isNull(), isNull(), isNull(),
+        // Verify atomic state + audit update was called
+        verify(processRepo).updateStateWithAudit(
+            eq("test-domain"), eq(processId),
+            any(),  // state JSON
+            isNull(),  // no state patch
+            isNull(),  // no step
+            eq("FAILED"),  // new status
+            eq("DEADLINE_EXCEEDED"),  // error code
+            eq("Process deadline exceeded"),  // error message
+            isNull(), isNull(), isNull(),  // no retry/timeout/wait
+            argThat(audit -> audit != null && "DEADLINE_EXCEEDED".equals(audit.commandType())),  // audit entry
             eq(jdbcTemplate)
         );
     }
@@ -291,11 +335,17 @@ class TsqIntegrationTest {
 
         compensateManager.handleDeadlineExceeded(processId);
 
-        verify(processRepo).updateStateAtomicStep(
-            eq("test-domain"), eq(processId), isNull(),
-            isNull(), eq("COMPENSATED"),
-            eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
-            isNull(), isNull(), isNull(),
+        // Verify atomic state + audit update was called
+        verify(processRepo).updateStateWithAudit(
+            eq("test-domain"), eq(processId),
+            any(),  // state JSON
+            isNull(),  // no state patch
+            isNull(),  // no step
+            eq("COMPENSATED"),  // new status
+            eq("DEADLINE_EXCEEDED"),  // error code
+            eq("Process deadline exceeded"),  // error message
+            isNull(), isNull(), isNull(),  // no retry/timeout/wait
+            argThat(audit -> audit != null && "DEADLINE_EXCEEDED".equals(audit.commandType())),  // audit entry
             eq(jdbcTemplate)
         );
     }

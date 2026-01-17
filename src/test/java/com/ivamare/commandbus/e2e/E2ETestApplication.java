@@ -1,10 +1,14 @@
 package com.ivamare.commandbus.e2e;
 
 import com.ivamare.commandbus.e2e.payment.PaymentProcessManager;
+import com.ivamare.commandbus.e2e.payment.PaymentRepository;
+import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
+import com.ivamare.commandbus.e2e.payment.step.StepPaymentNetworkSimulator;
 import com.ivamare.commandbus.pgmq.PgmqClient;
 import com.ivamare.commandbus.process.BaseProcessManager;
 import com.ivamare.commandbus.process.ProcessReplyRouter;
 import com.ivamare.commandbus.process.ProcessRepository;
+import com.ivamare.commandbus.process.step.ProcessStepWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -18,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -94,6 +99,64 @@ public class E2ETestApplication {
             router.start();
         } catch (Exception e) {
             log.debug("Payments reply router not available (UI-only mode): {}", e.getMessage());
+        }
+    }
+
+    // ========== ProcessStepManager Configuration ==========
+
+    /**
+     * Create PaymentStepProcess for step-based workflow execution.
+     * This is the ProcessStepManager implementation for payments.
+     * Available in both UI and worker modes - UI needs it to start processes,
+     * workers need it to execute them.
+     */
+    @Bean
+    public PaymentStepProcess paymentStepProcess(
+            ProcessRepository processRepository,
+            JdbcTemplate jdbcTemplate,
+            TransactionTemplate transactionTemplate,
+            PaymentRepository paymentRepository) {
+        log.info("Creating PaymentStepProcess for step-based payments workflow");
+        return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate, paymentRepository);
+    }
+
+    /**
+     * Create StepPaymentNetworkSimulator to simulate L1-L4 network responses.
+     * Wires itself to PaymentStepProcess to receive trigger calls.
+     */
+    @Bean
+    public StepPaymentNetworkSimulator stepPaymentNetworkSimulator(PaymentStepProcess paymentStepProcess) {
+        log.info("Creating StepPaymentNetworkSimulator for step-based payment confirmations");
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(paymentStepProcess);
+        paymentStepProcess.setNetworkSimulator(simulator);
+        return simulator;
+    }
+
+    /**
+     * Create ProcessStepWorker to poll for PENDING, RETRY, timeout, and deadline processes.
+     * Only runs in worker mode (not UI).
+     */
+    @Bean
+    @Profile("!ui")
+    public ProcessStepWorker processStepWorker(
+            PaymentStepProcess paymentStepProcess,
+            ProcessRepository processRepository) {
+        log.info("Creating ProcessStepWorker for step-based process managers");
+        return new ProcessStepWorker(List.of(paymentStepProcess), processRepository);
+    }
+
+    /**
+     * Auto-start the ProcessStepWorker when the application is ready.
+     * The worker bean is only created when not in 'ui' profile (see @Profile on the bean).
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void startProcessStepWorker(ApplicationReadyEvent event) {
+        try {
+            ProcessStepWorker worker = event.getApplicationContext().getBean(ProcessStepWorker.class);
+            log.info("Auto-starting ProcessStepWorker for step-based processes");
+            worker.start();
+        } catch (Exception e) {
+            log.debug("ProcessStepWorker not available (UI-only mode): {}", e.getMessage());
         }
     }
 }

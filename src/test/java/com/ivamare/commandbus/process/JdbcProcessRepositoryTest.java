@@ -505,4 +505,248 @@ class JdbcProcessRepositoryTest {
             isNull()
         );
     }
+
+    @Test
+    @DisplayName("should insert new audit row when update finds no existing row")
+    void shouldInsertNewAuditRowWhenUpdateFindsNoExistingRow() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        ProcessAuditEntry entry = ProcessAuditEntry.forCommand(
+            "STEP_ONE", commandId, "DoSomething", Map.of("key", "value")
+        ).withReply(ReplyOutcome.SUCCESS, Map.of("result", "ok"));
+
+        // First update returns 0 (no rows updated)
+        when(jdbcTemplate.update(contains("UPDATE commandbus.process_audit"),
+            any(), any(), any(), any(), any(), any())).thenReturn(0);
+
+        repository.updateStepReply("orders", processId, commandId, entry);
+
+        // Verify UPDATE was called first
+        verify(jdbcTemplate).update(contains("UPDATE commandbus.process_audit"),
+            eq("SUCCESS"),
+            anyString(),  // reply_data JSON
+            any(Timestamp.class),
+            eq("orders"),
+            eq(processId),
+            eq(commandId)
+        );
+
+        // Verify INSERT was called when update returned 0
+        verify(jdbcTemplate).update(contains("INSERT INTO commandbus.process_audit"),
+            eq("orders"),
+            eq(processId),
+            eq("STEP_ONE"),
+            eq(commandId),
+            eq("DoSomething"),
+            anyString(),  // command_data
+            any(Timestamp.class),
+            eq("SUCCESS"),
+            anyString(),  // reply_data
+            any(Timestamp.class)
+        );
+    }
+
+    @Test
+    @DisplayName("should find processes due for retry by type")
+    void shouldFindProcessesDueForRetryByType() {
+        Instant now = Instant.now();
+        when(jdbcTemplate.queryForList(
+            contains("process_type = ?"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER_FULFILLMENT"),
+            any(Timestamp.class)
+        )).thenReturn(List.of(UUID.randomUUID()));
+
+        List<UUID> result = repository.findDueForRetry("orders", "ORDER_FULFILLMENT", now);
+
+        assertEquals(1, result.size());
+        verify(jdbcTemplate).queryForList(
+            contains("process_type = ?"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER_FULFILLMENT"),
+            any(Timestamp.class)
+        );
+    }
+
+    @Test
+    @DisplayName("should find expired waits without process type")
+    void shouldFindExpiredWaitsWithoutProcessType() {
+        Instant now = Instant.now();
+        when(jdbcTemplate.queryForList(
+            contains("WAITING_FOR_ASYNC"),
+            eq(UUID.class),
+            eq("orders"),
+            any(Timestamp.class)
+        )).thenReturn(List.of());
+
+        List<UUID> result = repository.findExpiredWaits("orders", now);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    @DisplayName("should find expired deadlines without process type")
+    void shouldFindExpiredDeadlinesWithoutProcessType() {
+        Instant now = Instant.now();
+        when(jdbcTemplate.queryForList(
+            contains("deadline_at"),
+            eq(UUID.class),
+            eq("orders"),
+            any(Timestamp.class)
+        )).thenReturn(List.of());
+
+        List<UUID> result = repository.findExpiredDeadlines("orders", now);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    @DisplayName("should claim pending processes with custom timeout")
+    void shouldClaimPendingProcessesWithCustomTimeout() {
+        when(jdbcTemplate.queryForList(
+            contains("sp_claim_pending_processes"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER"),
+            eq(50),
+            eq(120)
+        )).thenReturn(List.of());
+
+        repository.claimPendingProcesses("orders", "ORDER", 50, 120);
+
+        verify(jdbcTemplate).queryForList(
+            contains("sp_claim_pending_processes"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER"),
+            eq(50),
+            eq(120)
+        );
+    }
+
+    @Test
+    @DisplayName("should claim retry processes with custom timeout")
+    void shouldClaimRetryProcessesWithCustomTimeout() {
+        when(jdbcTemplate.queryForList(
+            contains("sp_claim_retry_processes"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER"),
+            eq(50),
+            eq(120)
+        )).thenReturn(List.of());
+
+        repository.claimDueForRetry("orders", "ORDER", 50, 120);
+
+        verify(jdbcTemplate).queryForList(
+            contains("sp_claim_retry_processes"),
+            eq(UUID.class),
+            eq("orders"),
+            eq("ORDER"),
+            eq(50),
+            eq(120)
+        );
+    }
+
+    @Test
+    @DisplayName("should update state with audit entry")
+    void shouldUpdateStateWithAuditEntry() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ProcessAuditEntry auditEntry = new ProcessAuditEntry(
+            "STEP_ONE", commandId, "DoSomething",
+            Map.of("input", "value"), now,
+            ReplyOutcome.SUCCESS, Map.of("output", "result"), now
+        );
+
+        repository.updateStateWithAudit(
+            "orders",
+            processId,
+            "{\"full\": \"state\"}",
+            "{\"patch\": true}",
+            "STEP_ONE",
+            "IN_PROGRESS",
+            null,
+            null,
+            null,
+            null,
+            null,
+            auditEntry,
+            jdbcTemplate
+        );
+
+        verify(jdbcTemplate).queryForObject(
+            contains("sp_update_process_with_audit"),
+            any(RowMapper.class),
+            eq("orders"),
+            eq(processId),
+            eq("{\"full\": \"state\"}"),
+            eq("{\"patch\": true}"),
+            eq("STEP_ONE"),
+            eq("IN_PROGRESS"),
+            isNull(),  // errorCode
+            isNull(),  // errorMessage
+            isNull(),  // nextRetryAt
+            isNull(),  // nextWaitTimeoutAt
+            isNull(),  // currentWait
+            eq("STEP_ONE"),
+            eq(commandId),
+            eq("DoSomething"),
+            anyString(),  // command_data JSON
+            any(Timestamp.class),
+            eq("SUCCESS"),
+            anyString(),  // reply_data JSON
+            any(Timestamp.class)
+        );
+    }
+
+    @Test
+    @DisplayName("should update state with null audit entry")
+    void shouldUpdateStateWithNullAuditEntry() {
+        UUID processId = UUID.randomUUID();
+
+        repository.updateStateWithAudit(
+            "orders",
+            processId,
+            "{\"full\": \"state\"}",
+            null,  // no patch
+            "STEP_ONE",
+            "IN_PROGRESS",
+            "ERROR_CODE",
+            "Error message",
+            Instant.now(),
+            null,
+            null,
+            null,  // null audit entry
+            jdbcTemplate
+        );
+
+        verify(jdbcTemplate).queryForObject(
+            contains("sp_update_process_with_audit"),
+            any(RowMapper.class),
+            eq("orders"),
+            eq(processId),
+            eq("{\"full\": \"state\"}"),
+            isNull(),  // statePatch
+            eq("STEP_ONE"),
+            eq("IN_PROGRESS"),
+            eq("ERROR_CODE"),
+            eq("Error message"),
+            any(Timestamp.class),  // nextRetryAt
+            isNull(),  // nextWaitTimeoutAt
+            isNull(),  // currentWait
+            isNull(),  // auditEntry.stepName
+            isNull(),  // auditEntry.commandId
+            isNull(),  // auditEntry.commandType
+            isNull(),  // auditEntry.commandData
+            isNull(),  // auditEntry.sentAt
+            isNull(),  // auditEntry.replyOutcome
+            isNull(),  // auditEntry.replyData
+            isNull()   // auditEntry.receivedAt
+        );
+    }
 }

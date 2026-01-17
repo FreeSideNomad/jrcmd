@@ -118,26 +118,45 @@ public record PaymentView(
             } else if (process.state() instanceof MapProcessState mapState) {
                 // Extract from map when state is not deserialized
                 Map<String, Object> stateMap = mapState.toMap();
-                Object level = stateMap.get("completedLevel");
-                if (level instanceof Number) {
-                    completedLevel = ((Number) level).intValue();
-                }
-                // Extract L1-L4 status from map
+
+                // Extract L1-L4 status from map (handles both snake_case and camelCase)
                 l1Status = extractLevelStatus(stateMap, "l1");
                 l2Status = extractLevelStatus(stateMap, "l2");
                 l3Status = extractLevelStatus(stateMap, "l3");
                 l4Status = extractLevelStatus(stateMap, "l4");
-                // FX data from map
-                if (stateMap.get("fx_contract_id") != null) {
-                    fxContractId = ((Number) stateMap.get("fx_contract_id")).longValue();
+
+                // Calculate completedLevel from L1-L4 statuses
+                completedLevel = calculateCompletedLevel(l1Status, l2Status, l3Status, l4Status);
+
+                // FX data from map (handles both snake_case and camelCase)
+                Object fxContractObj = stateMap.get("fxContractId");
+                if (fxContractObj == null) fxContractObj = stateMap.get("fx_contract_id");
+                if (fxContractObj instanceof Number num) {
+                    fxContractId = num.longValue();
                 }
-                if (stateMap.get("fx_rate") != null) {
-                    Object rateObj = stateMap.get("fx_rate");
-                    fxRate = rateObj instanceof String ? new BigDecimal((String) rateObj) : new BigDecimal(rateObj.toString());
+
+                Object rateObj = stateMap.get("fxRate");
+                if (rateObj == null) rateObj = stateMap.get("fx_rate");
+                if (rateObj != null) {
+                    fxRate = rateObj instanceof BigDecimal bd ? bd :
+                             rateObj instanceof String s ? new BigDecimal(s) :
+                             new BigDecimal(rateObj.toString());
                 }
-                if (stateMap.get("credit_amount") != null) {
-                    Object amtObj = stateMap.get("credit_amount");
-                    creditAmount = amtObj instanceof String ? new BigDecimal((String) amtObj) : new BigDecimal(amtObj.toString());
+
+                Object amtObj = stateMap.get("creditAmount");
+                if (amtObj == null) amtObj = stateMap.get("credit_amount");
+                if (amtObj != null) {
+                    creditAmount = amtObj instanceof BigDecimal bd ? bd :
+                                   amtObj instanceof String s ? new BigDecimal(s) :
+                                   new BigDecimal(amtObj.toString());
+                }
+
+                // For PROCESS_STEP, extract currentStep from currentWait if available
+                if (currentStep == null) {
+                    Object currentWait = stateMap.get("currentWait");
+                    if (currentWait instanceof String s && !s.isBlank()) {
+                        currentStep = s;
+                    }
                 }
             }
         }
@@ -169,13 +188,77 @@ public record PaymentView(
         );
     }
 
+    /**
+     * Extract level status from state map.
+     * Handles both snake_case (STEP_BASED) and camelCase (PROCESS_STEP) keys.
+     */
     private static LevelStatus extractLevelStatus(Map<String, Object> stateMap, String prefix) {
-        String completedAtStr = (String) stateMap.get(prefix + "_completed_at");
-        Instant completedAt = completedAtStr != null ? Instant.parse(completedAtStr) : null;
-        String reference = (String) stateMap.get(prefix + "_reference");
-        String errorCode = (String) stateMap.get(prefix + "_error_code");
-        String errorMessage = (String) stateMap.get(prefix + "_error_message");
+        // Try camelCase keys first (PROCESS_STEP), then snake_case (STEP_BASED)
+        Instant completedAt = parseInstant(
+            stateMap.get(prefix + "CompletedAt"),
+            stateMap.get(prefix + "_completed_at")
+        );
+        String reference = getStringValue(
+            stateMap.get(prefix + "Reference"),
+            stateMap.get(prefix + "_reference")
+        );
+        String errorCode = getStringValue(
+            stateMap.get(prefix + "ErrorCode"),
+            stateMap.get(prefix + "_error_code")
+        );
+        String errorMessage = getStringValue(
+            stateMap.get(prefix + "ErrorMessage"),
+            stateMap.get(prefix + "_error_message")
+        );
         return new LevelStatus(completedAt, reference, errorCode, errorMessage);
+    }
+
+    /**
+     * Parse Instant from various formats (String, Instant, or array for Jackson).
+     */
+    private static Instant parseInstant(Object... values) {
+        for (Object value : values) {
+            if (value == null) continue;
+            if (value instanceof Instant inst) {
+                return inst;
+            }
+            if (value instanceof String str) {
+                try {
+                    return Instant.parse(str);
+                } catch (Exception e) {
+                    // Try next value
+                }
+            }
+            // Handle Jackson's serialization of Instant as epoch seconds (number)
+            if (value instanceof Number num) {
+                return Instant.ofEpochSecond(num.longValue());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get first non-null String value.
+     */
+    private static String getStringValue(Object... values) {
+        for (Object value : values) {
+            if (value instanceof String str) {
+                return str;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Calculate completed level from L1-L4 statuses.
+     */
+    private static int calculateCompletedLevel(LevelStatus l1, LevelStatus l2, LevelStatus l3, LevelStatus l4) {
+        if (l4 != null && l4.isComplete() && l3 != null && l3.isComplete() &&
+            l2 != null && l2.isComplete() && l1 != null && l1.isComplete()) return 4;
+        if (l3 != null && l3.isComplete() && l2 != null && l2.isComplete() && l1 != null && l1.isComplete()) return 3;
+        if (l2 != null && l2.isComplete() && l1 != null && l1.isComplete()) return 2;
+        if (l1 != null && l1.isComplete()) return 1;
+        return 0;
     }
 
     /**
