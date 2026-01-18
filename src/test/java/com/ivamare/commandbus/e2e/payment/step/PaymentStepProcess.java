@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
 
@@ -136,36 +137,57 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             .build());
 
         // Step 2: Book risk (with compensation)
-        // DECLINED check is done in the action - throws RiskDeclinedException (TERMINAL)
+        // Records riskType and riskDecision in state
+        // DECLINED → throws RiskDeclinedException (TERMINAL)
+        // PENDING → step completes, then we wait for approval
+        // APPROVED → continues to next step
         step("bookRisk", StepOptions.<PaymentStepState, String>builder()
             .action(s -> {
-                // Check behavior for DECLINED before executing
                 RiskBehavior riskBehavior = s.getBehavior() != null
                     ? s.getBehavior().bookRisk()
                     : RiskBehavior.defaults();
 
-                if (riskBehavior != null) {
-                    double roll = random.nextDouble() * 100;
-                    String approvalMethod = riskBehavior.determineApprovalMethod(roll);
+                // Assess risk and record result
+                double roll = random.nextDouble() * 100;
+                RiskBehavior.RiskAssessmentResult result = riskBehavior.assess(roll);
 
-                    if (approvalMethod == null) {
-                        // DECLINED - update payment and throw terminal exception
-                        log.info("Risk check DECLINED for payment {} - setting status to FAILED",
-                            s.getPaymentId());
-                        updatePaymentStatus(s.getPaymentId(), PaymentStatus.FAILED);
-                        throw new RiskDeclinedException(
-                            "Risk assessment declined for payment " + s.getPaymentId());
-                    }
+                s.setRiskType(result.type().name());
+                s.setRiskDecision(result.decision().name());
 
-                    s.setRiskMethod(approvalMethod);
+                log.info("Risk assessment for payment {}: type={}, decision={}",
+                    s.getPaymentId(), result.type(), result.decision());
+
+                if (result.isDeclined()) {
+                    // DECLINED - update payment and throw terminal exception
+                    log.info("Risk check DECLINED for payment {} - setting status to FAILED",
+                        s.getPaymentId());
+                    updatePaymentStatus(s.getPaymentId(), PaymentStatus.FAILED);
+                    throw new RiskDeclinedException(
+                        "Risk assessment declined for payment " + s.getPaymentId());
                 }
 
+                // For APPROVED or PENDING, execute the risk booking
                 return executeRiskBooking(s);
             })
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(1))
             .compensation(this::releaseRiskBooking)
             .build());
+
+        // Wait for risk approval if decision was PENDING
+        if (state.isRiskPending()) {
+            log.info("Risk decision PENDING for payment {} - waiting for manual approval", state.getPaymentId());
+            wait("awaitRiskApproval", () -> state.getRiskApprovedAt() != null, Duration.ofMinutes(30));
+
+            // After wait completes, check if approved or declined
+            if (!"APPROVED".equals(state.getRiskDecision())) {
+                log.info("Risk approval DECLINED for payment {} after manual review", state.getPaymentId());
+                updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
+                throw new RiskDeclinedException(
+                    "Risk approval declined after manual review for payment " + state.getPaymentId());
+            }
+            log.info("Risk approval APPROVED for payment {} after manual review", state.getPaymentId());
+        }
 
         // Step 3: Book FX if needed (with compensation)
         if (shouldBookFx(state)) {
@@ -223,18 +245,18 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
 
     /**
      * Execute risk booking for the payment.
-     * Behavior injection is handled by TestProcessStepManager.
+     * Risk type and decision are already set by the step action.
      */
     private String executeRiskBooking(PaymentStepState state) {
-        log.debug("Executing risk booking for payment {}", state.getPaymentId());
+        log.debug("Executing risk booking for payment {} (type={}, decision={})",
+            state.getPaymentId(), state.getRiskType(), state.getRiskDecision());
 
         // Generate risk reference
         String riskRef = "RISK-" + UUID.randomUUID().toString().substring(0, 8);
-        state.setRiskStatus("APPROVED");
-        state.setRiskMethod("AVAILABLE_BALANCE");
         state.setRiskReference(riskRef);
 
-        log.info("Risk booking approved for payment {} with ref {}", state.getPaymentId(), riskRef);
+        log.info("Risk booking completed for payment {} with ref {} (decision={})",
+            state.getPaymentId(), riskRef, state.getRiskDecision());
         return riskRef;
     }
 
@@ -318,6 +340,30 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
         log.debug("Updating payment {} status to {}", paymentId, status);
         paymentRepository.updateStatus(paymentId, status, jdbcTemplate);
         log.info("Payment {} status updated to {}", paymentId, status);
+    }
+
+    // ========== Risk Approval Resolution ==========
+
+    /**
+     * Resolve a pending risk approval from the UI.
+     * Called when an operator approves or declines a payment in the manual approval queue.
+     *
+     * @param processId The process ID waiting for risk approval
+     * @param approved True if approved, false if declined
+     */
+    public void resolveRiskApproval(UUID processId, boolean approved) {
+        log.info("Resolving risk approval for process {}: approved={}", processId, approved);
+
+        processAsyncResponse(processId, state -> {
+            if (approved) {
+                state.setRiskDecision("APPROVED");
+                state.setRiskApprovedAt(Instant.now());
+                log.info("Risk approval granted for process {} (payment {})", processId, state.getPaymentId());
+            } else {
+                state.setRiskDecision("DECLINED");
+                log.info("Risk approval declined for process {} (payment {})", processId, state.getPaymentId());
+            }
+        });
     }
 
     // ========== TSQ Callbacks ==========

@@ -33,10 +33,10 @@ public class PaymentStepState extends TestProcessStepState {
     private UUID paymentId;
 
     // Risk step results
-    private String riskStatus;           // APPROVED, DECLINED, or PENDING_APPROVAL
-    private String riskMethod;           // AVAILABLE_BALANCE, DAILY_LIMIT, MANUAL
+    private String riskType;             // AVAILABLE_BALANCE or DAILY_LIMIT
+    private String riskDecision;         // APPROVED, DECLINED, or PENDING
     private String riskReference;        // Risk booking reference
-    private boolean pendingApproval;     // True if waiting for manual approval
+    private Instant riskApprovedAt;      // Timestamp when risk approval received (used for wait condition)
 
     // FX step results
     private Long fxContractId;           // FX contract ID
@@ -94,20 +94,20 @@ public class PaymentStepState extends TestProcessStepState {
 
     // ========== Risk ==========
 
-    public String getRiskStatus() {
-        return riskStatus;
+    public String getRiskType() {
+        return riskType;
     }
 
-    public void setRiskStatus(String riskStatus) {
-        this.riskStatus = riskStatus;
+    public void setRiskType(String riskType) {
+        this.riskType = riskType;
     }
 
-    public String getRiskMethod() {
-        return riskMethod;
+    public String getRiskDecision() {
+        return riskDecision;
     }
 
-    public void setRiskMethod(String riskMethod) {
-        this.riskMethod = riskMethod;
+    public void setRiskDecision(String riskDecision) {
+        this.riskDecision = riskDecision;
     }
 
     public String getRiskReference() {
@@ -118,12 +118,26 @@ public class PaymentStepState extends TestProcessStepState {
         this.riskReference = riskReference;
     }
 
-    public boolean isPendingApproval() {
-        return pendingApproval;
+    public Instant getRiskApprovedAt() {
+        return riskApprovedAt;
     }
 
-    public void setPendingApproval(boolean pendingApproval) {
-        this.pendingApproval = pendingApproval;
+    public void setRiskApprovedAt(Instant riskApprovedAt) {
+        this.riskApprovedAt = riskApprovedAt;
+    }
+
+    /**
+     * Check if risk decision is PENDING and awaiting approval.
+     */
+    public boolean isRiskPending() {
+        return "PENDING".equals(riskDecision);
+    }
+
+    /**
+     * Check if risk has been resolved (approved or declined after pending).
+     */
+    public boolean isRiskResolved() {
+        return riskApprovedAt != null || "DECLINED".equals(riskDecision);
     }
 
     // ========== FX ==========

@@ -151,12 +151,12 @@ class PaymentStepProcessTest {
     @DisplayName("PaymentStepState should serialize risk info")
     void paymentStepStateShouldSerializeRiskInfo() {
         PaymentStepState state = new PaymentStepState(UUID.randomUUID());
-        state.setRiskStatus("APPROVED");
-        state.setRiskMethod("AVAILABLE_BALANCE");
+        state.setRiskDecision("APPROVED");
+        state.setRiskType("AVAILABLE_BALANCE");
         state.setRiskReference("RISK-12345");
 
-        assertEquals("APPROVED", state.getRiskStatus());
-        assertEquals("AVAILABLE_BALANCE", state.getRiskMethod());
+        assertEquals("APPROVED", state.getRiskDecision());
+        assertEquals("AVAILABLE_BALANCE", state.getRiskType());
         assertEquals("RISK-12345", state.getRiskReference());
     }
 

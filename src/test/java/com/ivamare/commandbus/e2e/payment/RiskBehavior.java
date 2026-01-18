@@ -8,12 +8,12 @@ import java.util.Map;
 /**
  * Special behavior configuration for BookTransactionRisk step.
  *
- * <p>Risk assessment can result in:
+ * <p>Risk assessment returns a type (AVAILABLE_BALANCE or DAILY_LIMIT) and
+ * a decision (APPROVED, DECLINED, or PENDING):
  * <ul>
- *   <li>Immediate approval via AVAILABLE_BALANCE check</li>
- *   <li>Immediate approval via DAILY_LIMIT check</li>
- *   <li>Manual approval (delayed response, simulates human review)</li>
- *   <li>Decline (triggers compensation)</li>
+ *   <li>APPROVED - immediate approval, payment can proceed</li>
+ *   <li>DECLINED - immediate decline, payment fails</li>
+ *   <li>PENDING - requires manual review, operator must approve/decline in UI</li>
  * </ul>
  */
 public record RiskBehavior(
@@ -24,6 +24,38 @@ public record RiskBehavior(
     int minDurationMs,             // Min processing time for risk check
     int maxDurationMs              // Max processing time for risk check
 ) {
+
+    /**
+     * Risk type - the method used for assessment.
+     */
+    public enum RiskType {
+        AVAILABLE_BALANCE,
+        DAILY_LIMIT
+    }
+
+    /**
+     * Risk decision - the outcome of the assessment.
+     */
+    public enum RiskDecision {
+        APPROVED,
+        DECLINED,
+        PENDING
+    }
+
+    /**
+     * Result of risk assessment containing both type and decision.
+     */
+    public record RiskAssessmentResult(RiskType type, RiskDecision decision) {
+        public boolean isApproved() {
+            return decision == RiskDecision.APPROVED;
+        }
+        public boolean isDeclined() {
+            return decision == RiskDecision.DECLINED;
+        }
+        public boolean isPending() {
+            return decision == RiskDecision.PENDING;
+        }
+    }
     /**
      * Default behavior - mostly approved via balance check.
      */
@@ -47,39 +79,59 @@ public record RiskBehavior(
     }
 
     /**
+     * Assess the risk and return both type and decision.
+     *
+     * @param roll Random value between 0 and 100
+     * @return RiskAssessmentResult with type and decision
+     */
+    public RiskAssessmentResult assess(double roll) {
+        double cumulative = 0;
+
+        // Approved via AVAILABLE_BALANCE
+        cumulative += approvedBalancePct;
+        if (roll < cumulative) {
+            return new RiskAssessmentResult(RiskType.AVAILABLE_BALANCE, RiskDecision.APPROVED);
+        }
+
+        // Approved via DAILY_LIMIT
+        cumulative += approvedLimitPct;
+        if (roll < cumulative) {
+            return new RiskAssessmentResult(RiskType.DAILY_LIMIT, RiskDecision.APPROVED);
+        }
+
+        // Pending manual review (use DAILY_LIMIT as type since auto-approval failed)
+        cumulative += manualApprovalPct;
+        if (roll < cumulative) {
+            return new RiskAssessmentResult(RiskType.DAILY_LIMIT, RiskDecision.PENDING);
+        }
+
+        // Declined outright
+        cumulative += declinedPct;
+        if (roll < cumulative) {
+            return new RiskAssessmentResult(RiskType.DAILY_LIMIT, RiskDecision.DECLINED);
+        }
+
+        // Default to approval if percentages don't add to 100%
+        return new RiskAssessmentResult(RiskType.AVAILABLE_BALANCE, RiskDecision.APPROVED);
+    }
+
+    /**
      * Determine the approval method based on random roll.
      *
      * @param roll Random value between 0 and 100
      * @return Approval method or null if declined
+     * @deprecated Use {@link #assess(double)} instead for full type and decision info
      */
+    @Deprecated
     public String determineApprovalMethod(double roll) {
-        double cumulative = 0;
-
-        cumulative += approvedBalancePct;
-        if (roll < cumulative) {
-            return "AVAILABLE_BALANCE";
+        RiskAssessmentResult result = assess(roll);
+        if (result.isDeclined()) {
+            return null;
         }
-
-        cumulative += approvedLimitPct;
-        if (roll < cumulative) {
-            return "DAILY_LIMIT";
-        }
-
-        cumulative += manualApprovalPct;
-        if (roll < cumulative) {
+        if (result.isPending()) {
             return "MANUAL";
         }
-
-        // Only decline if declinedPct is actually set
-        // If percentages don't add to 100% and declinedPct is 0, default to balance approval
-        cumulative += declinedPct;
-        if (roll < cumulative) {
-            return null;  // Declined
-        }
-
-        // If we get here, percentages didn't add to 100% - default to approval
-        // This handles cases where user sets declinedPct=0 but other values don't sum to 100
-        return "AVAILABLE_BALANCE";
+        return result.type().name();
     }
 
     public Map<String, Object> toMap() {
