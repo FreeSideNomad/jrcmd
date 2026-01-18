@@ -1,7 +1,10 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
+import com.ivamare.commandbus.e2e.payment.Payment;
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStatus;
+import com.ivamare.commandbus.e2e.payment.PendingApproval;
+import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
 import com.ivamare.commandbus.e2e.payment.RiskBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.step.DeadlineAction;
@@ -55,8 +58,11 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
     // Services for step execution (simulated)
     private final Random random = new Random();
 
-    // Payment repository for status updates
+    // Payment repository for status updates and payment lookup
     private final PaymentRepository paymentRepository;
+
+    // Pending approval repository for manual review queue
+    private final PendingApprovalRepository pendingApprovalRepository;
 
     // Network simulator for async responses (optional, set if testing)
     private StepPaymentNetworkSimulator networkSimulator;
@@ -65,9 +71,11 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            PendingApprovalRepository pendingApprovalRepository) {
         super(processRepo, jdbcTemplate, transactionTemplate);
         this.paymentRepository = paymentRepository;
+        this.pendingApprovalRepository = pendingApprovalRepository;
     }
 
     /**
@@ -129,46 +137,17 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
 
         // Step 1: Update payment status to PROCESSING (with compensation to CANCELLED)
         step("updateStatusProcessing", StepOptions.<PaymentStepState, Void>builder()
-            .action(s -> {
-                updatePaymentStatus(s.getPaymentId(), PaymentStatus.PROCESSING);
-                return null;
-            })
-            .compensation(s -> updatePaymentStatus(s.getPaymentId(), PaymentStatus.CANCELLED))
+            .action(this::updateStatusToProcessing)
+            .compensation(this::updateStatusToCancelled)
             .build());
 
         // Step 2: Book risk (with compensation)
         // Records riskType and riskDecision in state
         // DECLINED → throws RiskDeclinedException (TERMINAL)
-        // PENDING → step completes, then we wait for approval
+        // PENDING → creates pending_approval record, then we wait for approval
         // APPROVED → continues to next step
         step("bookRisk", StepOptions.<PaymentStepState, String>builder()
-            .action(s -> {
-                RiskBehavior riskBehavior = s.getBehavior() != null
-                    ? s.getBehavior().bookRisk()
-                    : RiskBehavior.defaults();
-
-                // Assess risk and record result
-                double roll = random.nextDouble() * 100;
-                RiskBehavior.RiskAssessmentResult result = riskBehavior.assess(roll);
-
-                s.setRiskType(result.type().name());
-                s.setRiskDecision(result.decision().name());
-
-                log.info("Risk assessment for payment {}: type={}, decision={}",
-                    s.getPaymentId(), result.type(), result.decision());
-
-                if (result.isDeclined()) {
-                    // DECLINED - update payment and throw terminal exception
-                    log.info("Risk check DECLINED for payment {} - setting status to FAILED",
-                        s.getPaymentId());
-                    updatePaymentStatus(s.getPaymentId(), PaymentStatus.FAILED);
-                    throw new RiskDeclinedException(
-                        "Risk assessment declined for payment " + s.getPaymentId());
-                }
-
-                // For APPROVED or PENDING, execute the risk booking
-                return executeRiskBooking(s);
-            })
+            .action(this::executeBookRisk)
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(1))
             .compensation(this::releaseRiskBooking)
@@ -232,10 +211,7 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
 
         // Step 5: Update payment status to COMPLETE
         step("updateStatusComplete", StepOptions.<PaymentStepState, Void>builder()
-            .action(s -> {
-                updatePaymentStatus(s.getPaymentId(), PaymentStatus.COMPLETE);
-                return null;
-            })
+            .action(this::updateStatusToComplete)
             .build());
 
         log.info("Payment {} completed successfully with all L1-L4 confirmations", state.getPaymentId());
@@ -244,8 +220,71 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
     // ========== Step Implementations ==========
 
     /**
+     * Update payment status to PROCESSING.
+     */
+    private Void updateStatusToProcessing(PaymentStepState state) {
+        updatePaymentStatus(state.getPaymentId(), PaymentStatus.PROCESSING);
+        return null;
+    }
+
+    /**
+     * Update payment status to CANCELLED (compensation).
+     */
+    private void updateStatusToCancelled(PaymentStepState state) {
+        updatePaymentStatus(state.getPaymentId(), PaymentStatus.CANCELLED);
+    }
+
+    /**
+     * Update payment status to COMPLETE.
+     */
+    private Void updateStatusToComplete(PaymentStepState state) {
+        updatePaymentStatus(state.getPaymentId(), PaymentStatus.COMPLETE);
+        return null;
+    }
+
+    /**
+     * Execute risk booking with assessment.
+     * Records riskType and riskDecision in state.
+     * DECLINED → throws RiskDeclinedException (TERMINAL)
+     * PENDING → creates pending_approval record for UI
+     * APPROVED → returns risk reference
+     */
+    private String executeBookRisk(PaymentStepState state) {
+        RiskBehavior riskBehavior = state.getBehavior() != null
+            ? state.getBehavior().bookRisk()
+            : RiskBehavior.defaults();
+
+        // Assess risk and record result
+        double roll = random.nextDouble() * 100;
+        RiskBehavior.RiskAssessmentResult result = riskBehavior.assess(roll);
+
+        state.setRiskType(result.type().name());
+        state.setRiskDecision(result.decision().name());
+
+        log.info("Risk assessment for payment {}: type={}, decision={}",
+            state.getPaymentId(), result.type(), result.decision());
+
+        if (result.isDeclined()) {
+            // DECLINED - update payment and throw terminal exception
+            log.info("Risk check DECLINED for payment {} - setting status to FAILED",
+                state.getPaymentId());
+            updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
+            throw new RiskDeclinedException(
+                "Risk assessment declined for payment " + state.getPaymentId());
+        }
+
+        // For PENDING, create pending approval record for UI
+        if (result.isPending()) {
+            createPendingApproval(state);
+        }
+
+        // For APPROVED or PENDING, execute the risk booking
+        return executeRiskBooking(state);
+    }
+
+    /**
      * Execute risk booking for the payment.
-     * Risk type and decision are already set by the step action.
+     * Risk type and decision are already set by executeBookRisk.
      */
     private String executeRiskBooking(PaymentStepState state) {
         log.debug("Executing risk booking for payment {} (type={}, decision={})",
@@ -342,6 +381,37 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
         log.info("Payment {} status updated to {}", paymentId, status);
     }
 
+    // ========== Pending Approval Management ==========
+
+    /**
+     * Create a pending approval record for the manual review queue.
+     * Called when risk decision is PENDING.
+     */
+    private void createPendingApproval(PaymentStepState state) {
+        UUID processId = getCurrentProcessId();
+        UUID paymentId = state.getPaymentId();
+
+        // Fetch payment details for display in approval queue
+        Payment payment = paymentRepository.findById(paymentId, jdbcTemplate)
+            .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+
+        PendingApproval approval = PendingApproval.create(
+            paymentId,
+            processId,
+            processId,  // correlationId - use processId for PROCESS_STEP model
+            UUID.randomUUID(),  // commandId - generate new one since no command
+            payment.debitAmount(),
+            payment.debitCurrency().name(),
+            payment.debitAccount().transit() + "-" + payment.debitAccount().accountNumber(),
+            payment.creditAccount().bic() + "/" + payment.creditAccount().iban(),
+            "PROCESS_STEP"
+        );
+
+        pendingApprovalRepository.save(approval);
+        log.info("Created pending approval {} for payment {} (process {})",
+            approval.id(), paymentId, processId);
+    }
+
     // ========== Risk Approval Resolution ==========
 
     /**
@@ -353,6 +423,16 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
      */
     public void resolveRiskApproval(UUID processId, boolean approved) {
         log.info("Resolving risk approval for process {}: approved={}", processId, approved);
+
+        // Update the pending_approval record
+        pendingApprovalRepository.findByProcessId(processId).ifPresent(approval -> {
+            PendingApproval.ApprovalStatus status = approved
+                ? PendingApproval.ApprovalStatus.APPROVED
+                : PendingApproval.ApprovalStatus.REJECTED;
+            PendingApproval resolved = approval.withResolution(status, "system", null);
+            pendingApprovalRepository.update(resolved);
+            log.info("Updated pending approval {} to {} for process {}", approval.id(), status, processId);
+        });
 
         processAsyncResponse(processId, state -> {
             if (approved) {

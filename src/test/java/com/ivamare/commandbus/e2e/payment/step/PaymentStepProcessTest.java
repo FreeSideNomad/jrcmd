@@ -2,6 +2,7 @@ package com.ivamare.commandbus.e2e.payment.step;
 
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
+import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
@@ -45,6 +46,9 @@ class PaymentStepProcessTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private PendingApprovalRepository pendingApprovalRepository;
+
     private PaymentStepProcess paymentProcess;
 
     @BeforeEach
@@ -66,7 +70,8 @@ class PaymentStepProcessTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate,
+            paymentRepository, pendingApprovalRepository);
     }
 
     @Test
@@ -433,7 +438,7 @@ class PaymentStepProcessTest {
     void riskDeclinedExceptionShouldBeClassifiedAsTerminal() {
         // Create process with mocks
         PaymentStepProcess process = new PaymentStepProcess(
-            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);
 
         // Verify exception classification
         ExceptionType type = invokeClassifyException(process, new RiskDeclinedException("Test"));
@@ -444,7 +449,7 @@ class PaymentStepProcessTest {
     @DisplayName("StepBusinessRuleException should still be classified as BUSINESS")
     void stepBusinessRuleExceptionShouldStillBeClassifiedAsBusiness() {
         PaymentStepProcess process = new PaymentStepProcess(
-            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);
 
         ExceptionType type = invokeClassifyException(process, new com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException("Test"));
         assertEquals(ExceptionType.BUSINESS, type);

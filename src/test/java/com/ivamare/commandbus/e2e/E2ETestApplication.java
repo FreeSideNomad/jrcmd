@@ -2,6 +2,7 @@ package com.ivamare.commandbus.e2e;
 
 import com.ivamare.commandbus.e2e.payment.PaymentProcessManager;
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
+import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
 import com.ivamare.commandbus.e2e.payment.step.StepPaymentNetworkSimulator;
 import com.ivamare.commandbus.pgmq.PgmqClient;
@@ -115,9 +116,11 @@ public class E2ETestApplication {
             ProcessRepository processRepository,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            PendingApprovalRepository pendingApprovalRepository) {
         log.info("Creating PaymentStepProcess for step-based payments workflow");
-        return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate, paymentRepository);
+        return new PaymentStepProcess(processRepository, jdbcTemplate, transactionTemplate,
+            paymentRepository, pendingApprovalRepository);
     }
 
     /**
