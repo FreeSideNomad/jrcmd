@@ -985,11 +985,11 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                     try {
                         compensation.accept(state);
                         // Log successful compensation to audit trail
-                        logCompensation(processId, step.name(), compStartedAt, true);
+                        logCompensation(processId, step.name(), compStartedAt, true, null);
                     } catch (Exception e) {
                         log.warn("Compensation for step {} failed: {}", step.name(), e.getMessage());
-                        // Log failed compensation to audit trail
-                        logCompensation(processId, step.name(), compStartedAt, false);
+                        // Log failed compensation to audit trail with exception details
+                        logCompensation(processId, step.name(), compStartedAt, false, e);
                         // Continue with other compensations
                     }
                 }
@@ -1238,8 +1238,29 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     /**
      * Log a compensation execution.
      */
-    protected void logCompensation(UUID processId, String stepName, Instant startedAt, boolean success) {
+    protected void logCompensation(UUID processId, String stepName, Instant startedAt, boolean success, Exception error) {
+        Map<String, Object> responseData;
+        if (success || error == null) {
+            responseData = Map.of();
+        } else {
+            responseData = Map.of(
+                "errorMessage", error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName(),
+                "errorLocation", getExceptionLocation(error)
+            );
+        }
         logStepAudit(processId, stepName, "COMPENSATION", startedAt,
-            success ? ReplyOutcome.SUCCESS : ReplyOutcome.FAILED, Map.of());
+            success ? ReplyOutcome.SUCCESS : ReplyOutcome.FAILED, responseData);
+    }
+
+    /**
+     * Get the location (class:line) where an exception occurred.
+     */
+    private String getExceptionLocation(Exception e) {
+        StackTraceElement[] stackTrace = e.getStackTrace();
+        if (stackTrace != null && stackTrace.length > 0) {
+            StackTraceElement element = stackTrace[0];
+            return element.getClassName() + ":" + element.getLineNumber();
+        }
+        return "unknown";
     }
 }

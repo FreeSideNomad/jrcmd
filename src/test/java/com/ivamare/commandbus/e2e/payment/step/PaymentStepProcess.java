@@ -446,6 +446,62 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
         });
     }
 
+    // ========== Network Response Resolution ==========
+
+    /**
+     * Resolve a network response (L1-L4) from the UI.
+     * Called when an operator manually approves or rejects a network confirmation.
+     *
+     * @param processId The process ID waiting for network response
+     * @param level The confirmation level (1-4)
+     * @param success True if approved, false if rejected
+     * @param reason Rejection reason (only used if success=false)
+     */
+    public void resolveNetworkResponse(UUID processId, int level, boolean success, String reason) {
+        log.info("Resolving L{} network response for process {}: success={}", level, processId, success);
+
+        processAsyncResponse(processId, state -> {
+            String reference = success ? "MANUAL-" + UUID.randomUUID().toString().substring(0, 8) : null;
+            String errorCode = success ? null : "OPERATOR_REJECTED";
+            String errorMessage = success ? null : reason;
+
+            switch (level) {
+                case 1 -> {
+                    if (success) {
+                        state.recordL1Success(reference);
+                    } else {
+                        state.recordL1Error(errorCode, errorMessage);
+                    }
+                }
+                case 2 -> {
+                    if (success) {
+                        state.recordL2Success(reference);
+                    } else {
+                        state.recordL2Error(errorCode, errorMessage);
+                    }
+                }
+                case 3 -> {
+                    if (success) {
+                        state.recordL3Success(reference);
+                    } else {
+                        state.recordL3Error(errorCode, errorMessage);
+                    }
+                }
+                case 4 -> {
+                    if (success) {
+                        state.recordL4Success(reference);
+                    } else {
+                        state.recordL4Error(errorCode, errorMessage);
+                    }
+                }
+                default -> log.warn("Unknown level {} for process {}", level, processId);
+            }
+
+            log.info("L{} {} for process {} (payment {})",
+                level, success ? "approved" : "rejected", processId, state.getPaymentId());
+        });
+    }
+
     // ========== TSQ Callbacks ==========
 
     /**
