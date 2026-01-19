@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.ivamare.commandbus.model.ReplyOutcome;
+import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
 import com.ivamare.commandbus.process.step.exceptions.*;
@@ -15,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -251,6 +254,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             // Load current state
             TState state = loadState(processId);
 
+            // Get current wait name before state update
+            String currentWait = getCurrentWait(processId);
+
             // Apply the state update
             stateUpdater.accept(state);
 
@@ -259,6 +265,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
 
             // Check if we should resume (wait condition may now be satisfied)
             ProcessStatus currentStatus = getProcessStatus(processId);
+
+            // Log async response for audit trail
+            logAsyncResponse(processId, currentWait, Instant.now());
 
             // Only resume if waiting for async
             if (currentStatus == ProcessStatus.WAITING_FOR_ASYNC) {
@@ -278,6 +287,14 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         String sql = "SELECT status FROM commandbus.process WHERE domain = ? AND process_id = ?";
         String statusStr = jdbcTemplate.queryForObject(sql, String.class, getDomain(), processId);
         return ProcessStatus.valueOf(statusStr);
+    }
+
+    /**
+     * Get the current wait name for a process.
+     */
+    protected String getCurrentWait(UUID processId) {
+        String sql = "SELECT current_wait FROM commandbus.process WHERE domain = ? AND process_id = ?";
+        return jdbcTemplate.queryForObject(sql, String.class, getDomain(), processId);
     }
 
     /**
@@ -623,6 +640,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             jdbcTemplate
         );
 
+        // Log wait started for audit trail
+        logWaitStarted(ctx.processId(), name, Instant.now(), effectiveTimeout, timeoutAt);
+
         log.debug("Process {} waiting at {} (timeout={})", ctx.processId(), name, effectiveTimeout);
         throw new WaitConditionNotMetException(name);
     }
@@ -941,5 +961,60 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize side effect", e);
         }
+    }
+
+    // ========== Audit Logging ==========
+
+    /**
+     * Log a step to the audit trail.
+     *
+     * @param processId Process ID
+     * @param stepName Step name
+     * @param commandType Type of step operation (STEP_EXECUTE, WAIT_STARTED, ASYNC_RESPONSE, etc.)
+     * @param startedAt When the step started
+     * @param outcome The outcome (SUCCESS, FAILED)
+     * @param responseData Response data (may be null)
+     */
+    protected void logStepAudit(UUID processId, String stepName, String commandType,
+                                 Instant startedAt, ReplyOutcome outcome, Map<String, Object> responseData) {
+        ProcessAuditEntry entry = new ProcessAuditEntry(
+            stepName,
+            UUID.randomUUID(),  // Synthetic command ID
+            commandType,
+            Map.of(),  // No command data for inline steps
+            startedAt,
+            outcome,
+            responseData != null ? responseData : Map.of(),
+            Instant.now()
+        );
+        processRepo.logStep(getDomain(), processId, entry, jdbcTemplate);
+    }
+
+    /**
+     * Log when a process enters a wait state.
+     *
+     * @param processId Process ID
+     * @param waitName Wait name
+     * @param recordedAt When the wait started
+     * @param timeout Timeout duration
+     * @param timeoutAt When the wait will timeout
+     */
+    protected void logWaitStarted(UUID processId, String waitName, Instant recordedAt, Duration timeout, Instant timeoutAt) {
+        Map<String, Object> responseData = new HashMap<>();
+        responseData.put("timeout", timeout.toString());
+        responseData.put("timeoutAt", timeoutAt.toString());
+        logStepAudit(processId, waitName, "WAIT_STARTED", recordedAt, ReplyOutcome.SUCCESS, responseData);
+    }
+
+    /**
+     * Log an async response received.
+     *
+     * @param processId Process ID
+     * @param waitName Current wait name (may be null)
+     * @param recordedAt When the response was received
+     */
+    protected void logAsyncResponse(UUID processId, String waitName, Instant recordedAt) {
+        logStepAudit(processId, waitName != null ? waitName : "async_response", "ASYNC_RESPONSE", recordedAt,
+            ReplyOutcome.SUCCESS, Map.of());
     }
 }
