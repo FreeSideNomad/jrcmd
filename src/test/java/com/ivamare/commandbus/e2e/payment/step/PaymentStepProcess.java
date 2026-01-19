@@ -154,18 +154,20 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             .build());
 
         // Wait for risk approval if decision was PENDING
-        if (state.isRiskPending()) {
+        // Check both current state AND if we previously entered this wait (for replay after state mutation)
+        if (state.isRiskPending() || state.findWait("awaitRiskApproval").isPresent()) {
             log.info("Risk decision PENDING for payment {} - waiting for manual approval", state.getPaymentId());
-            wait("awaitRiskApproval", () -> state.getRiskApprovedAt() != null, Duration.ofMinutes(30));
+            // Use isRiskResolved() which checks riskApprovedAt OR riskDecision=="DECLINED"
+            wait("awaitRiskApproval", state::isRiskResolved, Duration.ofSeconds(30));
+        }
 
-            // After wait completes, check if approved or declined
-            if (!"APPROVED".equals(state.getRiskDecision())) {
-                log.info("Risk approval DECLINED for payment {} after manual review", state.getPaymentId());
-                updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
-                throw new RiskDeclinedException(
-                    "Risk approval declined after manual review for payment " + state.getPaymentId());
-            }
-            log.info("Risk approval APPROVED for payment {} after manual review", state.getPaymentId());
+        // Check for DECLINED risk - either from immediate decline in bookRisk,
+        // or from manual decline after PENDING approval.
+        // StepBusinessRuleException triggers compensations at execute level (not just step level)
+        if ("DECLINED".equals(state.getRiskDecision())) {
+            log.info("Risk DECLINED for payment {} - triggering compensation", state.getPaymentId());
+            throw new StepBusinessRuleException(
+                "Risk declined for payment " + state.getPaymentId());
         }
 
         // Step 3: Book FX if needed (with compensation)

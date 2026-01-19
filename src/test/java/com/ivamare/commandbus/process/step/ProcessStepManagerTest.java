@@ -955,12 +955,13 @@ class ProcessStepManagerTest {
 
             TestState initialState = new TestState();
             // Should not throw - error is caught and process moved to TSQ
+            // RuntimeException is classified as PERMANENT by default
             manager.start(initialState, StartOptions.builder().executeImmediately(true).build());
 
             verify(processRepo).updateStateAtomicStep(
                 anyString(), any(UUID.class), any(),
                 any(), eq("WAITING_FOR_TSQ"),
-                eq("UNEXPECTED_ERROR"), anyString(), any(), any(), any(),
+                eq("PERMANENT_ERROR"), anyString(), any(), any(), any(),
                 any(JdbcTemplate.class)
             );
         }

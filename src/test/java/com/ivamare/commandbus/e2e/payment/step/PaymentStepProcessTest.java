@@ -3,6 +3,7 @@ package com.ivamare.commandbus.e2e.payment.step;
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
 import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
+import com.ivamare.commandbus.e2e.payment.PendingNetworkResponseRepository;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
@@ -48,6 +49,9 @@ class PaymentStepProcessTest {
 
     @Mock
     private PendingApprovalRepository pendingApprovalRepository;
+
+    @Mock
+    private PendingNetworkResponseRepository pendingNetworkResponseRepository;
 
     private PaymentStepProcess paymentProcess;
 
@@ -245,7 +249,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Use fast path behavior (zero delays)
         PaymentStepBehavior behavior = PaymentStepBehavior.fastPathBehavior();
@@ -283,7 +287,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Configure L1 to always fail
         PaymentStepBehavior behavior = PaymentStepBehavior.builder()
@@ -342,7 +346,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Use small delays to test chaining
         PaymentStepBehavior behavior = PaymentStepBehavior.builder()
@@ -385,7 +389,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Manually trigger L3 approval
         simulator.sendApprovedResponse(processId, 3);
@@ -412,7 +416,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Manually trigger L3 rejection
         simulator.sendRejectedResponse(processId, 3);

@@ -166,8 +166,8 @@ CREATE TABLE IF NOT EXISTS e2e.pending_approval (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_id UUID NOT NULL,
     process_id UUID NOT NULL,
-    correlation_id UUID NOT NULL,  -- For routing reply back to process
-    command_id UUID NOT NULL,       -- Original command ID for reply
+    correlation_id UUID,            -- For routing reply back to process (nullable for PROCESS_STEP)
+    command_id UUID,                -- Original command ID for reply (nullable for PROCESS_STEP)
 
     -- Payment details for display
     amount DECIMAL(18, 2) NOT NULL,
@@ -220,8 +220,8 @@ CREATE TABLE IF NOT EXISTS e2e.pending_network_response (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_id UUID,                -- Optional, for display
     process_id UUID NOT NULL,
-    correlation_id UUID NOT NULL,   -- For routing reply back to process
-    command_id UUID NOT NULL,       -- Original SubmitPayment command ID
+    correlation_id UUID,            -- For routing reply back to process (nullable for PROCESS_STEP)
+    command_id UUID,                -- Original SubmitPayment command ID (nullable for PROCESS_STEP)
 
     -- Network response details
     level INT NOT NULL,             -- 3 or 4 (which confirmation level)

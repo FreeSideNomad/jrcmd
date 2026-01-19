@@ -3,6 +3,7 @@ package com.ivamare.commandbus.e2e;
 import com.ivamare.commandbus.e2e.payment.PaymentProcessManager;
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
+import com.ivamare.commandbus.e2e.payment.PendingNetworkResponseRepository;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
 import com.ivamare.commandbus.e2e.payment.step.StepPaymentNetworkSimulator;
 import com.ivamare.commandbus.pgmq.PgmqClient;
@@ -128,9 +129,12 @@ public class E2ETestApplication {
      * Wires itself to PaymentStepProcess to receive trigger calls.
      */
     @Bean
-    public StepPaymentNetworkSimulator stepPaymentNetworkSimulator(PaymentStepProcess paymentStepProcess) {
+    public StepPaymentNetworkSimulator stepPaymentNetworkSimulator(
+            PaymentStepProcess paymentStepProcess,
+            PendingNetworkResponseRepository pendingNetworkResponseRepository) {
         log.info("Creating StepPaymentNetworkSimulator for step-based payment confirmations");
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(paymentStepProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(
+            paymentStepProcess, pendingNetworkResponseRepository);
         paymentStepProcess.setNetworkSimulator(simulator);
         return simulator;
     }

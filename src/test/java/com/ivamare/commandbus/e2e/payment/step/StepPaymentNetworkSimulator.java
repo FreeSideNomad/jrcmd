@@ -1,6 +1,8 @@
 package com.ivamare.commandbus.e2e.payment.step;
 
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
+import com.ivamare.commandbus.e2e.payment.PendingNetworkResponse;
+import com.ivamare.commandbus.e2e.payment.PendingNetworkResponseRepository;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,7 @@ public class StepPaymentNetworkSimulator {
     private static final Logger log = LoggerFactory.getLogger(StepPaymentNetworkSimulator.class);
 
     private final PaymentStepProcess processManager;
+    private final PendingNetworkResponseRepository pendingNetworkResponseRepository;
     private final ScheduledExecutorService scheduler;
     private final ExecutorService executor;
     private final Random random = new Random();
@@ -44,8 +47,11 @@ public class StepPaymentNetworkSimulator {
     private static final int DEFAULT_L4_DELAY_MIN = 200;
     private static final int DEFAULT_L4_DELAY_MAX = 800;
 
-    public StepPaymentNetworkSimulator(PaymentStepProcess processManager) {
+    public StepPaymentNetworkSimulator(
+            PaymentStepProcess processManager,
+            PendingNetworkResponseRepository pendingNetworkResponseRepository) {
         this.processManager = processManager;
+        this.pendingNetworkResponseRepository = pendingNetworkResponseRepository;
         this.scheduler = Executors.newScheduledThreadPool(10, r -> {
             Thread t = new Thread(r, "step-network-scheduler");
             t.setDaemon(true);
@@ -72,7 +78,13 @@ public class StepPaymentNetworkSimulator {
             PaymentStepBehavior stepBehavior) {
 
         if (stepBehavior == null) {
+            log.info("stepBehavior is NULL for process {} - using default successBehavior", processId);
             stepBehavior = PaymentStepBehavior.successBehavior();
+        } else {
+            log.info("stepBehavior for process {}: L3 pendingPct={}, L4 pendingPct={}",
+                processId,
+                stepBehavior.awaitL3() != null ? stepBehavior.awaitL3().pendingPct() : "null",
+                stepBehavior.awaitL4() != null ? stepBehavior.awaitL4().pendingPct() : "null");
         }
 
         boolean zeroDelay = isZeroDelayMode(stepBehavior);
@@ -189,6 +201,14 @@ public class StepPaymentNetworkSimulator {
      */
     private boolean sendLevelResponse(UUID processId, int level, ProbabilisticBehavior behavior) {
         try {
+            // Debug logging for L3/L4 pending behavior
+            if (level == 3 || level == 4) {
+                log.info("L{} behavior for process {}: pendingPct={}, behavior={}",
+                    level, processId,
+                    behavior != null ? behavior.pendingPct() : "null",
+                    behavior);
+            }
+
             double roll = random.nextDouble() * 100;
             double cumulative = 0;
 
@@ -220,6 +240,15 @@ public class StepPaymentNetworkSimulator {
                     log.info("Simulating timeout at L{} for process {}", level, processId);
                     return false;
                 }
+
+                // Check for pending (only for L3/L4) - requires operator approval
+                if ((level == 3 || level == 4) && behavior.pendingPct() > 0) {
+                    cumulative += behavior.pendingPct();
+                    if (roll < cumulative) {
+                        createPendingNetworkResponse(processId, level);
+                        return false;
+                    }
+                }
             }
 
             // Success
@@ -230,6 +259,27 @@ public class StepPaymentNetworkSimulator {
             log.error("Failed to send L{} response for process {}", level, processId, e);
             return false;
         }
+    }
+
+    /**
+     * Create a pending network response record for operator approval.
+     * The process will wait until operator approves/rejects via the UI.
+     */
+    private void createPendingNetworkResponse(UUID processId, int level) {
+        // For PROCESS_STEP execution model, processId is the payment ID
+        // commandId and correlationId are not used for PROCESS_STEP dispatch
+        PendingNetworkResponse pending = PendingNetworkResponse.create(
+            processId,  // paymentId
+            processId,  // processId
+            null,       // correlationId - not needed for PROCESS_STEP
+            null,       // commandId - not needed for PROCESS_STEP
+            level,
+            "PROCESS_STEP"
+        );
+
+        pendingNetworkResponseRepository.save(pending);
+        log.info("Created pending L{} network response for process {} - awaiting operator approval",
+            level, processId);
     }
 
     private void sendSuccessResponse(UUID processId, int level) {
