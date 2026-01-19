@@ -120,7 +120,7 @@ public class ProcessStepWorker {
         for (var pm : processManagers) {
             if (!"PROCESS_STEP".equals(pm.getExecutionModel())) continue;
 
-            log.debug("Polling for pending processes: domain={}, type={}, batchSize={}",
+            log.trace("Polling for pending processes: domain={}, type={}, batchSize={}",
                 pm.getDomain(), pm.getProcessType(), batchSize);
 
             try {
@@ -131,7 +131,7 @@ public class ProcessStepWorker {
                     pm.getDomain(), pm.getProcessType(), batchSize);
 
                 if (claimedProcesses.isEmpty()) {
-                    log.debug("No pending processes found for {} (type={})",
+                    log.trace("No pending processes found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
                 } else {
                     log.debug("Claimed {} pending processes for {} (type={})",
@@ -160,7 +160,7 @@ public class ProcessStepWorker {
         for (var pm : processManagers) {
             if (!"PROCESS_STEP".equals(pm.getExecutionModel())) continue;
 
-            log.debug("Polling for retry-due processes: domain={}, type={}, batchSize={}",
+            log.trace("Polling for retry-due processes: domain={}, type={}, batchSize={}",
                 pm.getDomain(), pm.getProcessType(), batchSize);
 
             try {
@@ -169,7 +169,7 @@ public class ProcessStepWorker {
                     pm.getDomain(), pm.getProcessType(), Instant.now(), batchSize);
 
                 if (claimedProcesses.isEmpty()) {
-                    log.debug("No retry-due processes found for {} (type={})",
+                    log.trace("No retry-due processes found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
                 } else {
                     log.debug("Claimed {} retry processes for {} (type={})",
@@ -195,7 +195,7 @@ public class ProcessStepWorker {
         for (var pm : processManagers) {
             if (!"PROCESS_STEP".equals(pm.getExecutionModel())) continue;
 
-            log.debug("Checking for expired wait timeouts: domain={}, type={}",
+            log.trace("Checking for expired wait timeouts: domain={}, type={}",
                 pm.getDomain(), pm.getProcessType());
 
             try {
@@ -205,7 +205,7 @@ public class ProcessStepWorker {
                     pm.getDomain(), pm.getProcessType(), now);
 
                 if (expiredProcesses.isEmpty()) {
-                    log.debug("No expired wait timeouts found for {} (type={})",
+                    log.trace("No expired wait timeouts found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
                 } else {
                     log.debug("Found {} expired waits for {} (type={}) at {}",
@@ -231,7 +231,7 @@ public class ProcessStepWorker {
         for (var pm : processManagers) {
             if (!"PROCESS_STEP".equals(pm.getExecutionModel())) continue;
 
-            log.debug("Checking for expired process deadlines: domain={}, type={}",
+            log.trace("Checking for expired process deadlines: domain={}, type={}",
                 pm.getDomain(), pm.getProcessType());
 
             try {
@@ -241,7 +241,7 @@ public class ProcessStepWorker {
                     pm.getDomain(), pm.getProcessType(), now);
 
                 if (expiredProcesses.isEmpty()) {
-                    log.debug("No expired deadlines found for {} (type={})",
+                    log.trace("No expired deadlines found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
                 } else {
                     log.debug("Found {} expired deadlines for {} (type={}) at {}",

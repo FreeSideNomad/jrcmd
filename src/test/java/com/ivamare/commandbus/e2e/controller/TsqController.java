@@ -133,7 +133,7 @@ public class TsqController {
     @PostMapping("/processes/{processId}/cancel")
     public String cancelProcess(
             @PathVariable UUID processId,
-            @RequestParam(required = false, defaultValue = "false") boolean runCompensations,
+            @RequestParam(required = false, defaultValue = "true") boolean runCompensations,
             @RequestParam(required = false) String domain,
             RedirectAttributes redirectAttributes) {
         String effectiveDomain = domain != null ? domain : this.domain;

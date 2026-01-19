@@ -14,10 +14,10 @@ import org.springframework.scheduling.annotation.Scheduled;
  * <p>This configuration enables scheduled execution of the ProcessStepWorker
  * polling methods. The worker polls for:
  * <ul>
- *   <li>PENDING processes - every 1 second</li>
- *   <li>Processes due for retry - every 5 seconds</li>
- *   <li>Expired wait timeouts - every 60 seconds</li>
- *   <li>Exceeded process deadlines - every 60 seconds</li>
+ *   <li>PENDING processes - configurable via commandbus.step-worker.poll-pending-ms (default: 1000ms)</li>
+ *   <li>Processes due for retry - configurable via commandbus.step-worker.poll-retries-ms (default: 5000ms)</li>
+ *   <li>Expired wait timeouts - configurable via commandbus.step-worker.check-timeouts-ms (default: 60000ms)</li>
+ *   <li>Exceeded process deadlines - configurable via commandbus.step-worker.check-deadlines-ms (default: 60000ms)</li>
  * </ul>
  *
  * <p>Only active when not in 'ui' profile (worker mode only).
@@ -37,9 +37,9 @@ public class ProcessStepWorkerScheduler {
     }
 
     /**
-     * Poll for PENDING processes every 1 second.
+     * Poll for PENDING processes.
      */
-    @Scheduled(fixedRate = 1000)
+    @Scheduled(fixedRateString = "${commandbus.step-worker.poll-pending-ms:1000}")
     public void pollPendingProcesses() {
         if (worker.isRunning()) {
             worker.pollPendingProcesses();
@@ -47,9 +47,9 @@ public class ProcessStepWorkerScheduler {
     }
 
     /**
-     * Poll for processes due for retry every 5 seconds.
+     * Poll for processes due for retry.
      */
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRateString = "${commandbus.step-worker.poll-retries-ms:5000}")
     public void pollRetries() {
         if (worker.isRunning()) {
             worker.pollRetries();
@@ -57,20 +57,20 @@ public class ProcessStepWorkerScheduler {
     }
 
     /**
-     * Check for expired wait timeouts every 60 seconds.
+     * Check for expired wait timeouts.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRateString = "${commandbus.step-worker.check-timeouts-ms:60000}")
     public void checkWaitTimeouts() {
         if (worker.isRunning()) {
-            log.debug("Checking for expired wait timeouts...");
+            log.trace("Checking for expired wait timeouts...");
             worker.checkWaitTimeouts();
         }
     }
 
     /**
-     * Check for exceeded process deadlines every 60 seconds.
+     * Check for exceeded process deadlines.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRateString = "${commandbus.step-worker.check-deadlines-ms:60000}")
     public void checkDeadlines() {
         if (worker.isRunning()) {
             worker.checkDeadlines();

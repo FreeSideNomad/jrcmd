@@ -48,12 +48,14 @@ public class PendingNetworkResponseRepository {
 
     private PendingNetworkResponse mapRow(ResultSet rs) throws SQLException {
         String paymentIdStr = rs.getString("payment_id");
+        String correlationIdStr = rs.getString("correlation_id");
+        String commandIdStr = rs.getString("command_id");
         return new PendingNetworkResponse(
             UUID.fromString(rs.getString("id")),
             paymentIdStr != null ? UUID.fromString(paymentIdStr) : null,
             UUID.fromString(rs.getString("process_id")),
-            UUID.fromString(rs.getString("correlation_id")),
-            UUID.fromString(rs.getString("command_id")),
+            correlationIdStr != null ? UUID.fromString(correlationIdStr) : null,
+            commandIdStr != null ? UUID.fromString(commandIdStr) : null,
             rs.getInt("level"),
             rs.getString("execution_model"),
             ResponseStatus.valueOf(rs.getString("status")),

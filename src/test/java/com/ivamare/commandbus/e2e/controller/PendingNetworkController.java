@@ -2,6 +2,9 @@ package com.ivamare.commandbus.e2e.controller;
 
 import com.ivamare.commandbus.e2e.payment.*;
 import com.ivamare.commandbus.e2e.payment.PendingNetworkResponse.ResponseStatus;
+import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -16,21 +19,32 @@ import java.util.UUID;
  *
  * <p>Displays L3/L4 network confirmations requiring operator intervention
  * and allows operators to approve (send success) or reject (send failure).
+ *
+ * <p>Dispatches based on execution_model:
+ * <ul>
+ *   <li>PROCESS_STEP: calls PaymentStepProcess.resolveNetworkResponse()</li>
+ *   <li>STEP_BASED (default): sends PGMQ reply via networkSimulator</li>
+ * </ul>
  */
 @Controller
 @RequestMapping("/pending-network")
 public class PendingNetworkController {
 
+    private static final Logger log = LoggerFactory.getLogger(PendingNetworkController.class);
+
     private final PendingNetworkResponseRepository pendingNetworkResponseRepository;
     private final PaymentNetworkSimulator networkSimulator;
+    private final PaymentStepProcess paymentStepProcess;
     private final String domain;
 
     public PendingNetworkController(
             PendingNetworkResponseRepository pendingNetworkResponseRepository,
             PaymentNetworkSimulator networkSimulator,
+            PaymentStepProcess paymentStepProcess,
             @Value("${commandbus.domain:payments}") String domain) {
         this.pendingNetworkResponseRepository = pendingNetworkResponseRepository;
         this.networkSimulator = networkSimulator;
+        this.paymentStepProcess = paymentStepProcess;
         this.domain = domain;
     }
 
@@ -79,12 +93,19 @@ public class PendingNetworkController {
             PendingNetworkResponse resolved = response.withResolution(ResponseStatus.SUCCESS, "operator", notes);
             pendingNetworkResponseRepository.update(resolved);
 
-            // Send success reply to process
-            networkSimulator.sendApprovedReply(response.commandId(), response.correlationId(), response.level());
+            // Dispatch based on execution model
+            if (response.isProcessStepModel()) {
+                log.info("Resolving L{} for PROCESS_STEP process {}", response.level(), response.processId());
+                paymentStepProcess.resolveNetworkResponse(response.processId(), response.level(), true, null);
+            } else {
+                // STEP_BASED: send PGMQ reply
+                networkSimulator.sendApprovedReply(response.commandId(), response.correlationId(), response.level());
+            }
 
             redirectAttributes.addFlashAttribute("success",
                 String.format("L%d response approved for process %s", response.level(), abbreviate(response.processId())));
         } catch (Exception e) {
+            log.error("Failed to approve L{} response: {}", id, e.getMessage(), e);
             redirectAttributes.addFlashAttribute("error", "Failed to approve: " + e.getMessage());
         }
         return "redirect:/pending-network";
@@ -108,12 +129,19 @@ public class PendingNetworkController {
             PendingNetworkResponse resolved = response.withResolution(ResponseStatus.FAILED, "operator", reason);
             pendingNetworkResponseRepository.update(resolved);
 
-            // Send failure reply to process (will trigger compensation)
-            networkSimulator.sendRejectedReply(response.commandId(), response.correlationId(), response.level());
+            // Dispatch based on execution model
+            if (response.isProcessStepModel()) {
+                log.info("Rejecting L{} for PROCESS_STEP process {}", response.level(), response.processId());
+                paymentStepProcess.resolveNetworkResponse(response.processId(), response.level(), false, reason);
+            } else {
+                // STEP_BASED: send PGMQ reply (will trigger compensation)
+                networkSimulator.sendRejectedReply(response.commandId(), response.correlationId(), response.level());
+            }
 
             redirectAttributes.addFlashAttribute("success",
                 String.format("L%d response rejected for process %s", response.level(), abbreviate(response.processId())));
         } catch (Exception e) {
+            log.error("Failed to reject L{} response: {}", id, e.getMessage(), e);
             redirectAttributes.addFlashAttribute("error", "Failed to reject: " + e.getMessage());
         }
         return "redirect:/pending-network";
@@ -135,13 +163,20 @@ public class PendingNetworkController {
             for (PendingNetworkResponse response : responses) {
                 PendingNetworkResponse resolved = response.withResolution(ResponseStatus.SUCCESS, "operator", "Bulk approved");
                 pendingNetworkResponseRepository.update(resolved);
-                networkSimulator.sendApprovedReply(response.commandId(), response.correlationId(), response.level());
+
+                // Dispatch based on execution model
+                if (response.isProcessStepModel()) {
+                    paymentStepProcess.resolveNetworkResponse(response.processId(), response.level(), true, null);
+                } else {
+                    networkSimulator.sendApprovedReply(response.commandId(), response.correlationId(), response.level());
+                }
                 count++;
             }
 
             redirectAttributes.addFlashAttribute("success",
                 String.format("Approved %d response(s)", count));
         } catch (Exception e) {
+            log.error("Failed to approve all: {}", e.getMessage(), e);
             redirectAttributes.addFlashAttribute("error", "Failed to approve all: " + e.getMessage());
         }
         return "redirect:/pending-network";
@@ -164,13 +199,20 @@ public class PendingNetworkController {
             for (PendingNetworkResponse response : responses) {
                 PendingNetworkResponse resolved = response.withResolution(ResponseStatus.FAILED, "operator", reason);
                 pendingNetworkResponseRepository.update(resolved);
-                networkSimulator.sendRejectedReply(response.commandId(), response.correlationId(), response.level());
+
+                // Dispatch based on execution model
+                if (response.isProcessStepModel()) {
+                    paymentStepProcess.resolveNetworkResponse(response.processId(), response.level(), false, reason);
+                } else {
+                    networkSimulator.sendRejectedReply(response.commandId(), response.correlationId(), response.level());
+                }
                 count++;
             }
 
             redirectAttributes.addFlashAttribute("success",
                 String.format("Rejected %d response(s)", count));
         } catch (Exception e) {
+            log.error("Failed to reject all: {}", e.getMessage(), e);
             redirectAttributes.addFlashAttribute("error", "Failed to reject all: " + e.getMessage());
         }
         return "redirect:/pending-network";

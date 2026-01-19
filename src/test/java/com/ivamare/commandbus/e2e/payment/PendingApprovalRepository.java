@@ -50,12 +50,14 @@ public class PendingApprovalRepository {
     private final RowMapper<PendingApproval> rowMapper = (rs, rowNum) -> mapRow(rs);
 
     private PendingApproval mapRow(ResultSet rs) throws SQLException {
+        String correlationIdStr = rs.getString("correlation_id");
+        String commandIdStr = rs.getString("command_id");
         return new PendingApproval(
             UUID.fromString(rs.getString("id")),
             UUID.fromString(rs.getString("payment_id")),
             UUID.fromString(rs.getString("process_id")),
-            UUID.fromString(rs.getString("correlation_id")),
-            UUID.fromString(rs.getString("command_id")),
+            correlationIdStr != null ? UUID.fromString(correlationIdStr) : null,
+            commandIdStr != null ? UUID.fromString(commandIdStr) : null,
             rs.getBigDecimal("amount"),
             rs.getString("currency"),
             rs.getString("debit_account"),

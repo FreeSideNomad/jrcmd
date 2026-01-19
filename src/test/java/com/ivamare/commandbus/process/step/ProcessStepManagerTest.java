@@ -955,12 +955,13 @@ class ProcessStepManagerTest {
 
             TestState initialState = new TestState();
             // Should not throw - error is caught and process moved to TSQ
+            // RuntimeException is classified as PERMANENT by default
             manager.start(initialState, StartOptions.builder().executeImmediately(true).build());
 
             verify(processRepo).updateStateAtomicStep(
                 anyString(), any(UUID.class), any(),
                 any(), eq("WAITING_FOR_TSQ"),
-                eq("UNEXPECTED_ERROR"), anyString(), any(), any(), any(),
+                eq("PERMANENT_ERROR"), anyString(), any(), any(), any(),
                 any(JdbcTemplate.class)
             );
         }
@@ -1178,6 +1179,175 @@ class ProcessStepManagerTest {
         }
     }
 
+    @Nested
+    @DisplayName("Audit Logging")
+    class AuditLogging {
+
+        @Test
+        @DisplayName("logStepSuccess should handle null responseJson")
+        void logStepSuccessWithNullResponse() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepSuccess(processId, "testStep", Instant.now(), null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logStepSuccess should handle non-null responseJson")
+        void logStepSuccessWithResponse() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepSuccess(processId, "testStep", Instant.now(), "{\"result\":\"ok\"}");
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logStepFailure should handle null errorMessage")
+        void logStepFailureWithNullMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepFailure(processId, "testStep", Instant.now(), "ERROR_CODE", null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logStepFailure should handle non-null errorMessage")
+        void logStepFailureWithMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepFailure(processId, "testStep", Instant.now(), "ERROR_CODE", "Error message");
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logStepRetry should handle null errorMessage")
+        void logStepRetryWithNullMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepRetry(processId, "testStep", Instant.now(), 1, Instant.now().plusSeconds(60), null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logStepRetry should handle non-null errorMessage")
+        void logStepRetryWithMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogStepRetry(processId, "testStep", Instant.now(), 1, Instant.now().plusSeconds(60), "Retry reason");
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompensation should handle success")
+        void logCompensationSuccess() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogCompensation(processId, "testStep", Instant.now(), true, null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompensation should handle failure with error")
+        void logCompensationFailureWithError() {
+            UUID processId = UUID.randomUUID();
+            Exception error = new RuntimeException("Compensation failed");
+            manager.testLogCompensation(processId, "testStep", Instant.now(), false, error);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompensation should handle failure with null message exception")
+        void logCompensationFailureWithNullMessageException() {
+            UUID processId = UUID.randomUUID();
+            Exception error = new RuntimeException((String) null);
+            manager.testLogCompensation(processId, "testStep", Instant.now(), false, error);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logAsyncResponse should handle null waitName")
+        void logAsyncResponseWithNullWaitName() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogAsyncResponse(processId, null, Instant.now());
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logAsyncResponse should handle non-null waitName")
+        void logAsyncResponseWithWaitName() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogAsyncResponse(processId, "waitForApproval", Instant.now());
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logWaitTimeout should handle null errorMessage")
+        void logWaitTimeoutWithNullMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogWaitTimeout(processId, "testWait", Instant.now(), null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logWaitTimeout should handle non-null errorMessage")
+        void logWaitTimeoutWithMessage() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogWaitTimeout(processId, "testWait", Instant.now(), "Wait timed out");
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompleteOverride should handle null stateOverrides")
+        void logCompleteOverrideWithNullOverrides() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogCompleteOverride(processId, Instant.now(), null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompleteOverride should handle empty stateOverrides")
+        void logCompleteOverrideWithEmptyOverrides() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogCompleteOverride(processId, Instant.now(), Map.of());
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCompleteOverride should handle non-empty stateOverrides")
+        void logCompleteOverrideWithOverrides() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogCompleteOverride(processId, Instant.now(), Map.of("key", "value"));
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logMoveToTsq should handle all null values")
+        void logMoveToTsqWithNulls() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogMoveToTsq(processId, Instant.now(), null, null, null);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logMoveToTsq should handle all non-null values")
+        void logMoveToTsqWithValues() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogMoveToTsq(processId, Instant.now(), "timeout", "TIMEOUT", "Wait timed out");
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logWaitStarted should log with timeout info")
+        void logWaitStarted() {
+            UUID processId = UUID.randomUUID();
+            Instant now = Instant.now();
+            Duration timeout = Duration.ofMinutes(5);
+            manager.testLogWaitStarted(processId, "testWait", now, timeout, now.plus(timeout));
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+
+        @Test
+        @DisplayName("logCancelOverride should log with runCompensations flag")
+        void logCancelOverride() {
+            UUID processId = UUID.randomUUID();
+            manager.testLogCancelOverride(processId, Instant.now(), true);
+            verify(processRepo).logStep(eq("test-domain"), eq(processId), any(), any());
+        }
+    }
+
     // ========== Test Implementations ==========
 
     /**
@@ -1277,6 +1447,47 @@ class ProcessStepManagerTest {
             return deserializeResult(json, StepOptions.<TestState, Object>builder()
                 .action(s -> null)
                 .build());
+        }
+
+        // Test accessors for audit logging methods
+        public void testLogStepSuccess(UUID processId, String stepName, Instant startedAt, String responseJson) {
+            logStepSuccess(processId, stepName, startedAt, responseJson);
+        }
+
+        public void testLogStepFailure(UUID processId, String stepName, Instant startedAt, String errorCode, String errorMessage) {
+            logStepFailure(processId, stepName, startedAt, errorCode, errorMessage);
+        }
+
+        public void testLogStepRetry(UUID processId, String stepName, Instant startedAt, int attemptCount, Instant nextRetryAt, String errorMessage) {
+            logStepRetry(processId, stepName, startedAt, attemptCount, nextRetryAt, errorMessage);
+        }
+
+        public void testLogCompensation(UUID processId, String stepName, Instant startedAt, boolean success, Exception error) {
+            logCompensation(processId, stepName, startedAt, success, error);
+        }
+
+        public void testLogAsyncResponse(UUID processId, String waitName, Instant recordedAt) {
+            logAsyncResponse(processId, waitName, recordedAt);
+        }
+
+        public void testLogWaitStarted(UUID processId, String waitName, Instant recordedAt, Duration timeout, Instant timeoutAt) {
+            logWaitStarted(processId, waitName, recordedAt, timeout, timeoutAt);
+        }
+
+        public void testLogWaitTimeout(UUID processId, String waitName, Instant recordedAt, String errorMessage) {
+            logWaitTimeout(processId, waitName, recordedAt, errorMessage);
+        }
+
+        public void testLogCompleteOverride(UUID processId, Instant recordedAt, Map<String, Object> stateOverrides) {
+            logCompleteOverride(processId, recordedAt, stateOverrides);
+        }
+
+        public void testLogCancelOverride(UUID processId, Instant recordedAt, boolean runCompensations) {
+            logCancelOverride(processId, recordedAt, runCompensations);
+        }
+
+        public void testLogMoveToTsq(UUID processId, Instant recordedAt, String reason, String errorCode, String errorMessage) {
+            logMoveToTsq(processId, recordedAt, reason, errorCode, errorMessage);
         }
     }
 

@@ -2,6 +2,8 @@ package com.ivamare.commandbus.e2e.payment.step;
 
 import com.ivamare.commandbus.e2e.payment.PaymentRepository;
 import com.ivamare.commandbus.e2e.payment.PaymentStepBehavior;
+import com.ivamare.commandbus.e2e.payment.PendingApprovalRepository;
+import com.ivamare.commandbus.e2e.payment.PendingNetworkResponseRepository;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
@@ -45,6 +47,12 @@ class PaymentStepProcessTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private PendingApprovalRepository pendingApprovalRepository;
+
+    @Mock
+    private PendingNetworkResponseRepository pendingNetworkResponseRepository;
+
     private PaymentStepProcess paymentProcess;
 
     @BeforeEach
@@ -66,7 +74,8 @@ class PaymentStepProcessTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+        paymentProcess = new PaymentStepProcess(processRepo, jdbcTemplate, transactionTemplate,
+            paymentRepository, pendingApprovalRepository);
     }
 
     @Test
@@ -151,12 +160,12 @@ class PaymentStepProcessTest {
     @DisplayName("PaymentStepState should serialize risk info")
     void paymentStepStateShouldSerializeRiskInfo() {
         PaymentStepState state = new PaymentStepState(UUID.randomUUID());
-        state.setRiskStatus("APPROVED");
-        state.setRiskMethod("AVAILABLE_BALANCE");
+        state.setRiskDecision("APPROVED");
+        state.setRiskType("AVAILABLE_BALANCE");
         state.setRiskReference("RISK-12345");
 
-        assertEquals("APPROVED", state.getRiskStatus());
-        assertEquals("AVAILABLE_BALANCE", state.getRiskMethod());
+        assertEquals("APPROVED", state.getRiskDecision());
+        assertEquals("AVAILABLE_BALANCE", state.getRiskType());
         assertEquals("RISK-12345", state.getRiskReference());
     }
 
@@ -240,7 +249,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Use fast path behavior (zero delays)
         PaymentStepBehavior behavior = PaymentStepBehavior.fastPathBehavior();
@@ -278,7 +287,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Configure L1 to always fail
         PaymentStepBehavior behavior = PaymentStepBehavior.builder()
@@ -337,7 +346,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Use small delays to test chaining
         PaymentStepBehavior behavior = PaymentStepBehavior.builder()
@@ -380,7 +389,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Manually trigger L3 approval
         simulator.sendApprovedResponse(processId, 3);
@@ -407,7 +416,7 @@ class PaymentStepProcessTest {
             return null;
         }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
 
-        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess);
+        StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Manually trigger L3 rejection
         simulator.sendRejectedResponse(processId, 3);
@@ -433,7 +442,7 @@ class PaymentStepProcessTest {
     void riskDeclinedExceptionShouldBeClassifiedAsTerminal() {
         // Create process with mocks
         PaymentStepProcess process = new PaymentStepProcess(
-            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);
 
         // Verify exception classification
         ExceptionType type = invokeClassifyException(process, new RiskDeclinedException("Test"));
@@ -444,7 +453,7 @@ class PaymentStepProcessTest {
     @DisplayName("StepBusinessRuleException should still be classified as BUSINESS")
     void stepBusinessRuleExceptionShouldStillBeClassifiedAsBusiness() {
         PaymentStepProcess process = new PaymentStepProcess(
-            processRepo, jdbcTemplate, transactionTemplate, paymentRepository);
+            processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);
 
         ExceptionType type = invokeClassifyException(process, new com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException("Test"));
         assertEquals(ExceptionType.BUSINESS, type);

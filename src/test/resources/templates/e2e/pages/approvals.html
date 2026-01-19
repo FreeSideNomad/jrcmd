@@ -10,6 +10,9 @@
         <h2><i class="bi bi-person-check"></i> Pending Approvals</h2>
         <div>
             <span class="badge bg-warning fs-6 me-2" th:text="${totalCount + ' pending'}">0 pending</span>
+            <button type="button" class="btn btn-outline-secondary me-2" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
             <form th:action="@{/approvals/approve-all}" method="post" class="d-inline"
                   th:if="${!approvals.isEmpty()}">
                 <button type="submit" class="btn btn-success"
@@ -100,13 +103,6 @@
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
 
-        // Auto-refresh every 5 seconds if there are pending items
-        (function() {
-            const pending = [[${totalCount}]];
-            if (pending > 0) {
-                setTimeout(() => window.location.reload(), 5000);
-            }
-        })();
     </script>
 </div>
 </body>

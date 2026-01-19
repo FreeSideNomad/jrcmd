@@ -279,6 +279,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      */
     public void processAsyncResponse(UUID processId, Consumer<TState> stateUpdater) {
         transactionTemplate.executeWithoutResult(status -> {
+            // Get current wait name before loading state (for audit)
+            String currentWait = getCurrentWaitName(processId);
+
             // Load current state
             TState state = loadState(processId);
 
@@ -287,6 +290,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
 
             // Save updated state
             persistState(processId, state);
+
+            // Log the async response
+            logAsyncResponse(processId, currentWait, Instant.now());
 
             // Check if we should resume (wait condition may now be satisfied)
             ProcessStatus currentStatus = getProcessStatus(processId);
@@ -472,6 +478,26 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             TState state = loadState(processId);
 
             if (runCompensations) {
+                // Set up execution context and replay process to re-register compensations
+                // Compensations are registered during step execution/replay, so we need to
+                // replay the process to populate the context's compensation map
+                ExecutionContext<TState> ctx = new ExecutionContext<>(processId, state);
+                currentContext.set(ctx);
+                try {
+                    // Replay process - this will re-register compensations for completed steps
+                    execute(state);
+                } catch (WaitConditionNotMetException | WaitingForRetryException | StepFailedException e) {
+                    // Expected during replay of incomplete process - compensations are registered
+                    log.debug("Process {} replay stopped at expected point: {}", processId, e.getClass().getSimpleName());
+                } catch (StepBusinessRuleException e) {
+                    // Business rule exception during replay - compensations are registered
+                    log.debug("Process {} replay hit business rule: {}", processId, e.getMessage());
+                } catch (Exception e) {
+                    // Log but continue - we still want to try compensations
+                    log.warn("Process {} replay had unexpected exception: {}", processId, e.getMessage());
+                }
+
+                // Now run compensations (context has registered compensations from replay)
                 runCompensations(processId, state);
             }
 
@@ -481,6 +507,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 null, null, null, null, null,
                 jdbcTemplate
             );
+
+            // Log the cancel override
+            logCancelOverride(processId, Instant.now(), runCompensations);
 
             // Call hook for subclasses to update external state
             onProcessCanceled(processId, state);
@@ -512,6 +541,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 null, null, null, null, null,
                 jdbcTemplate
             );
+
+            // Log the complete override
+            logCompleteOverride(processId, Instant.now(), stateOverrides);
 
             // Load state after update to include any state patches
             TState state = loadState(processId);
@@ -612,6 +644,10 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         var completedStep = ctx.getCompletedStep(name);
         if (completedStep.isPresent()) {
             log.debug("Replaying completed step {} for process {}", name, ctx.processId());
+            // Register compensation even during replay - needed if exception thrown later
+            if (options.hasCompensation()) {
+                ctx.registerCompensation(name, options.compensation());
+            }
             return deserializeResult(completedStep.get().responseJson(), options);
         }
 
@@ -737,8 +773,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             // Condition met - record and continue
             ctx.recordWaitSatisfied(name);
             persistState(ctx.processId(), state);
-            // Log to audit trail
-            logWaitSatisfied(ctx.processId(), name, Instant.now());
             log.debug("Wait {} satisfied for process {}", name, ctx.processId());
             return;
         }
@@ -756,6 +790,9 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             null, null, null, timeoutAt, name,
             jdbcTemplate
         );
+
+        // Log wait started for audit trail
+        logWaitStarted(ctx.processId(), name, Instant.now(), effectiveTimeout, timeoutAt);
 
         log.debug("Process {} waiting at {} (timeout={})", ctx.processId(), name, effectiveTimeout);
         throw new WaitConditionNotMetException(name);
@@ -837,32 +874,106 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             log.debug("Process {} scheduled for retry at {}", processId, e.getNextRetryAt());
 
         } catch (StepFailedException e) {
-            // Step failed permanently - move to TSQ
-            ctx.recordError(e.getErrorCode(), e.getMessage());
+            // Step failed permanently - check if it was already compensated
+            if (e.getErrorCode() != null && e.getErrorCode().equals("BUSINESS_RULE")) {
+                // Already handled by step - status is COMPENSATED
+                log.info("Process {} compensated due to business rule: {}", processId, e.getMessage());
+            } else {
+                // Move to TSQ
+                ctx.recordError(e.getErrorCode(), e.getMessage());
+                persistState(processId, state);
+
+                processRepo.updateStateAtomicStep(
+                    getDomain(), processId, null,
+                    null, ProcessStatus.WAITING_FOR_TSQ.name(),
+                    e.getErrorCode(), e.getMessage(), null, null, null,
+                    jdbcTemplate
+                );
+
+                // Log the move to TSQ
+                logMoveToTsq(processId, Instant.now(), "step_failed", e.getErrorCode(), e.getMessage());
+
+                log.warn("Process {} step {} failed: {}", processId, e.getStepName(), e.getMessage());
+            }
+
+        } catch (StepBusinessRuleException e) {
+            // Business rule violation thrown from execute() - run compensations
+            log.info("Process {} business rule violation: {} - running compensations", processId, e.getMessage());
+
+            ctx.recordError("BUSINESS_RULE", e.getMessage());
             persistState(processId, state);
+
+            // Run compensations for all completed steps
+            runCompensations(processId, state);
 
             processRepo.updateStateAtomicStep(
                 getDomain(), processId, null,
-                null, ProcessStatus.WAITING_FOR_TSQ.name(),
-                e.getErrorCode(), e.getMessage(), null, null, null,
+                null, ProcessStatus.COMPENSATED.name(),
+                "BUSINESS_RULE", e.getMessage(), null, null, null,
                 jdbcTemplate
             );
 
-            log.warn("Process {} step {} failed: {}", processId, e.getStepName(), e.getMessage());
+            log.info("Process {} compensated successfully", processId);
 
         } catch (Exception e) {
-            // Unexpected error - move to TSQ
-            ctx.recordError("UNEXPECTED_ERROR", e.getMessage());
-            persistState(processId, state);
+            // Classify exception and handle accordingly
+            ExceptionType type = classifyException(e);
 
-            processRepo.updateStateAtomicStep(
-                getDomain(), processId, null,
-                null, ProcessStatus.WAITING_FOR_TSQ.name(),
-                "UNEXPECTED_ERROR", e.getMessage(), null, null, null,
-                jdbcTemplate
-            );
+            switch (type) {
+                case BUSINESS -> {
+                    // Business rule violation - run compensations
+                    log.info("Process {} classified as BUSINESS: {} - running compensations", processId, e.getMessage());
 
-            log.error("Process {} failed with unexpected error", processId, e);
+                    ctx.recordError("BUSINESS_RULE", e.getMessage());
+                    persistState(processId, state);
+
+                    runCompensations(processId, state);
+
+                    processRepo.updateStateAtomicStep(
+                        getDomain(), processId, null,
+                        null, ProcessStatus.COMPENSATED.name(),
+                        "BUSINESS_RULE", e.getMessage(), null, null, null,
+                        jdbcTemplate
+                    );
+
+                    log.info("Process {} compensated successfully", processId);
+                }
+
+                case TERMINAL -> {
+                    // Terminal failure - no recovery possible, no compensations
+                    log.error("Process {} terminal failure: {}", processId, e.getMessage());
+
+                    ctx.recordError("TERMINAL_FAILURE", e.getMessage());
+                    persistState(processId, state);
+
+                    processRepo.updateStateAtomicStep(
+                        getDomain(), processId, null,
+                        null, ProcessStatus.FAILED.name(),
+                        "TERMINAL_FAILURE", e.getMessage(), null, null, null,
+                        jdbcTemplate
+                    );
+                }
+
+                case PERMANENT, TRANSIENT -> {
+                    // Permanent or transient error - move to TSQ for operator review
+                    // (Transient at execute level has no retry mechanism, so TSQ)
+                    String errorCode = type == ExceptionType.PERMANENT ? "PERMANENT_ERROR" : "TRANSIENT_ERROR";
+                    log.warn("Process {} {} error: {} - moving to TSQ", processId, type, e.getMessage());
+
+                    ctx.recordError(errorCode, e.getMessage());
+                    persistState(processId, state);
+
+                    processRepo.updateStateAtomicStep(
+                        getDomain(), processId, null,
+                        null, ProcessStatus.WAITING_FOR_TSQ.name(),
+                        errorCode, e.getMessage(), null, null, null,
+                        jdbcTemplate
+                    );
+
+                    // Log the move to TSQ
+                    logMoveToTsq(processId, Instant.now(), type.name().toLowerCase() + "_error", errorCode, e.getMessage());
+                }
+            }
 
         } finally {
             currentContext.remove();
@@ -977,21 +1088,29 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             List<StepRecord> completedSteps = state.getCompletedStepsReversed();
             Map<String, Consumer<TState>> compensations = ctx.getAllCompensations();
 
+            log.info("Running compensations for process {}: completedSteps={}, registeredCompensations={}",
+                processId,
+                completedSteps.stream().map(StepRecord::name).toList(),
+                compensations.keySet());
+
             for (StepRecord step : completedSteps) {
                 Consumer<TState> compensation = compensations.get(step.name());
                 if (compensation != null) {
-                    log.debug("Running compensation for step {} in process {}", step.name(), processId);
+                    log.info("Running compensation for step {} in process {}", step.name(), processId);
                     Instant compStartedAt = Instant.now();
                     try {
                         compensation.accept(state);
                         // Log successful compensation to audit trail
-                        logCompensation(processId, step.name(), compStartedAt, true);
+                        logCompensation(processId, step.name(), compStartedAt, true, null);
+                        log.info("Compensation for step {} completed successfully", step.name());
                     } catch (Exception e) {
                         log.warn("Compensation for step {} failed: {}", step.name(), e.getMessage());
-                        // Log failed compensation to audit trail
-                        logCompensation(processId, step.name(), compStartedAt, false);
+                        // Log failed compensation to audit trail with exception details
+                        logCompensation(processId, step.name(), compStartedAt, false, e);
                         // Continue with other compensations
                     }
+                } else {
+                    log.debug("No compensation registered for step {}", step.name());
                 }
             }
 
@@ -1221,13 +1340,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     }
 
     /**
-     * Log a wait condition satisfied.
-     */
-    protected void logWaitSatisfied(UUID processId, String waitName, Instant recordedAt) {
-        logStepAudit(processId, waitName, "WAIT_SATISFIED", recordedAt, ReplyOutcome.SUCCESS, Map.of());
-    }
-
-    /**
      * Log a wait condition timeout (process moved to TSQ).
      */
     protected void logWaitTimeout(UUID processId, String waitName, Instant recordedAt, String errorMessage) {
@@ -1238,8 +1350,76 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     /**
      * Log a compensation execution.
      */
-    protected void logCompensation(UUID processId, String stepName, Instant startedAt, boolean success) {
+    protected void logCompensation(UUID processId, String stepName, Instant startedAt, boolean success, Exception error) {
+        Map<String, Object> responseData;
+        if (success || error == null) {
+            responseData = Map.of();
+        } else {
+            responseData = Map.of(
+                "errorMessage", error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName(),
+                "errorLocation", getExceptionLocation(error)
+            );
+        }
         logStepAudit(processId, stepName, "COMPENSATION", startedAt,
-            success ? ReplyOutcome.SUCCESS : ReplyOutcome.FAILED, Map.of());
+            success ? ReplyOutcome.SUCCESS : ReplyOutcome.FAILED, responseData);
+    }
+
+    /**
+     * Log an async response received.
+     */
+    protected void logAsyncResponse(UUID processId, String waitName, Instant recordedAt) {
+        logStepAudit(processId, waitName != null ? waitName : "async_response", "ASYNC_RESPONSE", recordedAt,
+            ReplyOutcome.SUCCESS, Map.of());
+    }
+
+    /**
+     * Log when a process enters a wait state.
+     */
+    protected void logWaitStarted(UUID processId, String waitName, Instant recordedAt, Duration timeout, Instant timeoutAt) {
+        Map<String, Object> responseData = new java.util.HashMap<>();
+        responseData.put("timeout", timeout.toString());
+        responseData.put("timeoutAt", timeoutAt.toString());
+        logStepAudit(processId, waitName, "WAIT_STARTED", recordedAt, ReplyOutcome.SUCCESS, responseData);
+    }
+
+    /**
+     * Log a process completed via TSQ override.
+     */
+    protected void logCompleteOverride(UUID processId, Instant recordedAt, Map<String, Object> stateOverrides) {
+        Map<String, Object> responseData = stateOverrides != null && !stateOverrides.isEmpty()
+            ? Map.of("stateOverrides", stateOverrides.toString())
+            : Map.of();
+        logStepAudit(processId, "tsq_complete", "COMPLETE_OVERRIDE", recordedAt, ReplyOutcome.SUCCESS, responseData);
+    }
+
+    /**
+     * Log a process canceled via TSQ override.
+     */
+    protected void logCancelOverride(UUID processId, Instant recordedAt, boolean runCompensations) {
+        logStepAudit(processId, "tsq_cancel", "CANCEL_OVERRIDE", recordedAt, ReplyOutcome.SUCCESS,
+            Map.of("runCompensations", runCompensations));
+    }
+
+    /**
+     * Log a process moved to TSQ.
+     */
+    protected void logMoveToTsq(UUID processId, Instant recordedAt, String reason, String errorCode, String errorMessage) {
+        Map<String, Object> responseData = new java.util.HashMap<>();
+        responseData.put("reason", reason != null ? reason : "unknown");
+        if (errorCode != null) responseData.put("errorCode", errorCode);
+        if (errorMessage != null) responseData.put("errorMessage", errorMessage);
+        logStepAudit(processId, "tsq_move", "MOVE_TO_TSQ", recordedAt, ReplyOutcome.FAILED, responseData);
+    }
+
+    /**
+     * Get the location (class:line) where an exception occurred.
+     */
+    private String getExceptionLocation(Exception e) {
+        StackTraceElement[] stackTrace = e.getStackTrace();
+        if (stackTrace != null && stackTrace.length > 0) {
+            StackTraceElement element = stackTrace[0];
+            return element.getClassName() + ":" + element.getLineNumber();
+        }
+        return "unknown";
     }
 }

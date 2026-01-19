@@ -99,12 +99,28 @@ public abstract class TestProcessStepManager<TState extends TestProcessStepState
             return super.step(name, options);
         }
 
-        // Apply probabilistic behavior BEFORE executing step
+        // Get behavior for this step
         ProbabilisticBehavior behavior = state.getBehaviorForStep(name);
-        applyProbabilisticBehavior(name, behavior);
 
-        // Execute the step normally
-        return super.step(name, options);
+        // Wrap the original action with behavior injection
+        // This ensures exceptions go through normal step exception handling (and audit logging)
+        StepOptions<TState, R> wrappedOptions = StepOptions.<TState, R>builder()
+            .action(s -> {
+                // Apply behavior INSIDE the action so exceptions are caught by handleStepException
+                applyProbabilisticBehavior(name, behavior);
+                // Then execute the original action
+                return options.action().apply(s);
+            })
+            .maxRetries(options.maxRetries())
+            .retryDelay(options.retryDelay())
+            .timeout(options.timeout())
+            .compensation(options.compensation())
+            .rateLimitKey(options.rateLimitKey())
+            .rateLimitTimeout(options.rateLimitTimeout())
+            .build();
+
+        // Execute the step with wrapped action
+        return super.step(name, wrappedOptions);
     }
 
     // ========== Behavior Application ==========
