@@ -129,6 +129,10 @@ public final class DatabaseExceptionClassifier {
         }
 
         // Check Spring's own transient classifications
+        // Note: Check subclasses before parent classes to ensure all branches are reachable
+        if (ex instanceof CannotGetJdbcConnectionException) {
+            return true;
+        }
         if (ex instanceof TransientDataAccessException) {
             return true;
         }
@@ -138,15 +142,16 @@ public final class DatabaseExceptionClassifier {
         if (ex instanceof DataAccessResourceFailureException) {
             return true;
         }
-        if (ex instanceof CannotGetJdbcConnectionException) {
-            return true;
-        }
 
         // Check JDBC transient exception types
-        if (ex instanceof SQLTransientException) {
+        // Note: Check subclasses before parent classes to ensure all branches are reachable
+        if (ex instanceof SQLTimeoutException) {
             return true;
         }
         if (ex instanceof SQLTransientConnectionException) {
+            return true;
+        }
+        if (ex instanceof SQLTransientException) {
             return true;
         }
         if (ex instanceof SQLRecoverableException) {
@@ -155,9 +160,6 @@ public final class DatabaseExceptionClassifier {
         if (ex instanceof SQLNonTransientConnectionException) {
             // Non-transient connection exceptions are actually transient from recovery perspective
             // They indicate connection is closed/broken but can be retried with a new connection
-            return true;
-        }
-        if (ex instanceof SQLTimeoutException) {
             return true;
         }
 
@@ -217,6 +219,10 @@ public final class DatabaseExceptionClassifier {
             return "Unknown";
         }
 
+        // Check subclasses before parent classes to ensure all branches are reachable
+        if (ex instanceof CannotGetJdbcConnectionException) {
+            return "Spring CannotGetJdbcConnectionException";
+        }
         if (ex instanceof TransientDataAccessException) {
             return "Spring " + ex.getClass().getSimpleName();
         }
@@ -226,23 +232,20 @@ public final class DatabaseExceptionClassifier {
         if (ex instanceof DataAccessResourceFailureException) {
             return "Spring DataAccessResourceFailureException";
         }
-        if (ex instanceof CannotGetJdbcConnectionException) {
-            return "Spring CannotGetJdbcConnectionException";
+        if (ex instanceof SQLTimeoutException) {
+            return "JDBC SQLTimeoutException";
         }
         if (ex instanceof SQLTransientConnectionException) {
             return "JDBC SQLTransientConnectionException";
+        }
+        if (ex instanceof SQLTransientException) {
+            return "JDBC SQLTransientException";
         }
         if (ex instanceof SQLRecoverableException) {
             return "JDBC SQLRecoverableException";
         }
         if (ex instanceof SQLNonTransientConnectionException) {
             return "JDBC SQLNonTransientConnectionException";
-        }
-        if (ex instanceof SQLTimeoutException) {
-            return "JDBC SQLTimeoutException";
-        }
-        if (ex instanceof SQLTransientException) {
-            return "JDBC SQLTransientException";
         }
 
         if (ex instanceof SQLException sqlEx) {

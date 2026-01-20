@@ -2,7 +2,12 @@ package com.ivamare.commandbus.exception;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.dao.*;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
 import java.io.IOException;
@@ -11,6 +16,7 @@ import java.net.SocketTimeoutException;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLRecoverableException;
+import java.sql.SQLTimeoutException;
 import java.sql.SQLTransientConnectionException;
 import java.sql.SQLTransientException;
 
@@ -87,9 +93,18 @@ class DatabaseExceptionClassifierTest {
         }
 
         @Test
-        void shouldClassifyCannotGetJdbcConnectionAsTransient() {
+        void shouldClassifyRecoverableDataAccessExceptionAsTransient() {
             assertTrue(DatabaseExceptionClassifier.isTransient(
-                new CannotGetJdbcConnectionException("Cannot get connection")));
+                new RecoverableDataAccessException("Recoverable error")));
+        }
+
+        @Test
+        void shouldClassifyCannotGetJdbcConnectionAsTransient() {
+            // CannotGetJdbcConnectionException extends DataAccessResourceFailureException
+            // which extends NonTransientDataAccessResourceException
+            // So we need to test it directly
+            CannotGetJdbcConnectionException ex = new CannotGetJdbcConnectionException("Cannot get connection");
+            assertTrue(DatabaseExceptionClassifier.isTransient(ex));
         }
 
         @Test
@@ -133,6 +148,12 @@ class DatabaseExceptionClassifierTest {
             // Non-transient connection exceptions are actually transient from recovery perspective
             assertTrue(DatabaseExceptionClassifier.isTransient(
                 new SQLNonTransientConnectionException("Connection refused")));
+        }
+
+        @Test
+        void shouldClassifySQLTimeoutExceptionAsTransient() {
+            assertTrue(DatabaseExceptionClassifier.isTransient(
+                new SQLTimeoutException("Query timeout")));
         }
     }
 
@@ -266,6 +287,39 @@ class DatabaseExceptionClassifierTest {
     }
 
     @Nested
+    class GetSqlStateTest {
+
+        @Test
+        void shouldReturnSqlStateFromSqlException() {
+            SQLException ex = new SQLException("Connection error", "08001");
+            String sqlState = DatabaseExceptionClassifier.getSqlState(ex);
+            assertEquals("08001", sqlState);
+        }
+
+        @Test
+        void shouldReturnSqlStateFromWrappedException() {
+            SQLException sqlEx = new SQLException("Connection error", "53300");
+            RuntimeException wrapper = new RuntimeException("Wrapper", sqlEx);
+            String sqlState = DatabaseExceptionClassifier.getSqlState(wrapper);
+            assertEquals("53300", sqlState);
+        }
+
+        @Test
+        void shouldReturnNullWhenNoSqlException() {
+            RuntimeException ex = new RuntimeException("No SQL exception");
+            String sqlState = DatabaseExceptionClassifier.getSqlState(ex);
+            assertNull(sqlState);
+        }
+
+        @Test
+        void shouldReturnNullSqlStateWhenExceptionHasNullState() {
+            SQLException ex = new SQLException("Error with no state");
+            String sqlState = DatabaseExceptionClassifier.getSqlState(ex);
+            assertNull(sqlState);
+        }
+    }
+
+    @Nested
     class GetTransientReasonTest {
 
         @Test
@@ -285,10 +339,82 @@ class DatabaseExceptionClassifierTest {
         }
 
         @Test
+        void shouldReturnRecoverableDataAccessExceptionReason() {
+            RecoverableDataAccessException ex = new RecoverableDataAccessException("Recoverable");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("RecoverableDataAccessException"),
+                "Expected reason to contain RecoverableDataAccessException: " + reason);
+        }
+
+        @Test
+        void shouldReturnDataAccessResourceFailureExceptionReason() {
+            DataAccessResourceFailureException ex = new DataAccessResourceFailureException("Resource failure");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("DataAccessResourceFailureException"),
+                "Expected reason to contain DataAccessResourceFailureException: " + reason);
+        }
+
+        @Test
+        void shouldReturnCannotGetJdbcConnectionExceptionReason() {
+            CannotGetJdbcConnectionException ex = new CannotGetJdbcConnectionException("Cannot connect");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("CannotGetJdbcConnectionException"),
+                "Expected reason to contain CannotGetJdbcConnectionException: " + reason);
+        }
+
+        @Test
+        void shouldReturnSQLTransientConnectionExceptionReason() {
+            SQLTransientConnectionException ex = new SQLTransientConnectionException("Transient connection error");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("SQLTransientConnectionException"),
+                "Expected reason to contain SQLTransientConnectionException: " + reason);
+        }
+
+        @Test
+        void shouldReturnSQLRecoverableExceptionReason() {
+            SQLRecoverableException ex = new SQLRecoverableException("Recoverable SQL error");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("SQLRecoverableException"),
+                "Expected reason to contain SQLRecoverableException: " + reason);
+        }
+
+        @Test
+        void shouldReturnSQLNonTransientConnectionExceptionReason() {
+            SQLNonTransientConnectionException ex = new SQLNonTransientConnectionException("Connection gone");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("SQLNonTransientConnectionException"),
+                "Expected reason to contain SQLNonTransientConnectionException: " + reason);
+        }
+
+        @Test
+        void shouldReturnSQLTimeoutExceptionReason() {
+            SQLTimeoutException ex = new SQLTimeoutException("Query timeout");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("SQLTimeoutException"),
+                "Expected reason to contain SQLTimeoutException: " + reason);
+        }
+
+        @Test
+        void shouldReturnSQLTransientExceptionReason() {
+            SQLTransientException ex = new SQLTransientException("Transient SQL error");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertTrue(reason.contains("SQLTransientException"),
+                "Expected reason to contain SQLTransientException: " + reason);
+        }
+
+        @Test
         void shouldReturnMessagePatternForRuntimeException() {
             RuntimeException ex = new RuntimeException("Connection reset by peer");
             String reason = DatabaseExceptionClassifier.getTransientReason(ex);
             assertTrue(reason.contains("Connection reset") || reason.contains("connection reset"));
+        }
+
+        @Test
+        void shouldReturnReasonFromCauseChain() {
+            SQLException sqlEx = new SQLException("Connection error", "08001");
+            RuntimeException wrapper = new RuntimeException("Wrapper", sqlEx);
+            String reason = DatabaseExceptionClassifier.getTransientReason(wrapper);
+            assertTrue(reason.contains("08001"), "Expected reason to contain SQL state from cause: " + reason);
         }
 
         @Test
@@ -333,6 +459,30 @@ class DatabaseExceptionClassifierTest {
 
             SQLException connEx = new SQLException("Connection reset", (String) null);
             assertTrue(DatabaseExceptionClassifier.isTransient(connEx));
+        }
+
+        @Test
+        void shouldReturnUnknownReasonForCauseChainWithNonTransientCauses() {
+            RuntimeException inner = new RuntimeException("Not transient");
+            RuntimeException outer = new RuntimeException("Wrapper", inner);
+            String reason = DatabaseExceptionClassifier.getTransientReason(outer);
+            assertEquals("Unknown", reason);
+        }
+
+        @Test
+        void shouldHandleSQLExceptionWithNonTransientSqlState() {
+            // Test where SQL state is not null but not in TRANSIENT_SQL_STATES
+            SQLException ex = new SQLException("Syntax error", "42000");
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertEquals("Unknown", reason);
+        }
+
+        @Test
+        void shouldHandleExceptionWithNullMessageInGetTransientReason() {
+            // RuntimeException with null message - doesn't match any pattern
+            RuntimeException ex = new RuntimeException((String) null);
+            String reason = DatabaseExceptionClassifier.getTransientReason(ex);
+            assertEquals("Unknown", reason);
         }
     }
 }
