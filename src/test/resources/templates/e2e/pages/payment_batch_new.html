@@ -16,6 +16,28 @@
 
     <h2 class="mb-4">Create Payment Batch</h2>
 
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Scenario Presets</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">Load Scenario</label>
+                    <select id="scenarioPreset" class="form-select" onchange="applyScenario()">
+                        <option value="">-- Select Preset --</option>
+                        <option value="single-payment">Single Payment (Clean)</option>
+                        <option value="chaos">Chaos Testing</option>
+                    </select>
+                    <small class="text-muted">Select a preset to auto-fill form values</small>
+                </div>
+                <div class="col-md-8">
+                    <div id="scenarioDescription" class="alert alert-info mb-0 mt-4" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <form th:action="@{/payments/batch}" method="post">
         <div class="card mb-4">
             <div class="card-header">
@@ -79,7 +101,8 @@
                     <div class="col-md-3">
                         <label class="form-label">Cutoff (hours)</label>
                         <input type="number" name="cutoffHours" class="form-control"
-                               min="1" max="168" th:value="${request.cutoffHours()}">
+                               min="0.1" max="168" step="0.1" th:value="${request.cutoffHours()}">
+                        <small class="text-muted">e.g., 0.5 = 30 minutes</small>
                     </div>
                 </div>
             </div>
@@ -266,6 +289,102 @@
             <button type="submit" class="btn btn-primary">Create Payment Batch</button>
         </div>
     </form>
+
+    <script>
+        const scenarios = {
+            'single-payment': {
+                description: '<strong>Single Payment (Clean):</strong> 1 payment, STEP_BASED execution, instant processing (0ms), 100% balance-based risk approval, no failures.',
+                values: {
+                    // Basic settings
+                    count: 1,
+                    executionModel: 'STEP_BASED',
+                    // Risk behavior - 100% balance, all others 0
+                    riskApprovedBalancePct: 100,
+                    riskApprovedLimitPct: 0,
+                    riskManualApprovalPct: 0,
+                    riskDeclinedPct: 0,
+                    riskMinMs: 0,
+                    riskMaxMs: 0,
+                    // FX step - all 0
+                    fxFailPerm: 0,
+                    fxFailTrans: 0,
+                    fxFailBiz: 0,
+                    fxTimeout: 0,
+                    fxMinMs: 0,
+                    fxMaxMs: 0,
+                    // Submit step - all 0
+                    submitFailPerm: 0,
+                    submitFailTrans: 0,
+                    submitFailBiz: 0,
+                    submitTimeout: 0,
+                    submitMinMs: 0,
+                    submitMaxMs: 0,
+                    // L1-L4 - all 0
+                    l1FailPerm: 0, l1FailTrans: 0, l1FailBiz: 0, l1Timeout: 0, l1MinMs: 0, l1MaxMs: 0,
+                    l2FailPerm: 0, l2FailTrans: 0, l2FailBiz: 0, l2Timeout: 0, l2MinMs: 0, l2MaxMs: 0,
+                    l3FailPerm: 0, l3FailTrans: 0, l3FailBiz: 0, l3Timeout: 0, l3Pending: 0, l3MinMs: 0, l3MaxMs: 0,
+                    l4FailPerm: 0, l4FailTrans: 0, l4FailBiz: 0, l4Timeout: 0, l4Pending: 0, l4MinMs: 0, l4MaxMs: 0
+                }
+            },
+            'chaos': {
+                description: '<strong>Chaos Testing:</strong> 1 payment, STEP_BASED, realistic delays. Failures: 3% timeout, 3% business rule, 20% transient (retryable), 3% manual approval required.',
+                values: {
+                    // Basic settings
+                    count: 1,
+                    executionModel: 'STEP_BASED',
+                    // Risk behavior - 94% balance, 3% manual approval
+                    riskApprovedBalancePct: 94,
+                    riskApprovedLimitPct: 0,
+                    riskManualApprovalPct: 3,
+                    riskDeclinedPct: 3,
+                    riskMinMs: 50,
+                    riskMaxMs: 200,
+                    // FX step - chaos percentages
+                    fxFailPerm: 0,
+                    fxFailTrans: 20,
+                    fxFailBiz: 3,
+                    fxTimeout: 3,
+                    fxMinMs: 50,
+                    fxMaxMs: 200,
+                    // Submit step - chaos percentages
+                    submitFailPerm: 0,
+                    submitFailTrans: 20,
+                    submitFailBiz: 3,
+                    submitTimeout: 3,
+                    submitMinMs: 50,
+                    submitMaxMs: 200,
+                    // L1-L4 - chaos percentages
+                    l1FailPerm: 0, l1FailTrans: 20, l1FailBiz: 3, l1Timeout: 3, l1MinMs: 50, l1MaxMs: 200,
+                    l2FailPerm: 0, l2FailTrans: 20, l2FailBiz: 3, l2Timeout: 3, l2MinMs: 50, l2MaxMs: 200,
+                    l3FailPerm: 0, l3FailTrans: 20, l3FailBiz: 3, l3Timeout: 3, l3Pending: 3, l3MinMs: 50, l3MaxMs: 200,
+                    l4FailPerm: 0, l4FailTrans: 20, l4FailBiz: 3, l4Timeout: 3, l4Pending: 3, l4MinMs: 50, l4MaxMs: 200
+                }
+            }
+        };
+
+        function applyScenario() {
+            const select = document.getElementById('scenarioPreset');
+            const descDiv = document.getElementById('scenarioDescription');
+            const scenario = scenarios[select.value];
+
+            if (!scenario) {
+                descDiv.style.display = 'none';
+                return;
+            }
+
+            // Show description
+            descDiv.innerHTML = scenario.description;
+            descDiv.style.display = 'block';
+
+            // Apply values
+            for (const [name, value] of Object.entries(scenario.values)) {
+                const input = document.querySelector(`[name="${name}"]`);
+                if (input) {
+                    input.value = value;
+                }
+            }
+        }
+    </script>
 </div>
 </body>
 </html>

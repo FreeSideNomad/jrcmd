@@ -16,7 +16,7 @@
                 </button>
                 <ul class="dropdown-menu">
                     <li th:each="d : ${availableDomains}">
-                        <a class="dropdown-item" th:href="@{/tsq(domain=${d})}"
+                        <a class="dropdown-item" th:href="@{/tsq(domain=${d}, size=${size})}"
                            th:classappend="${d == domain} ? 'active' : ''"
                            th:text="${d}">domain</a>
                     </li>
@@ -24,6 +24,17 @@
             </div>
             <span th:if="${availableDomains == null or availableDomains.isEmpty()}" class="badge bg-secondary"
                   th:text="${domain}">domain</span>
+        </div>
+        <!-- Page size selector -->
+        <div class="d-flex align-items-center gap-2">
+            <label class="form-label mb-0">Show:</label>
+            <select class="form-select form-select-sm" style="width: auto;" onchange="changePageSize(this.value)">
+                <option value="50" th:selected="${size == 50}">50</option>
+                <option value="100" th:selected="${size == 100}">100</option>
+                <option value="250" th:selected="${size == 250}">250</option>
+                <option value="500" th:selected="${size == 500}">500</option>
+            </select>
+            <span class="text-muted">records</span>
         </div>
     </div>
 
@@ -50,14 +61,31 @@
     <div class="tab-content" id="tsqTabContent">
         <!-- Commands Tab -->
         <div class="tab-pane fade show active" id="commands-pane" role="tabpanel" aria-labelledby="commands-tab">
-            <div class="d-flex justify-content-end mb-3">
-                <form th:action="@{/tsq/retry-all}" method="post" th:if="${commands != null and !commands.isEmpty()}">
-                    <input type="hidden" name="domain" th:value="${domain}"/>
-                    <button type="submit" class="btn btn-warning"
-                            onclick="return confirm('Retry all commands?')">
-                        <i class="bi bi-arrow-clockwise"></i> Retry All Commands
-                    </button>
-                </form>
+            <!-- Bulk Actions Toolbar for Commands -->
+            <div th:if="${commands != null and !commands.isEmpty()}" class="d-flex justify-content-between align-items-center mb-3 bg-light p-2 rounded">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted">Selected: <span id="cmd-selected-count">0</span></span>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-primary" onclick="bulkAction('commands', 'retry')" id="cmd-bulk-retry" disabled>
+                            <i class="bi bi-arrow-clockwise"></i> Retry Selected
+                        </button>
+                        <button type="button" class="btn btn-outline-success" onclick="bulkAction('commands', 'complete')" id="cmd-bulk-complete" disabled>
+                            <i class="bi bi-check-lg"></i> Complete Selected
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" onclick="bulkAction('commands', 'cancel')" id="cmd-bulk-cancel" disabled>
+                            <i class="bi bi-x-lg"></i> Cancel Selected
+                        </button>
+                    </div>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <form th:action="@{/tsq/retry-all}" method="post" class="d-inline">
+                        <input type="hidden" name="domain" th:value="${domain}"/>
+                        <button type="submit" class="btn btn-warning"
+                                onclick="return confirm('Retry all commands?')">
+                            <i class="bi bi-arrow-clockwise"></i> Retry All
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <div th:if="${commands == null or commands.isEmpty()}" class="alert alert-success">
@@ -68,6 +96,9 @@
         <table class="table table-hover">
             <thead>
                 <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="cmd-select-all" onchange="toggleSelectAll('commands', this.checked)">
+                    </th>
                     <th>Command ID</th>
                     <th>Type</th>
                     <th>Error</th>
@@ -80,6 +111,9 @@
                 <tr th:each="cmd : ${commands}"
                     class="clickable-row"
                     th:data-href="@{/commands/{id}(id=${cmd.commandId}, domain=${domain})}">
+                    <td onclick="event.stopPropagation()">
+                        <input type="checkbox" class="form-check-input cmd-checkbox" th:value="${cmd.commandId}" onchange="updateSelectedCount('commands')">
+                    </td>
                     <td>
                         <code class="uuid-short" th:text="${#strings.abbreviate(cmd.commandId.toString(), 12)}">uuid</code>
                     </td>
@@ -171,14 +205,31 @@
 
         <!-- Processes Tab -->
         <div class="tab-pane fade" id="processes-pane" role="tabpanel" aria-labelledby="processes-tab">
-            <div class="d-flex justify-content-end mb-3">
-                <form th:action="@{/tsq/processes/retry-all}" method="post" th:if="${processes != null and !processes.isEmpty()}">
-                    <input type="hidden" name="domain" th:value="${domain}"/>
-                    <button type="submit" class="btn btn-warning"
-                            onclick="return confirm('Retry all processes?')">
-                        <i class="bi bi-arrow-clockwise"></i> Retry All Processes
-                    </button>
-                </form>
+            <!-- Bulk Actions Toolbar for Processes -->
+            <div th:if="${processes != null and !processes.isEmpty()}" class="d-flex justify-content-between align-items-center mb-3 bg-light p-2 rounded">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted">Selected: <span id="proc-selected-count">0</span></span>
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-primary" onclick="bulkAction('processes', 'retry')" id="proc-bulk-retry" disabled>
+                            <i class="bi bi-arrow-clockwise"></i> Retry Selected
+                        </button>
+                        <button type="button" class="btn btn-outline-success" onclick="bulkAction('processes', 'complete')" id="proc-bulk-complete" disabled>
+                            <i class="bi bi-check-lg"></i> Complete Selected
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" onclick="bulkAction('processes', 'cancel')" id="proc-bulk-cancel" disabled>
+                            <i class="bi bi-x-lg"></i> Cancel Selected
+                        </button>
+                    </div>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <form th:action="@{/tsq/processes/retry-all}" method="post" class="d-inline">
+                        <input type="hidden" name="domain" th:value="${domain}"/>
+                        <button type="submit" class="btn btn-warning"
+                                onclick="return confirm('Retry all processes?')">
+                            <i class="bi bi-arrow-clockwise"></i> Retry All
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <div th:if="${processes == null or processes.isEmpty()}" class="alert alert-success">
@@ -189,6 +240,9 @@
                 <table class="table table-hover">
                     <thead>
                         <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" class="form-check-input" id="proc-select-all" onchange="toggleSelectAll('processes', this.checked)">
+                            </th>
                             <th>Process ID</th>
                             <th>Type</th>
                             <th>Current Wait</th>
@@ -200,7 +254,10 @@
                     <tbody>
                         <tr th:each="proc : ${processes}"
                             class="clickable-row"
-                            th:data-href="@{/payments/{id}(id=${proc.processId}, domain=${domain})}">
+                            th:data-href="${proc.paymentId != null} ? @{/payments/{id}(id=${proc.paymentId})} : @{/processes/{id}(id=${proc.processId}, domain=${domain})}">
+                            <td onclick="event.stopPropagation()">
+                                <input type="checkbox" class="form-check-input proc-checkbox" th:value="${proc.processId}" onchange="updateSelectedCount('processes')">
+                            </td>
                             <td>
                                 <code class="uuid-short" th:text="${#strings.abbreviate(proc.processId.toString(), 12)}">uuid</code>
                             </td>
@@ -298,7 +355,88 @@
         </div>
     </div>
 
-    <script>
+    <!-- Bulk Action Modals -->
+    <!-- Bulk Cancel Commands Modal -->
+    <div class="modal fade" id="bulkCancelCommandsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/tsq/bulk/cancel}" method="post" id="bulkCancelCommandsForm">
+                    <input type="hidden" name="domain" th:value="${domain}"/>
+                    <input type="hidden" name="ids" id="bulkCancelCommandsIds"/>
+                    <div class="modal-header">
+                        <h5 class="modal-title">Cancel Selected Commands</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You are about to cancel <strong id="bulkCancelCommandsCount">0</strong> command(s).</p>
+                        <div class="mb-3">
+                            <label class="form-label">Cancellation Reason</label>
+                            <input type="text" name="reason" class="form-control" required
+                                   placeholder="Enter reason for cancellation">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-danger">Cancel Commands</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Cancel Processes Modal -->
+    <div class="modal fade" id="bulkCancelProcessesModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/tsq/processes/bulk/cancel}" method="post" id="bulkCancelProcessesForm">
+                    <input type="hidden" name="domain" th:value="${domain}"/>
+                    <input type="hidden" name="ids" id="bulkCancelProcessesIds"/>
+                    <div class="modal-header">
+                        <h5 class="modal-title">Cancel Selected Processes</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You are about to cancel <strong id="bulkCancelProcessesCount">0</strong> process(es).</p>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" name="runCompensations" class="form-check-input" id="bulkRunCompensations" checked>
+                                <label class="form-check-label" for="bulkRunCompensations">
+                                    Run compensations (undo completed steps)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-danger">Cancel Processes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden forms for bulk operations that don't need modals -->
+    <form th:action="@{/tsq/bulk/retry}" method="post" id="bulkRetryCommandsForm" style="display: none;">
+        <input type="hidden" name="domain" th:value="${domain}"/>
+        <input type="hidden" name="ids" id="bulkRetryCommandsIds"/>
+    </form>
+    <form th:action="@{/tsq/bulk/complete}" method="post" id="bulkCompleteCommandsForm" style="display: none;">
+        <input type="hidden" name="domain" th:value="${domain}"/>
+        <input type="hidden" name="ids" id="bulkCompleteCommandsIds"/>
+    </form>
+    <form th:action="@{/tsq/processes/bulk/retry}" method="post" id="bulkRetryProcessesForm" style="display: none;">
+        <input type="hidden" name="domain" th:value="${domain}"/>
+        <input type="hidden" name="ids" id="bulkRetryProcessesIds"/>
+    </form>
+    <form th:action="@{/tsq/processes/bulk/complete}" method="post" id="bulkCompleteProcessesForm" style="display: none;">
+        <input type="hidden" name="domain" th:value="${domain}"/>
+        <input type="hidden" name="ids" id="bulkCompleteProcessesIds"/>
+    </form>
+
+    <script th:inline="javascript">
+        const currentDomain = /*[[${domain}]]*/ 'payments';
+        const currentSize = /*[[${size}]]*/ 50;
+
         // Initialize Bootstrap tooltips
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(function (tooltipTriggerEl) {
@@ -310,6 +448,92 @@
             row.style.cursor = 'pointer';
             row.addEventListener('click', () => window.location = row.dataset.href);
         });
+
+        // Page size change
+        function changePageSize(size) {
+            window.location = '/tsq?domain=' + currentDomain + '&size=' + size;
+        }
+
+        // Toggle select all checkboxes
+        function toggleSelectAll(type, checked) {
+            const checkboxes = document.querySelectorAll('.' + (type === 'commands' ? 'cmd' : 'proc') + '-checkbox');
+            checkboxes.forEach(cb => cb.checked = checked);
+            updateSelectedCount(type);
+        }
+
+        // Update selected count and button states
+        function updateSelectedCount(type) {
+            const prefix = type === 'commands' ? 'cmd' : 'proc';
+            const checkboxes = document.querySelectorAll('.' + prefix + '-checkbox:checked');
+            const count = checkboxes.length;
+
+            document.getElementById(prefix + '-selected-count').textContent = count;
+
+            const retryBtn = document.getElementById(prefix + '-bulk-retry');
+            const completeBtn = document.getElementById(prefix + '-bulk-complete');
+            const cancelBtn = document.getElementById(prefix + '-bulk-cancel');
+
+            if (retryBtn) retryBtn.disabled = count === 0;
+            if (completeBtn) completeBtn.disabled = count === 0;
+            if (cancelBtn) cancelBtn.disabled = count === 0;
+
+            // Update select-all checkbox state
+            const allCheckboxes = document.querySelectorAll('.' + prefix + '-checkbox');
+            const selectAllCb = document.getElementById(prefix + '-select-all');
+            if (selectAllCb) {
+                selectAllCb.checked = allCheckboxes.length > 0 && count === allCheckboxes.length;
+                selectAllCb.indeterminate = count > 0 && count < allCheckboxes.length;
+            }
+        }
+
+        // Get selected IDs
+        function getSelectedIds(type) {
+            const prefix = type === 'commands' ? 'cmd' : 'proc';
+            const checkboxes = document.querySelectorAll('.' + prefix + '-checkbox:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        // Bulk action handler
+        function bulkAction(type, action) {
+            const ids = getSelectedIds(type);
+            if (ids.length === 0) return;
+
+            const idsStr = ids.join(',');
+
+            if (type === 'commands') {
+                if (action === 'retry') {
+                    if (confirm('Retry ' + ids.length + ' command(s)?')) {
+                        document.getElementById('bulkRetryCommandsIds').value = idsStr;
+                        document.getElementById('bulkRetryCommandsForm').submit();
+                    }
+                } else if (action === 'complete') {
+                    if (confirm('Complete ' + ids.length + ' command(s) with empty result?')) {
+                        document.getElementById('bulkCompleteCommandsIds').value = idsStr;
+                        document.getElementById('bulkCompleteCommandsForm').submit();
+                    }
+                } else if (action === 'cancel') {
+                    document.getElementById('bulkCancelCommandsIds').value = idsStr;
+                    document.getElementById('bulkCancelCommandsCount').textContent = ids.length;
+                    new bootstrap.Modal(document.getElementById('bulkCancelCommandsModal')).show();
+                }
+            } else {
+                if (action === 'retry') {
+                    if (confirm('Retry ' + ids.length + ' process(es)?')) {
+                        document.getElementById('bulkRetryProcessesIds').value = idsStr;
+                        document.getElementById('bulkRetryProcessesForm').submit();
+                    }
+                } else if (action === 'complete') {
+                    if (confirm('Complete ' + ids.length + ' process(es)?')) {
+                        document.getElementById('bulkCompleteProcessesIds').value = idsStr;
+                        document.getElementById('bulkCompleteProcessesForm').submit();
+                    }
+                } else if (action === 'cancel') {
+                    document.getElementById('bulkCancelProcessesIds').value = idsStr;
+                    document.getElementById('bulkCancelProcessesCount').textContent = ids.length;
+                    new bootstrap.Modal(document.getElementById('bulkCancelProcessesModal')).show();
+                }
+            }
+        }
     </script>
 </div>
 </body>

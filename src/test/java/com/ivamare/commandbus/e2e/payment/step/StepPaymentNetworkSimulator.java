@@ -7,6 +7,9 @@ import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -22,9 +25,11 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>The simulator:
  * <ul>
- *   <li>Schedules L1-L4 responses with configurable delays</li>
+ *   <li>Calculates L1-L4 delays from a common start time</li>
+ *   <li>Sends confirmations in order of their calculated delays (may be out of L1-L4 order)</li>
  *   <li>Supports probabilistic failures for each level</li>
- *   <li>Updates process state directly via processAsyncResponse()</li>
+ *   <li>Updates both process state and Payment entity via confirmL1-L4 methods</li>
+ *   <li>L3/L4 can be held for manual release if configured</li>
  * </ul>
  */
 public class StepPaymentNetworkSimulator {
@@ -67,6 +72,8 @@ public class StepPaymentNetworkSimulator {
 
     /**
      * Simulate payment confirmation flow (L1-L4 responses).
+     * All delays are calculated from the same starting timestamp, so confirmations
+     * may arrive in any order (e.g., L2 before L1 if L2's delay is shorter).
      *
      * @param commandId    Original command ID (for correlation)
      * @param processId    Process ID (payment ID)
@@ -94,17 +101,17 @@ public class StepPaymentNetworkSimulator {
         final PaymentStepBehavior behavior = stepBehavior;
 
         if (zeroDelay) {
-            // Fast path: send all responses sequentially on executor thread
+            // Fast path: send all responses in order on executor thread (for performance tests)
             executor.submit(() -> {
                 try {
-                    sendAllResponsesSequentially(processId, behavior);
+                    sendAllResponsesInRandomOrder(processId, behavior, true);
                 } catch (Exception e) {
                     log.error("Exception in fast-path response sender for process {}", processId, e);
                 }
             });
         } else {
-            // Normal path: use scheduler with delays
-            scheduleL1(processId, behavior);
+            // Normal path: schedule all confirmations with delays from common start time
+            scheduleAllConfirmations(processId, behavior);
         }
     }
 
@@ -119,9 +126,14 @@ public class StepPaymentNetworkSimulator {
     }
 
     /**
-     * Fast path: send all L1-L4 responses sequentially without scheduling.
+     * Record for tracking scheduled confirmations with their calculated delays.
      */
-    private void sendAllResponsesSequentially(UUID processId, PaymentStepBehavior stepBehavior) {
+    private record ScheduledConfirmation(int level, int delayMs, ProbabilisticBehavior behavior) {}
+
+    /**
+     * Fast path: send all responses sorted by their random delays (for zero-delay mode).
+     */
+    private void sendAllResponsesInRandomOrder(UUID processId, PaymentStepBehavior stepBehavior, boolean zeroDelay) {
         try {
             // Small delay to ensure process has transitioned to waiting state
             Thread.sleep(10);
@@ -130,57 +142,74 @@ public class StepPaymentNetworkSimulator {
             return;
         }
 
-        if (!sendLevelResponse(processId, 1, stepBehavior.awaitL1())) return;
-        if (!sendLevelResponse(processId, 2, stepBehavior.awaitL2())) return;
-        if (!sendLevelResponse(processId, 3, stepBehavior.awaitL3())) return;
-        sendLevelResponse(processId, 4, stepBehavior.awaitL4());
+        // Calculate delays for all levels
+        List<ScheduledConfirmation> confirmations = new ArrayList<>();
+        confirmations.add(new ScheduledConfirmation(1,
+            zeroDelay ? random.nextInt(100) : getDelay(stepBehavior.awaitL1(), DEFAULT_L1_DELAY_MIN, DEFAULT_L1_DELAY_MAX),
+            stepBehavior.awaitL1()));
+        confirmations.add(new ScheduledConfirmation(2,
+            zeroDelay ? random.nextInt(100) : getDelay(stepBehavior.awaitL2(), DEFAULT_L2_DELAY_MIN, DEFAULT_L2_DELAY_MAX),
+            stepBehavior.awaitL2()));
+        confirmations.add(new ScheduledConfirmation(3,
+            zeroDelay ? random.nextInt(100) : getDelay(stepBehavior.awaitL3(), DEFAULT_L3_DELAY_MIN, DEFAULT_L3_DELAY_MAX),
+            stepBehavior.awaitL3()));
+        confirmations.add(new ScheduledConfirmation(4,
+            zeroDelay ? random.nextInt(100) : getDelay(stepBehavior.awaitL4(), DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX),
+            stepBehavior.awaitL4()));
+
+        // Sort by delay (lowest first)
+        confirmations.sort(Comparator.comparingInt(ScheduledConfirmation::delayMs));
+
+        log.info("Sending L1-L4 confirmations for process {} in order: {}",
+            processId, confirmations.stream().map(c -> "L" + c.level()).toList());
+
+        // Send in order of calculated delays
+        for (ScheduledConfirmation conf : confirmations) {
+            sendLevelResponse(processId, conf.level(), conf.behavior());
+        }
     }
 
     /**
-     * Normal path: schedule L1 response with delay, then chain L2-L4.
+     * Schedule all L1-L4 confirmations from a common start time.
+     * Confirmations arrive in order of their calculated delays, not L1→L2→L3→L4 order.
      */
-    private void scheduleL1(UUID processId, PaymentStepBehavior stepBehavior) {
-        int l1Delay = getDelay(stepBehavior.awaitL1(), DEFAULT_L1_DELAY_MIN, DEFAULT_L1_DELAY_MAX);
-        scheduler.schedule(() -> {
-            try {
-                boolean l1Success = sendLevelResponse(processId, 1, stepBehavior.awaitL1());
+    private void scheduleAllConfirmations(UUID processId, PaymentStepBehavior stepBehavior) {
+        // Calculate delays for all levels from common start time
+        List<ScheduledConfirmation> confirmations = new ArrayList<>();
+        confirmations.add(new ScheduledConfirmation(1,
+            getDelay(stepBehavior.awaitL1(), DEFAULT_L1_DELAY_MIN, DEFAULT_L1_DELAY_MAX),
+            stepBehavior.awaitL1()));
+        confirmations.add(new ScheduledConfirmation(2,
+            getDelay(stepBehavior.awaitL2(), DEFAULT_L2_DELAY_MIN, DEFAULT_L2_DELAY_MAX),
+            stepBehavior.awaitL2()));
+        confirmations.add(new ScheduledConfirmation(3,
+            getDelay(stepBehavior.awaitL3(), DEFAULT_L3_DELAY_MIN, DEFAULT_L3_DELAY_MAX),
+            stepBehavior.awaitL3()));
+        confirmations.add(new ScheduledConfirmation(4,
+            getDelay(stepBehavior.awaitL4(), DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX),
+            stepBehavior.awaitL4()));
 
-                if (l1Success) {
-                    int l2Delay = getDelay(stepBehavior.awaitL2(), DEFAULT_L2_DELAY_MIN, DEFAULT_L2_DELAY_MAX);
-                    scheduler.schedule(() -> {
-                        try {
-                            boolean l2Success = sendLevelResponse(processId, 2, stepBehavior.awaitL2());
+        // Sort by delay to show arrival order in logs
+        List<ScheduledConfirmation> sorted = new ArrayList<>(confirmations);
+        sorted.sort(Comparator.comparingInt(ScheduledConfirmation::delayMs));
+        log.info("Scheduling L1-L4 confirmations for process {} - arrival order will be: {} (delays: L1={}ms, L2={}ms, L3={}ms, L4={}ms)",
+            processId,
+            sorted.stream().map(c -> "L" + c.level()).toList(),
+            confirmations.get(0).delayMs(),
+            confirmations.get(1).delayMs(),
+            confirmations.get(2).delayMs(),
+            confirmations.get(3).delayMs());
 
-                            if (l2Success) {
-                                int l3Delay = getDelay(stepBehavior.awaitL3(), DEFAULT_L3_DELAY_MIN, DEFAULT_L3_DELAY_MAX);
-                                scheduler.schedule(() -> {
-                                    try {
-                                        boolean l3Success = sendLevelResponse(processId, 3, stepBehavior.awaitL3());
-
-                                        if (l3Success) {
-                                            int l4Delay = getDelay(stepBehavior.awaitL4(), DEFAULT_L4_DELAY_MIN, DEFAULT_L4_DELAY_MAX);
-                                            scheduler.schedule(() -> {
-                                                try {
-                                                    sendLevelResponse(processId, 4, stepBehavior.awaitL4());
-                                                } catch (Exception e) {
-                                                    log.error("Exception sending L4 for process {}", processId, e);
-                                                }
-                                            }, l4Delay, TimeUnit.MILLISECONDS);
-                                        }
-                                    } catch (Exception e) {
-                                        log.error("Exception sending L3 for process {}", processId, e);
-                                    }
-                                }, l3Delay, TimeUnit.MILLISECONDS);
-                            }
-                        } catch (Exception e) {
-                            log.error("Exception sending L2 for process {}", processId, e);
-                        }
-                    }, l2Delay, TimeUnit.MILLISECONDS);
+        // Schedule each confirmation independently from the common start time
+        for (ScheduledConfirmation conf : confirmations) {
+            scheduler.schedule(() -> {
+                try {
+                    sendLevelResponse(processId, conf.level(), conf.behavior());
+                } catch (Exception e) {
+                    log.error("Exception sending L{} for process {}", conf.level(), processId, e);
                 }
-            } catch (Exception e) {
-                log.error("Exception sending L1 for process {}", processId, e);
-            }
-        }, l1Delay, TimeUnit.MILLISECONDS);
+            }, conf.delayMs(), TimeUnit.MILLISECONDS);
+        }
     }
 
     /**
@@ -285,27 +314,25 @@ public class StepPaymentNetworkSimulator {
     private void sendSuccessResponse(UUID processId, int level) {
         String reference = "L" + level + "-REF-" + UUID.randomUUID().toString().substring(0, 8);
 
-        processManager.processAsyncResponse(processId, state -> {
-            switch (level) {
-                case 1 -> state.recordL1Success(reference);
-                case 2 -> state.recordL2Success(reference);
-                case 3 -> state.recordL3Success(reference);
-                case 4 -> state.recordL4Success(reference);
-            }
-        });
+        // Use confirmL1-L4 methods which update both process state AND Payment entity
+        switch (level) {
+            case 1 -> processManager.confirmL1(processId, reference);
+            case 2 -> processManager.confirmL2(processId, reference);
+            case 3 -> processManager.confirmL3(processId, reference);
+            case 4 -> processManager.confirmL4(processId, reference);
+        }
 
         log.info("Sent L{} success response for process {} (ref={})", level, processId, reference);
     }
 
     private void sendFailureResponse(UUID processId, int level, String errorCode, String errorMessage) {
-        processManager.processAsyncResponse(processId, state -> {
-            switch (level) {
-                case 1 -> state.recordL1Error(errorCode, errorMessage);
-                case 2 -> state.recordL2Error(errorCode, errorMessage);
-                case 3 -> state.recordL3Error(errorCode, errorMessage);
-                case 4 -> state.recordL4Error(errorCode, errorMessage);
-            }
-        });
+        // Use failL1-L4 methods
+        switch (level) {
+            case 1 -> processManager.failL1(processId, errorCode, errorMessage);
+            case 2 -> processManager.failL2(processId, errorCode, errorMessage);
+            case 3 -> processManager.failL3(processId, errorCode, errorMessage);
+            case 4 -> processManager.failL4(processId, errorCode, errorMessage);
+        }
 
         log.info("Sent L{} failure response for process {} (code={})", level, processId, errorCode);
     }

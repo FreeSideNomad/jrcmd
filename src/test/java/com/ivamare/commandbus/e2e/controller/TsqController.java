@@ -113,6 +113,69 @@ public class TsqController {
         return "redirect:/tsq?domain=" + effectiveDomain;
     }
 
+    // ========== Bulk Command Operations ==========
+
+    @PostMapping("/bulk/retry")
+    public String bulkRetryCommands(
+            @RequestParam String ids,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.retryTsqCommand(effectiveDomain, UUID.fromString(id.trim()), "e2e-ui-bulk");
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " command(s) queued for retry");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to retry commands: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
+    @PostMapping("/bulk/cancel")
+    public String bulkCancelCommands(
+            @RequestParam String ids,
+            @RequestParam String reason,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.cancelTsqCommand(effectiveDomain, UUID.fromString(id.trim()), reason, "e2e-ui-bulk");
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " command(s) canceled");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to cancel commands: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
+    @PostMapping("/bulk/complete")
+    public String bulkCompleteCommands(
+            @RequestParam String ids,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.completeTsqCommand(effectiveDomain, UUID.fromString(id.trim()), Map.of(), "e2e-ui-bulk");
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " command(s) completed");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to complete commands: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
     // ========== Process TSQ Operations (for PROCESS_STEP execution model) ==========
 
     @PostMapping("/processes/{processId}/retry")
@@ -177,6 +240,70 @@ public class TsqController {
             redirectAttributes.addFlashAttribute("success", "All processes queued for retry");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Failed to retry all processes: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
+    // ========== Bulk Process Operations ==========
+
+    @PostMapping("/processes/bulk/retry")
+    public String bulkRetryProcesses(
+            @RequestParam String ids,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.retryTsqProcess(effectiveDomain, UUID.fromString(id.trim()));
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " process(es) queued for retry");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to retry processes: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
+    @PostMapping("/processes/bulk/cancel")
+    public String bulkCancelProcesses(
+            @RequestParam String ids,
+            @RequestParam(required = false, defaultValue = "true") boolean runCompensations,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.cancelTsqProcess(effectiveDomain, UUID.fromString(id.trim()), runCompensations);
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " process(es) canceled" +
+                (runCompensations ? " with compensations" : ""));
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to cancel processes: " + e.getMessage());
+        }
+        return "redirect:/tsq?domain=" + effectiveDomain;
+    }
+
+    @PostMapping("/processes/bulk/complete")
+    public String bulkCompleteProcesses(
+            @RequestParam String ids,
+            @RequestParam(required = false) String domain,
+            RedirectAttributes redirectAttributes) {
+        String effectiveDomain = domain != null ? domain : this.domain;
+        try {
+            String[] idArray = ids.split(",");
+            int count = 0;
+            for (String id : idArray) {
+                e2eService.completeTsqProcess(effectiveDomain, UUID.fromString(id.trim()), null);
+                count++;
+            }
+            redirectAttributes.addFlashAttribute("success", count + " process(es) completed");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to complete processes: " + e.getMessage());
         }
         return "redirect:/tsq?domain=" + effectiveDomain;
     }

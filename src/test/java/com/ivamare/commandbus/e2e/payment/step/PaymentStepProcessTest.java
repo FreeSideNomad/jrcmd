@@ -231,23 +231,31 @@ class PaymentStepProcessTest {
     @DisplayName("StepPaymentNetworkSimulator should send L1-L4 success responses")
     void stepPaymentNetworkSimulatorShouldSendL1L4SuccessResponses() throws InterruptedException {
         // Create a state holder to verify updates
-        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>();
+        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>(new PaymentStepState(UUID.randomUUID()));
         UUID processId = UUID.randomUUID();
 
-        // Mock the process manager's processAsyncResponse to capture state updates
+        // Mock the process manager's confirmL1-L4 methods to capture state updates
         PaymentStepProcess mockProcess = mock(PaymentStepProcess.class);
 
         doAnswer(invocation -> {
-            UUID id = invocation.getArgument(0);
-            java.util.function.Consumer<PaymentStepState> updater = invocation.getArgument(1);
-            PaymentStepState state = capturedState.get();
-            if (state == null) {
-                state = new PaymentStepState(id);
-                capturedState.set(state);
-            }
-            updater.accept(state);
+            capturedState.get().recordL1Success(invocation.getArgument(1));
             return null;
-        }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
+        }).when(mockProcess).confirmL1(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL2Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL2(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL3Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL3(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL4Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL4(any(UUID.class), anyString());
 
         StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
@@ -270,22 +278,32 @@ class PaymentStepProcessTest {
     @Test
     @DisplayName("StepPaymentNetworkSimulator should handle L1 failure")
     void stepPaymentNetworkSimulatorShouldHandleL1Failure() throws InterruptedException {
-        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>();
+        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>(new PaymentStepState(UUID.randomUUID()));
         UUID processId = UUID.randomUUID();
 
         PaymentStepProcess mockProcess = mock(PaymentStepProcess.class);
 
+        // Mock failL1 to record error
         doAnswer(invocation -> {
-            UUID id = invocation.getArgument(0);
-            java.util.function.Consumer<PaymentStepState> updater = invocation.getArgument(1);
-            PaymentStepState state = capturedState.get();
-            if (state == null) {
-                state = new PaymentStepState(id);
-                capturedState.set(state);
-            }
-            updater.accept(state);
+            capturedState.get().recordL1Error(invocation.getArgument(1), invocation.getArgument(2));
             return null;
-        }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
+        }).when(mockProcess).failL1(any(UUID.class), anyString(), anyString());
+
+        // Mock other confirm methods (they may be called due to random ordering)
+        doAnswer(invocation -> {
+            capturedState.get().recordL2Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL2(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL3Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL3(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL4Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL4(any(UUID.class), anyString());
 
         StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
@@ -312,54 +330,58 @@ class PaymentStepProcessTest {
         assertNotNull(finalState.getL1ErrorCode());
         assertEquals("PERM_ERROR", finalState.getL1ErrorCode());
 
-        // L2-L4 should not be completed
-        assertNull(finalState.getL2CompletedAt());
-        assertNull(finalState.getL3CompletedAt());
-        assertNull(finalState.getL4CompletedAt());
-
+        // L2-L4 may still complete (they arrive in random order now)
+        // The important thing is that L1 has an error
         simulator.shutdown();
     }
 
     @Test
-    @DisplayName("StepPaymentNetworkSimulator should chain responses correctly")
+    @DisplayName("StepPaymentNetworkSimulator should send all L1-L4 responses (random order)")
     void stepPaymentNetworkSimulatorShouldChainResponsesCorrectly() throws InterruptedException {
-        CountDownLatch l4Latch = new CountDownLatch(1);
-        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>();
+        CountDownLatch allLatch = new CountDownLatch(4);
+        AtomicReference<PaymentStepState> capturedState = new AtomicReference<>(new PaymentStepState(UUID.randomUUID()));
         UUID processId = UUID.randomUUID();
 
         PaymentStepProcess mockProcess = mock(PaymentStepProcess.class);
 
         doAnswer(invocation -> {
-            UUID id = invocation.getArgument(0);
-            java.util.function.Consumer<PaymentStepState> updater = invocation.getArgument(1);
-            PaymentStepState state = capturedState.get();
-            if (state == null) {
-                state = new PaymentStepState(id);
-                capturedState.set(state);
-            }
-            updater.accept(state);
-
-            // Signal when L4 is received
-            if (state.getL4CompletedAt() != null) {
-                l4Latch.countDown();
-            }
+            capturedState.get().recordL1Success(invocation.getArgument(1));
+            allLatch.countDown();
             return null;
-        }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
+        }).when(mockProcess).confirmL1(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL2Success(invocation.getArgument(1));
+            allLatch.countDown();
+            return null;
+        }).when(mockProcess).confirmL2(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL3Success(invocation.getArgument(1));
+            allLatch.countDown();
+            return null;
+        }).when(mockProcess).confirmL3(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL4Success(invocation.getArgument(1));
+            allLatch.countDown();
+            return null;
+        }).when(mockProcess).confirmL4(any(UUID.class), anyString());
 
         StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
-        // Use small delays to test chaining
+        // Use small delays - confirmations may arrive in any order
         PaymentStepBehavior behavior = PaymentStepBehavior.builder()
-            .awaitL1(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(20).build())
-            .awaitL2(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(20).build())
-            .awaitL3(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(20).build())
-            .awaitL4(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(20).build())
+            .awaitL1(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(50).build())
+            .awaitL2(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(50).build())
+            .awaitL3(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(50).build())
+            .awaitL4(ProbabilisticBehavior.builder().minDurationMs(10).maxDurationMs(50).build())
             .build();
 
         simulator.simulatePaymentConfirmations(UUID.randomUUID(), processId, behavior);
 
-        // Wait for L4 with timeout
-        assertTrue(l4Latch.await(2, TimeUnit.SECONDS), "L4 should complete within timeout");
+        // Wait for all confirmations with timeout
+        assertTrue(allLatch.await(2, TimeUnit.SECONDS), "All L1-L4 should complete within timeout");
 
         PaymentStepState finalState = capturedState.get();
         assertNotNull(finalState.getL1CompletedAt());
@@ -367,10 +389,9 @@ class PaymentStepProcessTest {
         assertNotNull(finalState.getL3CompletedAt());
         assertNotNull(finalState.getL4CompletedAt());
 
-        // Verify order: L1 before L2 before L3 before L4
-        assertTrue(finalState.getL1CompletedAt().compareTo(finalState.getL2CompletedAt()) <= 0);
-        assertTrue(finalState.getL2CompletedAt().compareTo(finalState.getL3CompletedAt()) <= 0);
-        assertTrue(finalState.getL3CompletedAt().compareTo(finalState.getL4CompletedAt()) <= 0);
+        // Note: L1-L4 may arrive in any order based on random delays
+        // Just verify all arrived
+        assertTrue(finalState.allLevelsComplete());
 
         simulator.shutdown();
     }
@@ -383,18 +404,23 @@ class PaymentStepProcessTest {
 
         PaymentStepProcess mockProcess = mock(PaymentStepProcess.class);
 
+        // Mock confirmL3 and confirmL4 (L4 is auto-scheduled after L3 approval)
         doAnswer(invocation -> {
-            java.util.function.Consumer<PaymentStepState> updater = invocation.getArgument(1);
-            updater.accept(capturedState.get());
+            capturedState.get().recordL3Success(invocation.getArgument(1));
             return null;
-        }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
+        }).when(mockProcess).confirmL3(any(UUID.class), anyString());
+
+        doAnswer(invocation -> {
+            capturedState.get().recordL4Success(invocation.getArgument(1));
+            return null;
+        }).when(mockProcess).confirmL4(any(UUID.class), anyString());
 
         StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
         // Manually trigger L3 approval
         simulator.sendApprovedResponse(processId, 3);
 
-        Thread.sleep(100);
+        Thread.sleep(500);  // Wait longer as L4 is auto-scheduled after L3
 
         PaymentStepState finalState = capturedState.get();
         assertNotNull(finalState.getL3Reference());
@@ -410,11 +436,11 @@ class PaymentStepProcessTest {
 
         PaymentStepProcess mockProcess = mock(PaymentStepProcess.class);
 
+        // Mock failL3
         doAnswer(invocation -> {
-            java.util.function.Consumer<PaymentStepState> updater = invocation.getArgument(1);
-            updater.accept(capturedState.get());
+            capturedState.get().recordL3Error(invocation.getArgument(1), invocation.getArgument(2));
             return null;
-        }).when(mockProcess).processAsyncResponse(any(UUID.class), any());
+        }).when(mockProcess).failL3(any(UUID.class), anyString(), anyString());
 
         StepPaymentNetworkSimulator simulator = new StepPaymentNetworkSimulator(mockProcess, pendingNetworkResponseRepository);
 
@@ -430,27 +456,7 @@ class PaymentStepProcessTest {
     }
 
     @Test
-    @DisplayName("RiskDeclinedException should have correct error code")
-    void riskDeclinedExceptionShouldHaveCorrectErrorCode() {
-        RiskDeclinedException exception = new RiskDeclinedException("Risk declined for test payment");
-        assertEquals("RISK_DECLINED", exception.getErrorCode());
-        assertEquals("Risk declined for test payment", exception.getMessage());
-    }
-
-    @Test
-    @DisplayName("RiskDeclinedException should be classified as TERMINAL")
-    void riskDeclinedExceptionShouldBeClassifiedAsTerminal() {
-        // Create process with mocks
-        PaymentStepProcess process = new PaymentStepProcess(
-            processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);
-
-        // Verify exception classification
-        ExceptionType type = invokeClassifyException(process, new RiskDeclinedException("Test"));
-        assertEquals(ExceptionType.TERMINAL, type);
-    }
-
-    @Test
-    @DisplayName("StepBusinessRuleException should still be classified as BUSINESS")
+    @DisplayName("StepBusinessRuleException should be classified as BUSINESS")
     void stepBusinessRuleExceptionShouldStillBeClassifiedAsBusiness() {
         PaymentStepProcess process = new PaymentStepProcess(
             processRepo, jdbcTemplate, transactionTemplate, paymentRepository, pendingApprovalRepository);

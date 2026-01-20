@@ -41,8 +41,13 @@ CREATE TABLE IF NOT EXISTS commandbus.batch (
     started_at                TIMESTAMPTZ NULL,
     completed_at              TIMESTAMPTZ NULL,
     batch_type                TEXT NOT NULL DEFAULT 'COMMAND',
+    duration_ms               NUMERIC NULL,
     PRIMARY KEY (domain, batch_id)
 );
+
+COMMENT ON COLUMN commandbus.batch.duration_ms IS
+'Processing duration in milliseconds (with microsecond precision) for STEP_BASED batches.
+Calculated from MIN to MAX sent_at in process_audit for processes in this batch.';
 
 COMMENT ON COLUMN commandbus.batch.batch_type IS
 'Type of batch: COMMAND for command batches, PROCESS for process batches.
@@ -549,7 +554,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- sp_refresh_batch_stats: Calculate batch stats on demand (with failed_count)
+-- sp_refresh_batch_stats: Calculate batch stats on demand (with failed_count and duration)
 -- Supports both COMMAND batches and PROCESS batches (STEP_BASED and PROCESS_STEP)
 CREATE OR REPLACE FUNCTION commandbus.sp_refresh_batch_stats(
     p_domain TEXT,
@@ -559,7 +564,8 @@ CREATE OR REPLACE FUNCTION commandbus.sp_refresh_batch_stats(
     failed_count BIGINT,
     canceled_count BIGINT,
     in_troubleshooting_count BIGINT,
-    is_complete BOOLEAN
+    is_complete BOOLEAN,
+    duration_ms NUMERIC
 ) AS $$
 DECLARE
     v_total_count INT;
@@ -570,6 +576,7 @@ DECLARE
     v_in_tsq BIGINT;
     v_in_progress BIGINT;
     v_is_complete BOOLEAN;
+    v_duration_ms NUMERIC;
 BEGIN
     SELECT b.total_count, b.batch_type INTO v_total_count, v_batch_type
     FROM commandbus.batch b WHERE b.domain = p_domain AND b.batch_id = p_batch_id;
@@ -603,6 +610,15 @@ BEGIN
                 ELSE 0 END), 0)
         INTO v_completed, v_failed, v_canceled, v_in_tsq, v_in_progress
         FROM commandbus.process p WHERE p.batch_id = p_batch_id;
+
+        -- Calculate duration for PROCESS_STEP batches from process_audit timestamps (with microsecond precision)
+        SELECT EXTRACT(EPOCH FROM (MAX(pa.sent_at) - MIN(pa.sent_at))) * 1000.0
+        INTO v_duration_ms
+        FROM commandbus.process_audit pa
+        JOIN commandbus.process p ON pa.domain = p.domain AND pa.process_id = p.process_id
+        WHERE p.batch_id = p_batch_id
+          AND p.execution_model = 'PROCESS_STEP'
+          AND pa.sent_at IS NOT NULL;
     ELSE
         -- COMMAND batches: count from command table
         SELECT
@@ -613,6 +629,8 @@ BEGIN
             COALESCE(SUM(CASE WHEN status NOT IN ('COMPLETED', 'FAILED', 'CANCELED', 'IN_TROUBLESHOOTING_QUEUE') THEN 1 ELSE 0 END), 0)
         INTO v_completed, v_failed, v_canceled, v_in_tsq, v_in_progress
         FROM commandbus.command WHERE batch_id = p_batch_id;
+
+        v_duration_ms := NULL; -- Duration not calculated for COMMAND batches
     END IF;
 
     -- Batch is complete when all items are in terminal state (not in progress)
@@ -621,6 +639,7 @@ BEGIN
     UPDATE commandbus.batch
     SET completed_count = v_completed, failed_count = v_failed,
         canceled_count = v_canceled, in_troubleshooting_count = v_in_tsq,
+        duration_ms = v_duration_ms,
         status = CASE
             WHEN v_is_complete AND (v_failed > 0 OR v_canceled > 0 OR v_in_tsq > 0) THEN 'COMPLETED_WITH_FAILURES'
             WHEN v_is_complete THEN 'COMPLETED'
@@ -630,13 +649,14 @@ BEGIN
         started_at = CASE WHEN started_at IS NULL AND (v_completed + v_failed + v_canceled + v_in_tsq + v_in_progress) > 0 THEN NOW() ELSE started_at END
     WHERE domain = p_domain AND batch_id = p_batch_id;
 
-    RETURN QUERY SELECT v_completed, v_failed, v_canceled, v_in_tsq, v_is_complete;
+    RETURN QUERY SELECT v_completed, v_failed, v_canceled, v_in_tsq, v_is_complete, v_duration_ms;
 END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION commandbus.sp_refresh_batch_stats IS
 'Calculate and update batch statistics on demand.
 For PROCESS batches: Handles both STEP_BASED (checks command table for TSQ) and PROCESS_STEP (checks WAITING_FOR_TSQ status).
+Also calculates duration_ms from process_audit timestamps for PROCESS_STEP batches.
 For COMMAND batches: Counts from command table.';
 
 

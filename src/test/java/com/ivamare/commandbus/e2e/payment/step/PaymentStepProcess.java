@@ -33,12 +33,18 @@ import java.util.UUID;
  * execute(state):
  *     step("bookRisk")        // Compensable step
  *     step("bookFx")          // Optional step with compensation
- *     step("submitPayment")   // Submit to network
- *     wait("awaitL1")         // Wait for async L1 response
- *     wait("awaitL2")         // Wait for async L2 response
- *     wait("awaitL3")         // Wait for async L3 response
- *     wait("awaitL4")         // Wait for async L4 response with timeout
+ *     step("submitPayment")   // Submit to network (triggers L1-L4 confirmations)
+ *     wait("awaitL4")         // Wait only for L4 (settlement) - L1-L3 arrive async
  * }</pre>
+ *
+ * <p>Network confirmations (L1-L4):
+ * <ul>
+ *   <li>L1-L4 confirmations arrive asynchronously in potentially random order</li>
+ *   <li>L1-L3 update both process state and Payment entity when received</li>
+ *   <li>L4 (settlement) is the completion trigger - payment status becomes COMPLETE</li>
+ *   <li>L4 failure triggers compensation regardless of L1-L3 status</li>
+ *   <li>L1-L3 can still arrive after L4 and will update Payment entity</li>
+ * </ul>
  *
  * <p>Each step automatically:
  * <ul>
@@ -112,9 +118,6 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
 
     @Override
     protected ExceptionType classifyException(Exception e) {
-        if (e instanceof RiskDeclinedException) {
-            return ExceptionType.TERMINAL;
-        }
         if (e instanceof StepBusinessRuleException) {
             return ExceptionType.BUSINESS;
         }
@@ -143,7 +146,7 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
 
         // Step 2: Book risk (with compensation)
         // Records riskType and riskDecision in state
-        // DECLINED → throws RiskDeclinedException (TERMINAL)
+        // DECLINED → throws StepBusinessRuleException (triggers compensation)
         // PENDING → creates pending_approval record, then we wait for approval
         // APPROVED → continues to next step
         step("bookRisk", StepOptions.<PaymentStepState, String>builder()
@@ -181,42 +184,26 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
         }
 
         // Step 4: Submit to payment network
+        // This triggers the network simulator to start sending L1-L4 confirmations
+        // in potentially random order. L1-L3 update Payment entity directly.
         step("submitPayment", StepOptions.<PaymentStepState, String>builder()
             .action(this::executeSubmission)
             .maxRetries(3)
             .retryDelay(Duration.ofSeconds(2))
             .build());
 
-        // Wait for L1 confirmation (30 seconds for testing, increase for production)
-        wait("awaitL1", () -> state.getL1CompletedAt() != null, Duration.ofSeconds(30));
-        if (state.getL1ErrorCode() != null) {
-            throw new StepBusinessRuleException("L1 failed: " + state.getL1ErrorCode());
-        }
-
-        // Wait for L2 confirmation
-        wait("awaitL2", () -> state.getL2CompletedAt() != null, Duration.ofSeconds(30));
-        if (state.getL2ErrorCode() != null) {
-            throw new StepBusinessRuleException("L2 failed: " + state.getL2ErrorCode());
-        }
-
-        // Wait for L3 confirmation
-        wait("awaitL3", () -> state.getL3CompletedAt() != null, Duration.ofSeconds(30));
-        if (state.getL3ErrorCode() != null) {
-            throw new StepBusinessRuleException("L3 failed: " + state.getL3ErrorCode());
-        }
-
-        // Wait for L4 confirmation (final settlement)
+        // Wait for L4 confirmation only (final settlement)
+        // L1-L3 confirmations arrive asynchronously and update Payment entity directly.
+        // L4 is the completion trigger - when it arrives, Payment status becomes COMPLETE.
         wait("awaitL4", () -> state.getL4CompletedAt() != null, Duration.ofSeconds(30));
         if (state.getL4ErrorCode() != null) {
+            // L4 failure triggers compensation regardless of L1-L3 status
             throw new StepBusinessRuleException("L4 failed: " + state.getL4ErrorCode());
         }
 
-        // Step 5: Update payment status to COMPLETE
-        step("updateStatusComplete", StepOptions.<PaymentStepState, Void>builder()
-            .action(this::updateStatusToComplete)
-            .build());
-
-        log.info("Payment {} completed successfully with all L1-L4 confirmations", state.getPaymentId());
+        // Payment status is already updated to COMPLETE by confirmL4()
+        log.info("Payment {} completed successfully with L4 confirmation (L1-L3 may still be pending)",
+            state.getPaymentId());
     }
 
     // ========== Step Implementations ==========
@@ -237,17 +224,9 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
     }
 
     /**
-     * Update payment status to COMPLETE.
-     */
-    private Void updateStatusToComplete(PaymentStepState state) {
-        updatePaymentStatus(state.getPaymentId(), PaymentStatus.COMPLETE);
-        return null;
-    }
-
-    /**
      * Execute risk booking with assessment.
      * Records riskType and riskDecision in state.
-     * DECLINED → throws RiskDeclinedException (TERMINAL)
+     * DECLINED → throws StepBusinessRuleException (triggers compensation)
      * PENDING → creates pending_approval record for UI
      * APPROVED → returns risk reference
      */
@@ -267,11 +246,10 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             state.getPaymentId(), result.type(), result.decision());
 
         if (result.isDeclined()) {
-            // DECLINED - update payment and throw terminal exception
-            log.info("Risk check DECLINED for payment {} - setting status to FAILED",
+            // DECLINED - throw business exception to trigger compensation
+            log.info("Risk check DECLINED for payment {} - triggering compensation",
                 state.getPaymentId());
-            updatePaymentStatus(state.getPaymentId(), PaymentStatus.FAILED);
-            throw new RiskDeclinedException(
+            throw new StepBusinessRuleException(
                 "Risk assessment declined for payment " + state.getPaymentId());
         }
 
@@ -502,6 +480,147 @@ public class PaymentStepProcess extends TestProcessStepManager<PaymentStepState>
             log.info("L{} {} for process {} (payment {})",
                 level, success ? "approved" : "rejected", processId, state.getPaymentId());
         });
+    }
+
+    // ========== Simple Network Confirmation Methods ==========
+
+    /**
+     * Confirm L1 (acknowledgment) for a payment process.
+     * Updates both process state and Payment entity.
+     *
+     * @param processId The process ID
+     * @param reference The L1 reference from the network
+     */
+    public void confirmL1(UUID processId, String reference) {
+        Instant receivedAt = Instant.now();
+
+        // Update Payment entity (may arrive after process completes)
+        UUID paymentId = getPaymentIdFromProcess(processId);
+        if (paymentId != null) {
+            paymentRepository.updateNetworkConfirmation(paymentId, 1, reference, receivedAt, jdbcTemplate);
+            log.info("Updated Payment {} with L1 confirmation (ref={})", paymentId, reference);
+        }
+
+        // Update process state
+        processAsyncResponse(processId, state -> state.recordL1Success(reference));
+    }
+
+    /**
+     * Report L1 failure for a payment process.
+     *
+     * @param processId The process ID
+     * @param errorCode The error code
+     * @param errorMessage The error message
+     */
+    public void failL1(UUID processId, String errorCode, String errorMessage) {
+        processAsyncResponse(processId, state -> state.recordL1Error(errorCode, errorMessage));
+    }
+
+    /**
+     * Confirm L2 (validation) for a payment process.
+     * Updates both process state and Payment entity.
+     *
+     * @param processId The process ID
+     * @param reference The L2 reference from the network
+     */
+    public void confirmL2(UUID processId, String reference) {
+        Instant receivedAt = Instant.now();
+
+        // Update Payment entity (may arrive after process completes)
+        UUID paymentId = getPaymentIdFromProcess(processId);
+        if (paymentId != null) {
+            paymentRepository.updateNetworkConfirmation(paymentId, 2, reference, receivedAt, jdbcTemplate);
+            log.info("Updated Payment {} with L2 confirmation (ref={})", paymentId, reference);
+        }
+
+        // Update process state
+        processAsyncResponse(processId, state -> state.recordL2Success(reference));
+    }
+
+    /**
+     * Report L2 failure for a payment process.
+     */
+    public void failL2(UUID processId, String errorCode, String errorMessage) {
+        processAsyncResponse(processId, state -> state.recordL2Error(errorCode, errorMessage));
+    }
+
+    /**
+     * Confirm L3 (clearing) for a payment process.
+     * Updates both process state and Payment entity.
+     *
+     * @param processId The process ID
+     * @param reference The L3 reference from the network
+     */
+    public void confirmL3(UUID processId, String reference) {
+        Instant receivedAt = Instant.now();
+
+        // Update Payment entity (may arrive after process completes)
+        UUID paymentId = getPaymentIdFromProcess(processId);
+        if (paymentId != null) {
+            paymentRepository.updateNetworkConfirmation(paymentId, 3, reference, receivedAt, jdbcTemplate);
+            log.info("Updated Payment {} with L3 confirmation (ref={})", paymentId, reference);
+        }
+
+        // Update process state
+        processAsyncResponse(processId, state -> state.recordL3Success(reference));
+    }
+
+    /**
+     * Report L3 failure for a payment process.
+     */
+    public void failL3(UUID processId, String errorCode, String errorMessage) {
+        processAsyncResponse(processId, state -> state.recordL3Error(errorCode, errorMessage));
+    }
+
+    /**
+     * Confirm L4 (settlement) for a payment process.
+     * Updates both process state and Payment entity.
+     * L4 confirmation triggers payment completion (status → COMPLETE).
+     *
+     * @param processId The process ID
+     * @param reference The L4 reference from the network
+     */
+    public void confirmL4(UUID processId, String reference) {
+        Instant receivedAt = Instant.now();
+
+        // Update Payment entity with L4 confirmation and status COMPLETE
+        UUID paymentId = getPaymentIdFromProcess(processId);
+        if (paymentId != null) {
+            paymentRepository.updateNetworkConfirmationAndStatus(
+                paymentId, 4, reference, receivedAt, PaymentStatus.COMPLETE, jdbcTemplate);
+            log.info("Updated Payment {} with L4 confirmation (ref={}) - status COMPLETE", paymentId, reference);
+        }
+
+        // Update process state
+        processAsyncResponse(processId, state -> state.recordL4Success(reference));
+    }
+
+    /**
+     * Report L4 failure for a payment process.
+     */
+    public void failL4(UUID processId, String errorCode, String errorMessage) {
+        processAsyncResponse(processId, state -> state.recordL4Error(errorCode, errorMessage));
+    }
+
+    /**
+     * Get the paymentId from a process by loading its state.
+     * Returns null if process not found or state doesn't have paymentId.
+     */
+    private UUID getPaymentIdFromProcess(UUID processId) {
+        try {
+            return processRepo.getById(getDomain(), processId, jdbcTemplate)
+                .map(process -> {
+                    Object state = process.state();
+                    if (state instanceof PaymentStepState paymentState) {
+                        return paymentState.getPaymentId();
+                    }
+                    return null;
+                })
+                .orElse(null);
+        } catch (Exception e) {
+            log.warn("Failed to get paymentId from process {}: {}", processId, e.getMessage());
+            return null;
+        }
     }
 
     // ========== TSQ Callbacks ==========

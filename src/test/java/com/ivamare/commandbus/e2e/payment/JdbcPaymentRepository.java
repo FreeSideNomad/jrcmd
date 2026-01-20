@@ -32,8 +32,10 @@ public class JdbcPaymentRepository implements PaymentRepository {
             payment_id, action_date, value_date, debit_currency, credit_currency,
             debit_transit, debit_account_number, credit_bic, credit_iban,
             debit_amount, credit_amount, fx_contract_id, fx_rate,
-            status, cutoff_timestamp, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            status, cutoff_timestamp, created_at, updated_at,
+            l1_reference, l1_received_at, l2_reference, l2_received_at,
+            l3_reference, l3_received_at, l4_reference, l4_received_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
     private static final String UPDATE_SQL = """
@@ -41,7 +43,9 @@ public class JdbcPaymentRepository implements PaymentRepository {
             action_date = ?, value_date = ?, debit_currency = ?, credit_currency = ?,
             debit_transit = ?, debit_account_number = ?, credit_bic = ?, credit_iban = ?,
             debit_amount = ?, credit_amount = ?, fx_contract_id = ?, fx_rate = ?,
-            status = ?, cutoff_timestamp = ?, updated_at = ?
+            status = ?, cutoff_timestamp = ?, updated_at = ?,
+            l1_reference = ?, l1_received_at = ?, l2_reference = ?, l2_received_at = ?,
+            l3_reference = ?, l3_received_at = ?, l4_reference = ?, l4_received_at = ?
         WHERE payment_id = ?
         """;
 
@@ -49,7 +53,9 @@ public class JdbcPaymentRepository implements PaymentRepository {
         SELECT payment_id, action_date, value_date, debit_currency, credit_currency,
                debit_transit, debit_account_number, credit_bic, credit_iban,
                debit_amount, credit_amount, fx_contract_id, fx_rate,
-               status, cutoff_timestamp, created_at, updated_at
+               status, cutoff_timestamp, created_at, updated_at,
+               l1_reference, l1_received_at, l2_reference, l2_received_at,
+               l3_reference, l3_received_at, l4_reference, l4_received_at
         FROM e2e.payment
         """;
 
@@ -78,6 +84,14 @@ public class JdbcPaymentRepository implements PaymentRepository {
             .cutoffTimestamp(toInstant(rs.getTimestamp("cutoff_timestamp")))
             .createdAt(toInstant(rs.getTimestamp("created_at")))
             .updatedAt(toInstant(rs.getTimestamp("updated_at")))
+            .l1Reference(rs.getString("l1_reference"))
+            .l1ReceivedAt(toInstant(rs.getTimestamp("l1_received_at")))
+            .l2Reference(rs.getString("l2_reference"))
+            .l2ReceivedAt(toInstant(rs.getTimestamp("l2_received_at")))
+            .l3Reference(rs.getString("l3_reference"))
+            .l3ReceivedAt(toInstant(rs.getTimestamp("l3_received_at")))
+            .l4Reference(rs.getString("l4_reference"))
+            .l4ReceivedAt(toInstant(rs.getTimestamp("l4_received_at")))
             .build();
     }
 
@@ -108,7 +122,15 @@ public class JdbcPaymentRepository implements PaymentRepository {
             payment.status().name(),
             toTimestamp(payment.cutoffTimestamp()),
             toTimestamp(payment.createdAt()),
-            toTimestamp(payment.updatedAt())
+            toTimestamp(payment.updatedAt()),
+            payment.l1Reference(),
+            toTimestamp(payment.l1ReceivedAt()),
+            payment.l2Reference(),
+            toTimestamp(payment.l2ReceivedAt()),
+            payment.l3Reference(),
+            toTimestamp(payment.l3ReceivedAt()),
+            payment.l4Reference(),
+            toTimestamp(payment.l4ReceivedAt())
         );
     }
 
@@ -130,6 +152,14 @@ public class JdbcPaymentRepository implements PaymentRepository {
             payment.status().name(),
             toTimestamp(payment.cutoffTimestamp()),
             toTimestamp(Instant.now()),
+            payment.l1Reference(),
+            toTimestamp(payment.l1ReceivedAt()),
+            payment.l2Reference(),
+            toTimestamp(payment.l2ReceivedAt()),
+            payment.l3Reference(),
+            toTimestamp(payment.l3ReceivedAt()),
+            payment.l4Reference(),
+            toTimestamp(payment.l4ReceivedAt()),
             payment.paymentId()
         );
     }
@@ -211,6 +241,29 @@ public class JdbcPaymentRepository implements PaymentRepository {
             Timestamp.from(Instant.now()),
             paymentId
         );
+    }
+
+    @Override
+    public void updateNetworkConfirmation(UUID paymentId, int level, String reference, Instant receivedAt, JdbcTemplate jdbc) {
+        String refColumn = "l" + level + "_reference";
+        String atColumn = "l" + level + "_received_at";
+        String sql = String.format(
+            "UPDATE e2e.payment SET %s = ?, %s = ?, updated_at = ? WHERE payment_id = ?",
+            refColumn, atColumn
+        );
+        jdbc.update(sql, reference, toTimestamp(receivedAt), Timestamp.from(Instant.now()), paymentId);
+    }
+
+    @Override
+    public void updateNetworkConfirmationAndStatus(UUID paymentId, int level, String reference, Instant receivedAt,
+                                                   PaymentStatus status, JdbcTemplate jdbc) {
+        String refColumn = "l" + level + "_reference";
+        String atColumn = "l" + level + "_received_at";
+        String sql = String.format(
+            "UPDATE e2e.payment SET %s = ?, %s = ?, status = ?, updated_at = ? WHERE payment_id = ?",
+            refColumn, atColumn
+        );
+        jdbc.update(sql, reference, toTimestamp(receivedAt), status.name(), Timestamp.from(Instant.now()), paymentId);
     }
 
     @Override

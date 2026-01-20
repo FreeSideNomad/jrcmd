@@ -29,6 +29,7 @@
                     <th class="text-center">Failed</th>
                     <th class="text-center">In Progress</th>
                     <th>Progress</th>
+                    <th class="text-end">Duration</th>
                 </tr>
             </thead>
             <tbody>
@@ -60,6 +61,10 @@
                                  th:title="${batch.inProgressCount + ' in progress'}">
                             </div>
                         </div>
+                    </td>
+                    <td class="text-end">
+                        <span th:if="${batch.durationFormatted() != null}" th:text="${batch.durationFormatted()}">0ms</span>
+                        <span th:unless="${batch.durationFormatted() != null}" class="text-muted">-</span>
                     </td>
                 </tr>
             </tbody>
