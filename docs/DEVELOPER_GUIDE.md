@@ -92,24 +92,24 @@ flowchart TB
 **ASCII Alternative:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    APPLICATION LAYER                         │
-│  ┌─────────────────────┐    ┌─────────────────────┐        │
-│  │ ProcessStepManager  │───▶│  ProcessStepState   │        │
-│  │   (Your Process)    │    │   (Your State)      │        │
-│  └──────────┬──────────┘    └─────────────────────┘        │
+│                    APPLICATION LAYER                        │
+│  ┌─────────────────────┐    ┌─────────────────────┐         │
+│  │ ProcessStepManager  │───▶│  ProcessStepState   │         │
+│  │   (Your Process)    │    │   (Your State)      │         │
+│  └──────────┬──────────┘    └─────────────────────┘         │
 └─────────────┼───────────────────────────────────────────────┘
               │
 ┌─────────────┼───────────────────────────────────────────────┐
-│             ▼           INFRASTRUCTURE LAYER                 │
-│  ┌─────────────────────┐    ┌─────────────────────┐        │
-│  │ ProcessStepWorker   │───▶│  ProcessRepository  │        │
-│  │   (Polling/Resume)  │    │   (Persistence)     │        │
-│  └─────────────────────┘    └──────────┬──────────┘        │
+│             ▼           INFRASTRUCTURE LAYER                │
+│  ┌─────────────────────┐    ┌─────────────────────┐         │
+│  │ ProcessStepWorker   │───▶│  ProcessRepository  │         │
+│  │   (Polling/Resume)  │    │   (Persistence)     │         │
+│  └─────────────────────┘    └──────────┬──────────┘         │
 │                                        │                    │
-│                              ┌─────────▼─────────┐         │
-│                              │    PostgreSQL     │         │
-│                              │  (process table)  │         │
-│                              └───────────────────┘         │
+│                              ┌─────────▼─────────┐          │
+│                              │    PostgreSQL     │          │
+│                              │  (process table)  │          │
+│                              └───────────────────┘          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -134,7 +134,7 @@ stateDiagram-v2
     EXECUTING --> WAITING_FOR_RETRY: transient error
     EXECUTING --> COMPENSATED: business error
     EXECUTING --> WAITING_FOR_TSQ: permanent error
-    EXECUTING --> FAILED: terminal error
+    EXECUTING --> FAILED: deadline with FAIL action
 
     WAITING_FOR_ASYNC --> EXECUTING: processAsyncResponse()
     WAITING_FOR_ASYNC --> WAITING_FOR_TSQ: timeout expires
@@ -709,7 +709,7 @@ wait("awaitFulfillment", state::isFulfilled, Duration.ofHours(24));
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        wait() Called                             │
+│                        wait() Called                            │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -1026,22 +1026,22 @@ protected DeadlineAction getDeadlineAction() {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ProcessStepWorker                         │
-│                                                              │
-│  ┌─────────────────┐  Every 1s   ┌─────────────────────┐   │
-│  │pollPendingProc. │────────────▶│ Claim PENDING procs │   │
-│  └─────────────────┘             │ Execute with virtual│   │
-│                                  │ threads             │   │
-│  ┌─────────────────┐  Every 5s   └─────────────────────┘   │
-│  │ pollRetries()   │────────────▶ Resume WAITING_FOR_RETRY │
-│  └─────────────────┘             where nextRetryAt <= now  │
-│                                                              │
+│                    ProcessStepWorker                        │
+│                                                             │
+│  ┌─────────────────┐  Every 1s   ┌─────────────────────┐    │
+│  │pollPendingProc. │────────────▶│ Claim PENDING procs │    │
+│  └─────────────────┘             │ Execute with virtual│    │
+│                                  │ threads             │    │
+│  ┌─────────────────┐  Every 5s   └─────────────────────┘    │
+│  │ pollRetries()   │────────────▶ Resume WAITING_FOR_RETRY  │
+│  └─────────────────┘             where nextRetryAt <= now   │
+│                                                             │
 │  ┌─────────────────┐  Every 60s                             │
-│  │checkWaitTimeouts│────────────▶ Move expired waits to TSQ│
+│  │checkWaitTimeouts│────────────▶ Move expired waits to TSQ │
 │  └─────────────────┘                                        │
-│                                                              │
+│                                                             │
 │  ┌─────────────────┐  Every 60s                             │
-│  │ checkDeadlines()│────────────▶ Handle exceeded deadlines│
+│  │ checkDeadlines()│────────────▶ Handle exceeded deadlines │
 │  └─────────────────┘                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -1121,34 +1121,39 @@ This section walks through a production-grade payment workflow. See the full imp
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Payment Workflow                          │
+│                    Payment Workflow                         │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
+│                                                             │
 │  1. updateStatusProcessing ──────────────────▶ PROCESSING   │
 │     └─ compensation: updateStatusCancelled                  │
-│                                                              │
+│                                                             │
 │  2. bookRisk ────────────────────────────────▶ Risk Check   │
 │     ├─ APPROVED → continue                                  │
-│     ├─ DECLINED → throw RiskDeclinedException (BUSINESS)    │
+│     ├─ DECLINED → throw StepBusinessRuleException (BUSINESS)│
 │     └─ PENDING → create PendingApproval record              │
 │        └─ wait("awaitRiskApproval") for manual decision     │
 │     └─ compensation: releaseRiskBooking                     │
-│                                                              │
+│                                                             │
 │  3. bookFx (if needed) ──────────────────────▶ FX Contract  │
 │     └─ compensation: releaseFxBooking                       │
-│                                                              │
+│                                                             │
 │  4. submitPayment ───────────────────────────▶ Network      │
-│     └─ Triggers network simulator for L1-L4                 │
-│                                                              │
-│  5. wait("awaitL1") ─────────────────────────▶ L1 Confirm   │
-│  6. wait("awaitL2") ─────────────────────────▶ L2 Confirm   │
-│  7. wait("awaitL3") ─────────────────────────▶ L3 Confirm   │
-│  8. wait("awaitL4") ─────────────────────────▶ L4 Confirm   │
-│                                                              │
-│  9. updateStatusComplete ────────────────────▶ COMPLETE     │
-│                                                              │
+│     └─ Triggers network simulator for L1-L4 async responses │
+│                                                             │
+│  5. wait("awaitL4") ─────────────────────────▶ L4 Settlement│
+│     └─ L1-L3 arrive async, update Payment entity directly   │
+│     └─ L4 is the completion trigger (Payment → COMPLETE)    │
+│     └─ L4 failure triggers compensation                     │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Network Confirmations (L1-L4):**
+- L1-L4 arrive asynchronously in potentially random order
+- L1-L3 update both process state and Payment entity when received
+- L4 (settlement) is the completion trigger - Payment status becomes COMPLETE
+- L4 failure triggers compensation regardless of L1-L3 status
+- L1-L3 can still arrive after L4 and will update Payment entity
 
 ### Key Patterns Demonstrated
 
