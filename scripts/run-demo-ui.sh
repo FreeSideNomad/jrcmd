@@ -7,8 +7,10 @@
 # using run-demo-workers.sh.
 #
 # Usage:
-#   ./scripts/run-demo-ui.sh           # UI only (default)
-#   ./scripts/run-demo-ui.sh --full    # UI + embedded worker
+#   ./scripts/run-demo-ui.sh              # UI only (default)
+#   ./scripts/run-demo-ui.sh --full       # UI + embedded worker
+#   ./scripts/run-demo-ui.sh --no-docker  # Skip Docker restart
+#   ./scripts/run-demo-ui.sh --full --no-docker
 #
 # The application will be available at http://localhost:8080
 #
@@ -22,15 +24,29 @@ cd "$PROJECT_DIR"
 
 # Parse arguments
 PROFILES="e2e,ui"
-if [ "${1:-}" = "--full" ]; then
-    PROFILES="e2e"
-    echo "Running in full mode (UI + worker)"
-fi
+SKIP_DOCKER=false
 
-# Start PostgreSQL with PGMQ
-echo "Starting PostgreSQL with PGMQ..."
-docker rm -f java-commandbus-postgres 2>/dev/null || true
-docker compose up -d --wait
+for arg in "$@"; do
+    case $arg in
+        --full)
+            PROFILES="e2e"
+            echo "Running in full mode (UI + worker)"
+            ;;
+        --no-docker)
+            SKIP_DOCKER=true
+            echo "Skipping Docker restart"
+            ;;
+    esac
+done
+
+# Start PostgreSQL with PGMQ (unless --no-docker)
+if [ "$SKIP_DOCKER" = false ]; then
+    echo "Starting PostgreSQL with PGMQ..."
+    docker rm -f java-commandbus-postgres 2>/dev/null || true
+    docker compose up -d --wait
+else
+    echo "Using existing PostgreSQL container..."
+fi
 
 # Kill any process running on port 8080
 PORT=8080
