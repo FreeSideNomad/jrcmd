@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    OWASP Dependency Check Suppression File
+
+    This file suppresses FALSE POSITIVES only - never real vulnerabilities.
+    Each suppression must be documented with clear justification.
+
+    Before adding a suppression, verify:
+    1. The CVE does not apply to this library
+    2. The CPE match is incorrect (wrong product/vendor)
+    3. Document why it's a false positive
+-->
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!--
+        FALSE POSITIVE: bucket4j_jdk17-postgresql
+
+        bucket4j is a Java rate limiting library (https://bucket4j.com/).
+        OWASP incorrectly associates PostgreSQL DATABASE SERVER CVEs with this
+        Java library because "postgresql" appears in the artifact name.
+
+        Evidence this is false positive:
+        - bucket4j 8.16.0 released in 2024
+        - CVEs listed are from 2014-2021 for PostgreSQL server
+        - bucket4j is a Java library, not the PostgreSQL database
+        - CPE shows cpe:2.3:a:postgresql:postgresql:8.16.0 which is wrong
+          (treating JAR version as PostgreSQL server version)
+
+        See: https://github.com/jeremylong/DependencyCheck/issues/1529
+             (Similar false positive issue with PostgreSQL JDBC driver)
+    -->
+    <suppress>
+        <notes><![CDATA[
+            False positive: bucket4j_jdk17-postgresql is a Java rate limiting library,
+            not the PostgreSQL database server. The CVEs are for PostgreSQL server
+            vulnerabilities which don't apply to this Java client library.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/com\.bucket4j/bucket4j_jdk17-postgresql@.*$</packageUrl>
+        <cpe>cpe:/a:postgresql:postgresql</cpe>
+    </suppress>
+
+</suppressions>
