@@ -1,5 +1,7 @@
 package com.ivamare.commandbus.process.step;
 
+import com.ivamare.commandbus.CommandBusProperties.ResilienceProperties;
+import com.ivamare.commandbus.exception.DatabaseExceptionClassifier;
 import com.ivamare.commandbus.process.ProcessRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Background worker for ProcessStepManager.
@@ -45,6 +48,13 @@ public class ProcessStepWorker {
     private final int batchSize;
     private final int processingTimeoutSeconds;
 
+    // Resilience configuration
+    private final long initialBackoffMs;
+    private final long maxBackoffMs;
+    private final double backoffMultiplier;
+    private final int errorThreshold;
+    private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
+
     private volatile boolean running = false;
 
     /**
@@ -54,7 +64,7 @@ public class ProcessStepWorker {
      * @param processRepo Process repository for queries
      */
     public ProcessStepWorker(List<ProcessStepManager<?>> processManagers, ProcessRepository processRepo) {
-        this(processManagers, processRepo, DEFAULT_BATCH_SIZE, DEFAULT_PROCESSING_TIMEOUT_SECONDS);
+        this(processManagers, processRepo, DEFAULT_BATCH_SIZE, DEFAULT_PROCESSING_TIMEOUT_SECONDS, new ResilienceProperties());
     }
 
     /**
@@ -67,11 +77,29 @@ public class ProcessStepWorker {
      */
     public ProcessStepWorker(List<ProcessStepManager<?>> processManagers, ProcessRepository processRepo,
                              int batchSize, int processingTimeoutSeconds) {
+        this(processManagers, processRepo, batchSize, processingTimeoutSeconds, new ResilienceProperties());
+    }
+
+    /**
+     * Create a new ProcessStepWorker with custom settings including resilience configuration.
+     *
+     * @param processManagers List of process managers to poll
+     * @param processRepo Process repository for queries
+     * @param batchSize Number of processes to claim per poll (should be proportional to virtual thread capacity)
+     * @param processingTimeoutSeconds Timeout before a claimed process is considered stale
+     * @param resilience Resilience configuration for database error recovery
+     */
+    public ProcessStepWorker(List<ProcessStepManager<?>> processManagers, ProcessRepository processRepo,
+                             int batchSize, int processingTimeoutSeconds, ResilienceProperties resilience) {
         this.processManagers = processManagers;
         this.processRepo = processRepo;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.batchSize = batchSize;
         this.processingTimeoutSeconds = processingTimeoutSeconds;
+        this.initialBackoffMs = resilience.getInitialBackoffMs();
+        this.maxBackoffMs = resilience.getMaxBackoffMs();
+        this.backoffMultiplier = resilience.getBackoffMultiplier();
+        this.errorThreshold = resilience.getErrorThreshold();
     }
 
     /**
@@ -130,6 +158,8 @@ public class ProcessStepWorker {
                 List<UUID> claimedProcesses = processRepo.claimPendingProcesses(
                     pm.getDomain(), pm.getProcessType(), batchSize);
 
+                consecutiveErrors.set(0);  // Reset on success
+
                 if (claimedProcesses.isEmpty()) {
                     log.trace("No pending processes found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
@@ -142,7 +172,7 @@ public class ProcessStepWorker {
                     virtualThreadExecutor.submit(() -> executeProcess(pm, processId, "pending"));
                 }
             } catch (Exception e) {
-                log.error("Error polling pending processes for domain {}: {}", pm.getDomain(), e.getMessage());
+                handlePollError("pollPendingProcesses", pm.getDomain(), e);
             }
         }
     }
@@ -168,6 +198,8 @@ public class ProcessStepWorker {
                 List<UUID> claimedProcesses = processRepo.claimDueForRetry(
                     pm.getDomain(), pm.getProcessType(), Instant.now(), batchSize);
 
+                consecutiveErrors.set(0);  // Reset on success
+
                 if (claimedProcesses.isEmpty()) {
                     log.trace("No retry-due processes found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
@@ -180,7 +212,7 @@ public class ProcessStepWorker {
                     virtualThreadExecutor.submit(() -> executeProcess(pm, processId, "retry"));
                 }
             } catch (Exception e) {
-                log.error("Error polling retries for domain {}: {}", pm.getDomain(), e.getMessage());
+                handlePollError("pollRetries", pm.getDomain(), e);
             }
         }
     }
@@ -204,6 +236,8 @@ public class ProcessStepWorker {
                 List<UUID> expiredProcesses = processRepo.findExpiredWaits(
                     pm.getDomain(), pm.getProcessType(), now);
 
+                consecutiveErrors.set(0);  // Reset on success
+
                 if (expiredProcesses.isEmpty()) {
                     log.trace("No expired wait timeouts found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
@@ -216,7 +250,7 @@ public class ProcessStepWorker {
                     virtualThreadExecutor.submit(() -> handleTimeout(pm, processId));
                 }
             } catch (Exception e) {
-                log.error("Error checking wait timeouts for domain {}: {}", pm.getDomain(), e.getMessage());
+                handlePollError("checkWaitTimeouts", pm.getDomain(), e);
             }
         }
     }
@@ -240,6 +274,8 @@ public class ProcessStepWorker {
                 List<UUID> expiredProcesses = processRepo.findExpiredDeadlines(
                     pm.getDomain(), pm.getProcessType(), now);
 
+                consecutiveErrors.set(0);  // Reset on success
+
                 if (expiredProcesses.isEmpty()) {
                     log.trace("No expired deadlines found for {} (type={})",
                         pm.getDomain(), pm.getProcessType());
@@ -252,12 +288,71 @@ public class ProcessStepWorker {
                     virtualThreadExecutor.submit(() -> handleDeadline(pm, processId));
                 }
             } catch (Exception e) {
-                log.error("Error checking deadlines for domain {}: {}", pm.getDomain(), e.getMessage());
+                handlePollError("checkDeadlines", pm.getDomain(), e);
             }
         }
     }
 
+    /**
+     * Get the current consecutive error count.
+     * Useful for monitoring and testing.
+     *
+     * @return current consecutive error count
+     */
+    public int getConsecutiveErrorCount() {
+        return consecutiveErrors.get();
+    }
+
     // ========== Internal Methods ==========
+
+    /**
+     * Handle poll errors with exponential backoff for transient database errors.
+     */
+    private void handlePollError(String operation, String domain, Exception e) {
+        int errors = consecutiveErrors.incrementAndGet();
+
+        if (DatabaseExceptionClassifier.isTransient(e)) {
+            long backoff = calculateBackoff(errors);
+            String reason = DatabaseExceptionClassifier.getTransientReason(e);
+
+            if (errors >= errorThreshold) {
+                log.error("ProcessStepWorker {} database error (domain={}, count={}, reason={}), backing off {}ms: {}",
+                    operation, domain, errors, reason, backoff, e.getMessage());
+            } else {
+                log.warn("ProcessStepWorker {} database error (domain={}, count={}, reason={}), backing off {}ms: {}",
+                    operation, domain, errors, reason, backoff, e.getMessage());
+            }
+
+            sleep(backoff);
+        } else {
+            log.error("ProcessStepWorker {} non-transient error for domain {}: {}",
+                operation, domain, e.getMessage());
+        }
+    }
+
+    /**
+     * Calculate exponential backoff delay with jitter.
+     */
+    private long calculateBackoff(int errorCount) {
+        if (errorCount <= 0) {
+            return initialBackoffMs;
+        }
+        double delay = initialBackoffMs * Math.pow(backoffMultiplier, errorCount - 1);
+        // Add jitter: +/- 10%
+        double jitter = delay * 0.1 * (Math.random() * 2 - 1);
+        return Math.min((long) (delay + jitter), maxBackoffMs);
+    }
+
+    /**
+     * Sleep for the specified duration, ignoring interrupts.
+     */
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private void executeProcess(ProcessStepManager<?> pm, UUID processId, String reason) {
         try {

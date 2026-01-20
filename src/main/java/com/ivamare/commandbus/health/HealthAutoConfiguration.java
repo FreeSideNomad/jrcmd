@@ -8,6 +8,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
+
 /**
  * Auto-configuration for Command Bus health indicators.
  */
@@ -18,7 +20,7 @@ public class HealthAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(CommandBusHealthIndicator.class)
-    public CommandBusHealthIndicator commandBusHealthIndicator(JdbcTemplate jdbcTemplate) {
-        return new CommandBusHealthIndicator(jdbcTemplate);
+    public CommandBusHealthIndicator commandBusHealthIndicator(JdbcTemplate jdbcTemplate, DataSource dataSource) {
+        return new CommandBusHealthIndicator(jdbcTemplate, dataSource);
     }
 }

@@ -10,6 +10,7 @@ import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
 import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
+import com.ivamare.commandbus.exception.DatabaseExceptionClassifier;
 import com.ivamare.commandbus.process.step.exceptions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,13 +160,14 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
      * @return The exception type (TRANSIENT, BUSINESS, or PERMANENT)
      */
     protected ExceptionType classifyException(Exception e) {
-        if (e instanceof TerminalFailureException) {
-            return ExceptionType.TERMINAL;
-        }
         if (e instanceof StepBusinessRuleException) {
             return ExceptionType.BUSINESS;
         }
         if (e instanceof RateLimitExceededException) {
+            return ExceptionType.TRANSIENT;
+        }
+        // Classify database/connection errors as transient for retry
+        if (DatabaseExceptionClassifier.isTransient(e)) {
             return ExceptionType.TRANSIENT;
         }
         // Default: fail fast to TSQ
@@ -284,7 +286,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
 
             // Load current state
             TState state = loadState(processId);
-
             // Apply the state update
             stateUpdater.accept(state);
 
@@ -939,21 +940,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                     log.info("Process {} compensated successfully", processId);
                 }
 
-                case TERMINAL -> {
-                    // Terminal failure - no recovery possible, no compensations
-                    log.error("Process {} terminal failure: {}", processId, e.getMessage());
-
-                    ctx.recordError("TERMINAL_FAILURE", e.getMessage());
-                    persistState(processId, state);
-
-                    processRepo.updateStateAtomicStep(
-                        getDomain(), processId, null,
-                        null, ProcessStatus.FAILED.name(),
-                        "TERMINAL_FAILURE", e.getMessage(), null, null, null,
-                        jdbcTemplate
-                    );
-                }
-
                 case PERMANENT, TRANSIENT -> {
                     // Permanent or transient error - move to TSQ for operator review
                     // (Transient at execute level has no retry mechanism, so TSQ)
@@ -1038,25 +1024,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
                 );
 
                 throw new StepFailedException(name, "BUSINESS_RULE", e.getMessage(), e);
-            }
-
-            case TERMINAL -> {
-                // Terminal failure - FAILED status, no compensations
-                String errorCode = e instanceof TerminalFailureException tfe
-                    ? tfe.getErrorCode() : "TERMINAL_FAILURE";
-                ctx.recordStepFailed(name, errorCode, e.getMessage());
-                persistState(ctx.processId(), state);
-                // Log failure to audit trail
-                logStepFailure(ctx.processId(), name, startedAt, errorCode, e.getMessage());
-
-                processRepo.updateStateAtomicStep(
-                    getDomain(), ctx.processId(), null,
-                    null, ProcessStatus.FAILED.name(),
-                    errorCode, e.getMessage(), null, null, null,
-                    jdbcTemplate
-                );
-
-                throw new StepFailedException(name, errorCode, e.getMessage(), e);
             }
 
             case PERMANENT -> {

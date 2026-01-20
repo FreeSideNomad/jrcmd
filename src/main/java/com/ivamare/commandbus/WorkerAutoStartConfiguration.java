@@ -89,6 +89,7 @@ public class WorkerAutoStartConfiguration {
                 .concurrency(wp.getConcurrency())
                 .useNotify(wp.isUseNotify())
                 .retryPolicy(retryPolicy)
+                .resilience(wp.getResilience())
                 .build();
 
             worker.start();

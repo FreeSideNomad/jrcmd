@@ -71,6 +71,16 @@ public interface Worker {
     String domain();
 
     /**
+     * Get the current consecutive database error count.
+     *
+     * <p>This counter tracks connection/database errors for resilience monitoring.
+     * It resets to 0 on successful operations.
+     *
+     * @return consecutive error count (0 means healthy)
+     */
+    int getConsecutiveErrorCount();
+
+    /**
      * Create a new worker builder.
      *
      * @return new builder instance

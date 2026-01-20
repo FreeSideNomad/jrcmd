@@ -1,5 +1,7 @@
 package com.ivamare.commandbus.process;
 
+import com.ivamare.commandbus.CommandBusProperties.ResilienceProperties;
+import com.ivamare.commandbus.exception.DatabaseExceptionClassifier;
 import com.ivamare.commandbus.model.PgmqMessage;
 import com.ivamare.commandbus.model.Reply;
 import com.ivamare.commandbus.model.ReplyOutcome;
@@ -47,6 +49,13 @@ public class ProcessReplyRouter {
     private final boolean useNotify;
     private final boolean archiveMessages;
 
+    // Resilience configuration
+    private final long initialBackoffMs;
+    private final long maxBackoffMs;
+    private final double backoffMultiplier;
+    private final int errorThreshold;
+    private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
+
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicInteger inFlightCount = new AtomicInteger(0);
@@ -54,6 +63,9 @@ public class ProcessReplyRouter {
 
     private ExecutorService executor;
 
+    /**
+     * Create a ProcessReplyRouter with default resilience settings.
+     */
     public ProcessReplyRouter(
             DataSource dataSource,
             JdbcTemplate jdbcTemplate,
@@ -68,6 +80,29 @@ public class ProcessReplyRouter {
             long pollIntervalMs,
             boolean useNotify,
             boolean archiveMessages) {
+        this(dataSource, jdbcTemplate, transactionTemplate, processRepo, managers,
+             pgmqClient, replyQueue, domain, visibilityTimeout, concurrency,
+             pollIntervalMs, useNotify, archiveMessages, new ResilienceProperties());
+    }
+
+    /**
+     * Create a ProcessReplyRouter with custom resilience settings.
+     */
+    public ProcessReplyRouter(
+            DataSource dataSource,
+            JdbcTemplate jdbcTemplate,
+            TransactionTemplate transactionTemplate,
+            ProcessRepository processRepo,
+            Map<String, BaseProcessManager<?, ?>> managers,
+            PgmqClient pgmqClient,
+            String replyQueue,
+            String domain,
+            int visibilityTimeout,
+            int concurrency,
+            long pollIntervalMs,
+            boolean useNotify,
+            boolean archiveMessages,
+            ResilienceProperties resilience) {
         this.dataSource = dataSource;
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
@@ -81,6 +116,10 @@ public class ProcessReplyRouter {
         this.pollIntervalMs = pollIntervalMs;
         this.useNotify = useNotify;
         this.archiveMessages = archiveMessages;
+        this.initialBackoffMs = resilience.getInitialBackoffMs();
+        this.maxBackoffMs = resilience.getMaxBackoffMs();
+        this.backoffMultiplier = resilience.getBackoffMultiplier();
+        this.errorThreshold = resilience.getErrorThreshold();
         this.semaphore = new Semaphore(concurrency);
     }
 
@@ -177,45 +216,89 @@ public class ProcessReplyRouter {
             } else {
                 runWithPolling();
             }
-        } catch (Exception e) {
-            if (!stopping.get()) {
-                log.error("Reply router crashed for {}", replyQueue, e);
-            }
         } finally {
             running.set(false);
             log.debug("Reply router loop ended for {}", replyQueue);
         }
     }
 
-    private void runWithNotify() throws SQLException, InterruptedException {
+    private void runWithNotify() {
         String channel = QueueNames.notifyChannel(replyQueue);
 
-        try (Connection listenConn = dataSource.getConnection()) {
-            listenConn.setAutoCommit(true);
+        while (running.get() && !stopping.get()) {
+            try (Connection listenConn = dataSource.getConnection()) {
+                listenConn.setAutoCommit(true);
 
-            try (var stmt = listenConn.createStatement()) {
-                stmt.execute("LISTEN " + channel);
-            }
-            log.debug("Listening on channel {}", channel);
+                try (var stmt = listenConn.createStatement()) {
+                    stmt.execute("LISTEN " + channel);
+                }
 
-            PGConnection pgConn = listenConn.unwrap(PGConnection.class);
+                consecutiveErrors.set(0);  // Reset on successful connection
+                log.debug("Listening on channel {}", channel);
 
-            while (running.get() && !stopping.get()) {
-                drainQueue();
+                PGConnection pgConn = listenConn.unwrap(PGConnection.class);
+
+                while (running.get() && !stopping.get()) {
+                    try {
+                        drainQueue();
+                        if (stopping.get()) return;
+
+                        // Wait for notification or timeout
+                        pgConn.getNotifications((int) pollIntervalMs);
+                    } catch (Exception e) {
+                        if (stopping.get()) return;
+                        if (DatabaseExceptionClassifier.isTransient(e)) {
+                            // Connection likely dead, break to outer loop to reconnect
+                            throw e;
+                        }
+                        // Non-transient error in message processing, log but continue
+                        log.error("Reply router error processing messages for {}: {}",
+                            replyQueue, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
                 if (stopping.get()) return;
 
-                // Wait for notification or timeout
-                pgConn.getNotifications((int) pollIntervalMs);
+                int errors = consecutiveErrors.incrementAndGet();
+                long backoff = calculateBackoff(errors);
+
+                if (DatabaseExceptionClassifier.isTransient(e)) {
+                    String reason = DatabaseExceptionClassifier.getTransientReason(e);
+                    logConnectionError(errors, backoff, reason, e);
+                } else {
+                    log.error("Reply router non-transient error for {}: {}",
+                        replyQueue, e.getMessage());
+                }
+
+                sleep(backoff);
             }
         }
     }
 
-    private void runWithPolling() throws InterruptedException {
+    private void runWithPolling() {
         while (running.get() && !stopping.get()) {
-            drainQueue();
-            if (stopping.get()) return;
+            try {
+                drainQueue();
+                consecutiveErrors.set(0);  // Reset on success
+                if (stopping.get()) return;
 
-            Thread.sleep(pollIntervalMs);
+                sleep(pollIntervalMs);
+            } catch (Exception e) {
+                if (stopping.get()) return;
+
+                int errors = consecutiveErrors.incrementAndGet();
+                long backoff = calculateBackoff(errors);
+
+                if (DatabaseExceptionClassifier.isTransient(e)) {
+                    String reason = DatabaseExceptionClassifier.getTransientReason(e);
+                    logConnectionError(errors, backoff, reason, e);
+                } else {
+                    log.error("Reply router non-transient error for {}: {}",
+                        replyQueue, e.getMessage());
+                }
+
+                sleep(backoff);
+            }
         }
     }
 
@@ -355,6 +438,55 @@ public class ProcessReplyRouter {
             pgmqClient.archive(replyQueue, msgId);
         } else {
             pgmqClient.delete(replyQueue, msgId);
+        }
+    }
+
+    // ========== Resilience Methods ==========
+
+    /**
+     * Get the current consecutive error count.
+     * Useful for monitoring and testing.
+     *
+     * @return current consecutive error count
+     */
+    public int getConsecutiveErrorCount() {
+        return consecutiveErrors.get();
+    }
+
+    /**
+     * Calculate exponential backoff delay with jitter.
+     */
+    private long calculateBackoff(int errorCount) {
+        if (errorCount <= 0) {
+            return initialBackoffMs;
+        }
+        double delay = initialBackoffMs * Math.pow(backoffMultiplier, errorCount - 1);
+        // Add jitter: +/- 10%
+        double jitter = delay * 0.1 * (Math.random() * 2 - 1);
+        return Math.min((long) (delay + jitter), maxBackoffMs);
+    }
+
+    /**
+     * Log connection error with appropriate level based on error count.
+     */
+    private void logConnectionError(int errorCount, long backoffMs, String reason, Exception e) {
+        if (errorCount >= errorThreshold) {
+            log.error("Reply router {} database error (count={}, reason={}), reconnecting in {}ms: {}",
+                replyQueue, errorCount, reason, backoffMs, e.getMessage());
+        } else {
+            log.warn("Reply router {} database error (count={}, reason={}), reconnecting in {}ms: {}",
+                replyQueue, errorCount, reason, backoffMs, e.getMessage());
+        }
+    }
+
+    /**
+     * Sleep for the specified duration, ignoring interrupts.
+     */
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 }

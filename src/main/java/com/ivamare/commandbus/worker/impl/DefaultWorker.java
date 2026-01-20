@@ -1,6 +1,8 @@
 package com.ivamare.commandbus.worker.impl;
 
+import com.ivamare.commandbus.CommandBusProperties.ResilienceProperties;
 import com.ivamare.commandbus.exception.BusinessRuleException;
+import com.ivamare.commandbus.exception.DatabaseExceptionClassifier;
 import com.ivamare.commandbus.exception.PermanentCommandException;
 import com.ivamare.commandbus.exception.TransientCommandException;
 import com.ivamare.commandbus.handler.HandlerRegistry;
@@ -52,12 +54,19 @@ public class DefaultWorker implements Worker {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicInteger inFlightCount = new AtomicInteger(0);
+    private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
     private final Semaphore semaphore;
+
+    // Resilience configuration
+    private final long initialBackoffMs;
+    private final long maxBackoffMs;
+    private final double backoffMultiplier;
+    private final int errorThreshold;
 
     private ExecutorService executor;
 
     /**
-     * Creates a new DefaultWorker.
+     * Creates a new DefaultWorker with default resilience settings.
      *
      * @param jdbcTemplate JDBC template for database operations
      * @param dataSource DataSource for LISTEN connection (can be null if useNotify is false)
@@ -92,8 +101,51 @@ public class DefaultWorker implements Worker {
             concurrency,
             useNotify,
             retryPolicy,
+            new ResilienceProperties()
+        );
+    }
+
+    /**
+     * Creates a new DefaultWorker with custom resilience settings.
+     *
+     * @param jdbcTemplate JDBC template for database operations
+     * @param dataSource DataSource for LISTEN connection (can be null if useNotify is false)
+     * @param objectMapper Object mapper for JSON serialization
+     * @param domain Domain to process commands for
+     * @param handlerRegistry Registry of command handlers
+     * @param visibilityTimeout Visibility timeout in seconds
+     * @param pollIntervalMs Poll interval in milliseconds
+     * @param concurrency Number of concurrent handlers
+     * @param useNotify Whether to use PostgreSQL NOTIFY
+     * @param retryPolicy Retry policy for failed commands
+     * @param resilience Resilience configuration for database error recovery
+     */
+    public DefaultWorker(
+            JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
+            ObjectMapper objectMapper,
+            String domain,
+            HandlerRegistry handlerRegistry,
+            int visibilityTimeout,
+            int pollIntervalMs,
+            int concurrency,
+            boolean useNotify,
+            RetryPolicy retryPolicy,
+            ResilienceProperties resilience) {
+        this(
+            jdbcTemplate,
+            dataSource,
+            objectMapper,
+            domain,
+            handlerRegistry,
+            visibilityTimeout,
+            pollIntervalMs,
+            concurrency,
+            useNotify,
+            retryPolicy,
             new JdbcPgmqClient(jdbcTemplate, objectMapper),
-            new JdbcCommandRepository(jdbcTemplate)
+            new JdbcCommandRepository(jdbcTemplate),
+            resilience
         );
     }
 
@@ -126,6 +178,54 @@ public class DefaultWorker implements Worker {
             RetryPolicy retryPolicy,
             PgmqClient pgmqClient,
             CommandRepository commandRepository) {
+        this(
+            jdbcTemplate,
+            dataSource,
+            objectMapper,
+            domain,
+            handlerRegistry,
+            visibilityTimeout,
+            pollIntervalMs,
+            concurrency,
+            useNotify,
+            retryPolicy,
+            pgmqClient,
+            commandRepository,
+            new ResilienceProperties()
+        );
+    }
+
+    /**
+     * Creates a new DefaultWorker with injectable dependencies and resilience config (for testing).
+     *
+     * @param jdbcTemplate JDBC template for database operations
+     * @param dataSource DataSource for LISTEN connection (can be null if useNotify is false)
+     * @param objectMapper Object mapper for JSON serialization
+     * @param domain Domain to process commands for
+     * @param handlerRegistry Registry of command handlers
+     * @param visibilityTimeout Visibility timeout in seconds
+     * @param pollIntervalMs Poll interval in milliseconds
+     * @param concurrency Number of concurrent handlers
+     * @param useNotify Whether to use PostgreSQL NOTIFY
+     * @param retryPolicy Retry policy for failed commands
+     * @param pgmqClient PGMQ client
+     * @param commandRepository Command repository
+     * @param resilience Resilience configuration for database error recovery
+     */
+    public DefaultWorker(
+            JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
+            ObjectMapper objectMapper,
+            String domain,
+            HandlerRegistry handlerRegistry,
+            int visibilityTimeout,
+            int pollIntervalMs,
+            int concurrency,
+            boolean useNotify,
+            RetryPolicy retryPolicy,
+            PgmqClient pgmqClient,
+            CommandRepository commandRepository,
+            ResilienceProperties resilience) {
 
         this.jdbcTemplate = jdbcTemplate;
         this.dataSource = dataSource;
@@ -143,6 +243,12 @@ public class DefaultWorker implements Worker {
         this.commandRepository = commandRepository;
 
         this.semaphore = new Semaphore(concurrency);
+
+        // Resilience configuration
+        this.initialBackoffMs = resilience.getInitialBackoffMs();
+        this.maxBackoffMs = resilience.getMaxBackoffMs();
+        this.backoffMultiplier = resilience.getBackoffMultiplier();
+        this.errorThreshold = resilience.getErrorThreshold();
     }
 
     @Override
@@ -221,6 +327,11 @@ public class DefaultWorker implements Worker {
         return domain;
     }
 
+    @Override
+    public int getConsecutiveErrorCount() {
+        return consecutiveErrors.get();
+    }
+
     // --- Main Processing Loop ---
 
     private void runLoop() {
@@ -242,25 +353,61 @@ public class DefaultWorker implements Worker {
         }
     }
 
-    private void runWithNotify() throws SQLException, InterruptedException {
+    private void runWithNotify() {
         String channel = QueueNames.notifyChannel(queueName);
+        log.info("Worker for {} using NOTIFY mode, listening on channel {}", domain, channel);
 
-        try (Connection listenConn = dataSource.getConnection()) {
-            listenConn.setAutoCommit(true);
+        // Outer loop handles reconnection on connection loss
+        while (running.get() && !stopping.get()) {
+            try (Connection listenConn = dataSource.getConnection()) {
+                listenConn.setAutoCommit(true);
 
-            try (var stmt = listenConn.createStatement()) {
-                stmt.execute("LISTEN " + channel);
-            }
-            log.info("Worker for {} using NOTIFY mode, listening on channel {}", domain, channel);
+                try (var stmt = listenConn.createStatement()) {
+                    stmt.execute("LISTEN " + channel);
+                }
+                log.debug("Worker for {} established LISTEN connection on channel {}", domain, channel);
+                consecutiveErrors.set(0);  // Reset on successful connection
 
-            PGConnection pgConn = listenConn.unwrap(PGConnection.class);
+                PGConnection pgConn = listenConn.unwrap(PGConnection.class);
 
-            while (running.get() && !stopping.get()) {
-                drainQueue();
-                if (stopping.get()) return;
+                // Inner loop processes messages until connection lost
+                while (running.get() && !stopping.get()) {
+                    try {
+                        drainQueue();
+                        consecutiveErrors.set(0);  // Reset on successful operation
+                    } catch (Exception e) {
+                        if (DatabaseExceptionClassifier.isTransient(e)) {
+                            // Connection issue - break inner loop to reconnect
+                            throw e;
+                        }
+                        // Non-transient error in drainQueue - log and continue
+                        log.error("Non-transient error in drainQueue for {}: {}", domain, e.getMessage());
+                    }
+                    if (stopping.get()) return;
 
-                // Wait for notification or timeout (pollIntervalMs as max wait)
-                pgConn.getNotifications(pollIntervalMs);
+                    // Wait for notification or timeout (pollIntervalMs as max wait)
+                    pgConn.getNotifications(pollIntervalMs);
+                }
+            } catch (SQLException e) {
+                if (!stopping.get()) {
+                    int errors = consecutiveErrors.incrementAndGet();
+                    long backoff = calculateBackoff(errors);
+                    logConnectionError(errors, backoff, e);
+                    sleep(backoff);
+                }
+            } catch (Exception e) {
+                if (!stopping.get()) {
+                    if (DatabaseExceptionClassifier.isTransient(e)) {
+                        int errors = consecutiveErrors.incrementAndGet();
+                        long backoff = calculateBackoff(errors);
+                        logConnectionError(errors, backoff, e);
+                        sleep(backoff);
+                    } else {
+                        log.error("Non-transient error in NOTIFY loop for {}", domain, e);
+                        // Still back off to avoid tight error loop
+                        sleep(calculateBackoff(consecutiveErrors.incrementAndGet()));
+                    }
+                }
             }
         }
     }
@@ -271,15 +418,54 @@ public class DefaultWorker implements Worker {
         while (running.get() && !stopping.get()) {
             try {
                 drainQueue();
+                consecutiveErrors.set(0);  // Reset on success
                 if (stopping.get()) return;
 
                 sleep(pollIntervalMs);
             } catch (Exception e) {
                 if (!stopping.get()) {
-                    log.error("Error in worker loop for {}", domain, e);
-                    sleep(1000); // Back off on error
+                    int errors = consecutiveErrors.incrementAndGet();
+                    long backoff = calculateBackoff(errors);
+
+                    if (DatabaseExceptionClassifier.isTransient(e)) {
+                        logConnectionError(errors, backoff, e);
+                    } else {
+                        log.error("Non-transient error in worker loop for {}: {}", domain, e.getMessage());
+                    }
+
+                    sleep(backoff);
                 }
             }
+        }
+    }
+
+    /**
+     * Calculate exponential backoff delay with jitter.
+     *
+     * @param errorCount consecutive error count (1-based)
+     * @return delay in milliseconds
+     */
+    private long calculateBackoff(int errorCount) {
+        if (errorCount <= 0) {
+            return initialBackoffMs;
+        }
+        double delay = initialBackoffMs * Math.pow(backoffMultiplier, errorCount - 1);
+        // Add jitter: +/- 10%
+        double jitter = delay * 0.1 * (Math.random() * 2 - 1);
+        return Math.min((long) (delay + jitter), maxBackoffMs);
+    }
+
+    /**
+     * Log connection error with appropriate level based on error count.
+     */
+    private void logConnectionError(int errorCount, long backoffMs, Exception e) {
+        String reason = DatabaseExceptionClassifier.getTransientReason(e);
+        String message = "Worker {} database error (count={}, reason={}), backing off {}ms: {}";
+
+        if (errorCount >= errorThreshold) {
+            log.error(message, domain, errorCount, reason, backoffMs, e.getMessage());
+        } else {
+            log.warn(message, domain, errorCount, reason, backoffMs, e.getMessage());
         }
     }
 

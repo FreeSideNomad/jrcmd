@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
@@ -53,6 +55,11 @@ class HealthAutoConfigurationTest {
         @Bean
         public JdbcTemplate jdbcTemplate() {
             return mock(JdbcTemplate.class);
+        }
+
+        @Bean
+        public DataSource dataSource() {
+            return mock(DataSource.class);
         }
     }
 
