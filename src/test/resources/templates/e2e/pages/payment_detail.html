@@ -58,6 +58,15 @@
 
                         <dt class="col-sm-4">Cutoff</dt>
                         <dd class="col-sm-8" th:text="${#temporals.format(payment.cutoffTimestamp, 'yyyy-MM-dd HH:mm:ss')}">time</dd>
+
+                        <dt class="col-sm-4">Payment Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge"
+                                  th:classappend="${payment.paymentStatus.name() == 'COMPLETE'} ? 'bg-success' :
+                                                  (${payment.paymentStatus.name() == 'FAILED' or payment.paymentStatus.name() == 'CANCELLED'} ? 'bg-danger' :
+                                                  (${payment.paymentStatus.name() == 'PENDING'} ? 'bg-secondary' : 'bg-primary'))"
+                                  th:text="${payment.paymentStatus}">STATUS</span>
+                        </dd>
                     </dl>
                 </div>
             </div>

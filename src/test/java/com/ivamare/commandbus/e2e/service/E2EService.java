@@ -221,24 +221,30 @@ public class E2EService {
     public List<TsqProcessView> getTsqProcesses(String domain, int limit, int offset) {
         String sql = """
             SELECT process_id, domain, process_type, current_step, current_wait,
-                   error_code, error_message, created_at, updated_at
+                   error_code, error_message, created_at, updated_at,
+                   COALESCE(state->>'paymentId', state->>'payment_id') as payment_id
             FROM commandbus.process
             WHERE domain = ? AND status = 'WAITING_FOR_TSQ'
             ORDER BY updated_at DESC
             LIMIT ? OFFSET ?
             """;
 
-        return jdbcTemplate.query(sql, (rs, rowNum) -> new TsqProcessView(
-            UUID.fromString(rs.getString("process_id")),
-            rs.getString("domain"),
-            rs.getString("process_type"),
-            rs.getString("current_step"),
-            rs.getString("current_wait"),
-            rs.getString("error_code"),
-            rs.getString("error_message"),
-            rs.getTimestamp("created_at").toInstant(),
-            rs.getTimestamp("updated_at").toInstant()
-        ), domain, limit, offset);
+        return jdbcTemplate.query(sql, (rs, rowNum) -> {
+            String paymentIdStr = rs.getString("payment_id");
+            UUID paymentId = paymentIdStr != null ? UUID.fromString(paymentIdStr) : null;
+            return new TsqProcessView(
+                UUID.fromString(rs.getString("process_id")),
+                rs.getString("domain"),
+                rs.getString("process_type"),
+                rs.getString("current_step"),
+                rs.getString("current_wait"),
+                rs.getString("error_code"),
+                rs.getString("error_message"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant(),
+                paymentId
+            );
+        }, domain, limit, offset);
     }
 
     /**
@@ -1048,7 +1054,7 @@ public class E2EService {
                 .debitCurrency(request.debitCurrency())
                 .creditCurrency(request.creditCurrency())
                 .valueDate(request.valueDate())
-                .cutoffTimestamp(Instant.now().plus(request.cutoffHours(), ChronoUnit.HOURS))
+                .cutoffTimestamp(Instant.now().plus(Math.round(request.cutoffHours() * 60), ChronoUnit.MINUTES))
                 .build();
 
             payments.add(payment);
@@ -1079,8 +1085,9 @@ public class E2EService {
     }
 
     /**
-     * Get all payment batches with statistics.
+     * Get all payment batches with statistics and duration.
      * Uses batch_id column for efficient joining (supports both PROCESS_STEP and COMMAND_BASED).
+     * Duration is calculated from process_audit timestamps for STEP_BASED batches.
      */
     @Transactional(readOnly = true)
     public List<PaymentBatchListItem> getPaymentBatches(int limit, int offset) {
@@ -1089,7 +1096,13 @@ public class E2EService {
                 b.batch_id, b.name, b.total_count, b.created_at,
                 COUNT(*) FILTER (WHERE ps.status = 'COMPLETED') as completed_count,
                 COUNT(*) FILTER (WHERE ps.status IN ('FAILED', 'COMPENSATED', 'CANCELED')) as failed_count,
-                COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress_count
+                COUNT(*) FILTER (WHERE ps.status IN ('IN_PROGRESS', 'WAITING_FOR_REPLY', 'WAITING_FOR_TSQ', 'PENDING')) as in_progress_count,
+                (SELECT EXTRACT(EPOCH FROM (MAX(pa.sent_at) - MIN(pa.sent_at))) * 1000.0
+                 FROM commandbus.process_audit pa
+                 JOIN commandbus.process p ON pa.domain = p.domain AND pa.process_id = p.process_id
+                 WHERE p.batch_id = b.batch_id
+                   AND p.execution_model = 'PROCESS_STEP'
+                   AND pa.sent_at IS NOT NULL) as duration_ms
             FROM e2e.payment_batch b
             LEFT JOIN commandbus.process ps ON ps.batch_id = b.batch_id
             GROUP BY b.batch_id, b.name, b.total_count, b.created_at
@@ -1104,12 +1117,13 @@ public class E2EService {
             rs.getInt("completed_count"),
             rs.getInt("failed_count"),
             rs.getInt("in_progress_count"),
-            rs.getTimestamp("created_at").toInstant()
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getObject("duration_ms") != null ? rs.getDouble("duration_ms") : null
         ), limit, offset);
     }
 
     /**
-     * Payment batch list item with statistics.
+     * Payment batch list item with statistics and duration.
      */
     public record PaymentBatchListItem(
         UUID batchId,
@@ -1118,8 +1132,17 @@ public class E2EService {
         int completedCount,
         int failedCount,
         int inProgressCount,
-        Instant createdAt
-    ) {}
+        Instant createdAt,
+        Double durationMs
+    ) {
+        /**
+         * Get formatted duration string in seconds with 5 decimal places (e.g., "1.23456s").
+         */
+        public String durationFormatted() {
+            if (durationMs == null) return null;
+            return String.format("%.5fs", durationMs / 1000.0);
+        }
+    }
 
     /**
      * Get payment batch by ID.

@@ -21,7 +21,7 @@ public record PaymentBatchCreateRequest(
     Currency debitCurrency,
     Currency creditCurrency,
     LocalDate valueDate,
-    int cutoffHours,
+    double cutoffHours,
     String executionModel,
     PaymentStepBehavior behavior
 ) {
@@ -37,7 +37,7 @@ public record PaymentBatchCreateRequest(
             Currency.USD,
             Currency.EUR,
             LocalDate.now().plusDays(1),
-            24,
+            24.0,
             "COMMAND_BASED",
             PaymentStepBehavior.defaults()
         );

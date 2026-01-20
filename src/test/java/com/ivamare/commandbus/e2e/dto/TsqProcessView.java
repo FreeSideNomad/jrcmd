@@ -16,5 +16,6 @@ public record TsqProcessView(
     String errorCode,
     String errorMessage,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    UUID paymentId
 ) {}

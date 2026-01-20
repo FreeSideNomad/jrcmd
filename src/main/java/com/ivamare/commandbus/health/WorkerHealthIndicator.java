@@ -37,20 +37,27 @@ public class WorkerHealthIndicator implements HealthIndicator {
         Map<String, WorkerStatus> workerStatuses = workers.stream()
             .collect(Collectors.toMap(
                 Worker::domain,
-                w -> new WorkerStatus(w.isRunning(), w.inFlightCount()),
+                w -> new WorkerStatus(w.isRunning(), w.inFlightCount(), w.getConsecutiveErrorCount()),
                 (existing, replacement) -> existing
             ));
 
         boolean allRunning = workers.stream().allMatch(Worker::isRunning);
         int totalInFlight = workers.stream().mapToInt(Worker::inFlightCount).sum();
+        int maxConsecutiveErrors = workers.stream()
+            .mapToInt(Worker::getConsecutiveErrorCount)
+            .max()
+            .orElse(0);
 
-        Health.Builder builder = allRunning ? Health.up() : Health.down();
+        // Consider unhealthy if any worker has high consecutive errors
+        boolean healthy = allRunning && maxConsecutiveErrors < 5;
+        Health.Builder builder = healthy ? Health.up() : Health.down();
 
         return builder
             .withDetail("workers", workerStatuses)
             .withDetail("totalInFlight", totalInFlight)
+            .withDetail("maxConsecutiveErrors", maxConsecutiveErrors)
             .build();
     }
 
-    record WorkerStatus(boolean running, int inFlight) {}
+    record WorkerStatus(boolean running, int inFlight, int consecutiveErrors) {}
 }

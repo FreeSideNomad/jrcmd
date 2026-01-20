@@ -18,6 +18,11 @@ import java.util.List;
  *     poll-interval-ms: 1000
  *     concurrency: 4
  *     use-notify: true
+ *     resilience:
+ *       initial-backoff-ms: 1000
+ *       max-backoff-ms: 30000
+ *       backoff-multiplier: 2.0
+ *       error-threshold: 5
  *   batch:
  *     default-chunk-size: 1000
  * </pre>
@@ -148,6 +153,11 @@ public class CommandBusProperties {
          */
         private boolean useNotify = true;
 
+        /**
+         * Resilience configuration for database error recovery.
+         */
+        private ResilienceProperties resilience = new ResilienceProperties();
+
         // Getters and setters
 
         public boolean isAutoStart() {
@@ -188,6 +198,14 @@ public class CommandBusProperties {
 
         public void setUseNotify(boolean useNotify) {
             this.useNotify = useNotify;
+        }
+
+        public ResilienceProperties getResilience() {
+            return resilience;
+        }
+
+        public void setResilience(ResilienceProperties resilience) {
+            this.resilience = resilience;
         }
     }
 
@@ -261,6 +279,11 @@ public class CommandBusProperties {
          */
         private boolean archiveMessages = false;
 
+        /**
+         * Resilience configuration for database error recovery.
+         */
+        private ResilienceProperties resilience = new ResilienceProperties();
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -331,6 +354,14 @@ public class CommandBusProperties {
 
         public void setArchiveMessages(boolean archiveMessages) {
             this.archiveMessages = archiveMessages;
+        }
+
+        public ResilienceProperties getResilience() {
+            return resilience;
+        }
+
+        public void setResilience(ResilienceProperties resilience) {
+            this.resilience = resilience;
         }
     }
 
@@ -461,6 +492,104 @@ public class CommandBusProperties {
 
         public void setAutoStart(boolean autoStart) {
             this.autoStart = autoStart;
+        }
+    }
+
+    /**
+     * Resilience configuration for database error recovery.
+     *
+     * <p>These settings control exponential backoff behavior when database
+     * errors occur in workers and process managers. The backoff formula is:
+     * <pre>
+     * delay = min(initialBackoffMs * (backoffMultiplier ^ errorCount), maxBackoffMs)
+     * </pre>
+     *
+     * <p>With default settings (1s initial, 2x multiplier, 30s max):
+     * <ul>
+     *   <li>1st error: 1s delay</li>
+     *   <li>2nd error: 2s delay</li>
+     *   <li>3rd error: 4s delay</li>
+     *   <li>4th error: 8s delay</li>
+     *   <li>5th+ error: 16s, 30s (capped)</li>
+     * </ul>
+     */
+    public static class ResilienceProperties {
+
+        /**
+         * Initial backoff duration in milliseconds after first database error.
+         * Default: 1000ms (1 second)
+         */
+        private long initialBackoffMs = 1000;
+
+        /**
+         * Maximum backoff duration in milliseconds.
+         * The exponential backoff is capped at this value.
+         * Default: 30000ms (30 seconds)
+         */
+        private long maxBackoffMs = 30000;
+
+        /**
+         * Multiplier for exponential backoff.
+         * Each consecutive error multiplies the delay by this factor.
+         * Default: 2.0 (doubling)
+         */
+        private double backoffMultiplier = 2.0;
+
+        /**
+         * Number of consecutive errors before logging at ERROR level.
+         * Below this threshold, errors are logged at WARN level.
+         * Default: 5
+         */
+        private int errorThreshold = 5;
+
+        // Getters and setters
+
+        public long getInitialBackoffMs() {
+            return initialBackoffMs;
+        }
+
+        public void setInitialBackoffMs(long initialBackoffMs) {
+            this.initialBackoffMs = initialBackoffMs;
+        }
+
+        public long getMaxBackoffMs() {
+            return maxBackoffMs;
+        }
+
+        public void setMaxBackoffMs(long maxBackoffMs) {
+            this.maxBackoffMs = maxBackoffMs;
+        }
+
+        public double getBackoffMultiplier() {
+            return backoffMultiplier;
+        }
+
+        public void setBackoffMultiplier(double backoffMultiplier) {
+            this.backoffMultiplier = backoffMultiplier;
+        }
+
+        public int getErrorThreshold() {
+            return errorThreshold;
+        }
+
+        public void setErrorThreshold(int errorThreshold) {
+            this.errorThreshold = errorThreshold;
+        }
+
+        /**
+         * Calculate the backoff delay for a given error count.
+         *
+         * @param errorCount the number of consecutive errors (1-based)
+         * @return the delay in milliseconds
+         */
+        public long calculateBackoff(int errorCount) {
+            if (errorCount <= 0) {
+                return initialBackoffMs;
+            }
+            double delay = initialBackoffMs * Math.pow(backoffMultiplier, errorCount - 1);
+            // Add jitter: +/- 10%
+            double jitter = delay * 0.1 * (Math.random() * 2 - 1);
+            return Math.min((long) (delay + jitter), maxBackoffMs);
         }
     }
 }

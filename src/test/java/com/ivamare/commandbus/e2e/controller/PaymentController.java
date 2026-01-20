@@ -65,11 +65,14 @@ public class PaymentController {
             @RequestParam String debitCurrency,
             @RequestParam String creditCurrency,
             @RequestParam String valueDate,
-            @RequestParam(defaultValue = "24") int cutoffHours,
+            @RequestParam(defaultValue = "24") double cutoffHours,
             @RequestParam(defaultValue = "COMMAND_BASED") String executionModel,
             RedirectAttributes redirectAttributes) {
 
         try {
+            // Convert decimal hours to minutes for precise cutoff calculation
+            long cutoffMinutes = Math.round(cutoffHours * 60);
+
             Payment payment = Payment.builder()
                 .debitAccount(DebitAccount.of(debitTransit, debitAccountNumber))
                 .creditAccount(CreditAccount.of(creditBic, creditIban))
@@ -77,7 +80,7 @@ public class PaymentController {
                 .debitCurrency(Currency.valueOf(debitCurrency))
                 .creditCurrency(Currency.valueOf(creditCurrency))
                 .valueDate(LocalDate.parse(valueDate))
-                .cutoffTimestamp(Instant.now().plus(cutoffHours, ChronoUnit.HOURS))
+                .cutoffTimestamp(Instant.now().plus(cutoffMinutes, ChronoUnit.MINUTES))
                 .build();
 
             UUID processId = e2eService.createPayment(payment, PaymentStepBehavior.defaults(), executionModel);
@@ -143,7 +146,7 @@ public class PaymentController {
             @RequestParam String debitCurrency,
             @RequestParam String creditCurrency,
             @RequestParam String valueDate,
-            @RequestParam(defaultValue = "24") int cutoffHours,
+            @RequestParam(defaultValue = "24") double cutoffHours,
             @RequestParam(defaultValue = "STEP_BASED") String executionModel,
             // Risk behavior
             @RequestParam(defaultValue = "70") double riskApprovedBalancePct,

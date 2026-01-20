@@ -2,6 +2,7 @@ package com.ivamare.commandbus.e2e.payment;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,6 +56,30 @@ public interface PaymentRepository {
      * Update just the status of a payment.
      */
     void updateStatus(UUID paymentId, PaymentStatus status, JdbcTemplate jdbc);
+
+    /**
+     * Update network confirmation for a specific level (L1-L4).
+     *
+     * @param paymentId  Payment ID
+     * @param level      Confirmation level (1-4)
+     * @param reference  Network reference
+     * @param receivedAt Timestamp when confirmation was received
+     * @param jdbc       JdbcTemplate to use
+     */
+    void updateNetworkConfirmation(UUID paymentId, int level, String reference, Instant receivedAt, JdbcTemplate jdbc);
+
+    /**
+     * Update network confirmation and status atomically (for L4 completion).
+     *
+     * @param paymentId  Payment ID
+     * @param level      Confirmation level (1-4)
+     * @param reference  Network reference
+     * @param receivedAt Timestamp when confirmation was received
+     * @param status     New payment status
+     * @param jdbc       JdbcTemplate to use
+     */
+    void updateNetworkConfirmationAndStatus(UUID paymentId, int level, String reference, Instant receivedAt,
+                                            PaymentStatus status, JdbcTemplate jdbc);
 
     /**
      * Delete payment by ID.

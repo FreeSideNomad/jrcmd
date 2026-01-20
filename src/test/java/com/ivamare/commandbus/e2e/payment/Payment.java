@@ -23,6 +23,14 @@ import java.util.UUID;
  * @param cutoffTimestamp Payment must complete by this time
  * @param createdAt       Creation timestamp
  * @param updatedAt       Last update timestamp
+ * @param l1Reference     L1 (acknowledgment) network reference
+ * @param l1ReceivedAt    Timestamp when L1 confirmation was received
+ * @param l2Reference     L2 (validation) network reference
+ * @param l2ReceivedAt    Timestamp when L2 confirmation was received
+ * @param l3Reference     L3 (clearing) network reference
+ * @param l3ReceivedAt    Timestamp when L3 confirmation was received
+ * @param l4Reference     L4 (settlement) network reference
+ * @param l4ReceivedAt    Timestamp when L4 confirmation was received
  */
 public record Payment(
     UUID paymentId,
@@ -39,7 +47,16 @@ public record Payment(
     PaymentStatus status,
     Instant cutoffTimestamp,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    // Network confirmation fields (L1-L4)
+    String l1Reference,
+    Instant l1ReceivedAt,
+    String l2Reference,
+    Instant l2ReceivedAt,
+    String l3Reference,
+    Instant l3ReceivedAt,
+    String l4Reference,
+    Instant l4ReceivedAt
 ) {
     /**
      * Check if this payment requires FX (cross-currency).
@@ -55,7 +72,9 @@ public record Payment(
         return new Payment(
             paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
             debitAccount, creditAccount, debitAmount, creditAmount,
-            fxContractId, fxRate, newStatus, cutoffTimestamp, createdAt, Instant.now()
+            fxContractId, fxRate, newStatus, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+            l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
         );
     }
 
@@ -66,7 +85,9 @@ public record Payment(
         return new Payment(
             paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
             debitAccount, creditAccount, debitAmount, creditAmount,
-            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now()
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+            l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
         );
     }
 
@@ -77,7 +98,61 @@ public record Payment(
         return new Payment(
             paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
             debitAccount, creditAccount, debitAmount, creditAmount,
-            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now()
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+            l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
+        );
+    }
+
+    /**
+     * Create a new payment with L1 confirmation.
+     */
+    public Payment withL1Confirmation(String reference, Instant receivedAt) {
+        return new Payment(
+            paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
+            debitAccount, creditAccount, debitAmount, creditAmount,
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            reference, receivedAt, l2Reference, l2ReceivedAt,
+            l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
+        );
+    }
+
+    /**
+     * Create a new payment with L2 confirmation.
+     */
+    public Payment withL2Confirmation(String reference, Instant receivedAt) {
+        return new Payment(
+            paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
+            debitAccount, creditAccount, debitAmount, creditAmount,
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, reference, receivedAt,
+            l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
+        );
+    }
+
+    /**
+     * Create a new payment with L3 confirmation.
+     */
+    public Payment withL3Confirmation(String reference, Instant receivedAt) {
+        return new Payment(
+            paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
+            debitAccount, creditAccount, debitAmount, creditAmount,
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+            reference, receivedAt, l4Reference, l4ReceivedAt
+        );
+    }
+
+    /**
+     * Create a new payment with L4 confirmation.
+     */
+    public Payment withL4Confirmation(String reference, Instant receivedAt) {
+        return new Payment(
+            paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
+            debitAccount, creditAccount, debitAmount, creditAmount,
+            fxContractId, fxRate, status, cutoffTimestamp, createdAt, Instant.now(),
+            l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+            l3Reference, l3ReceivedAt, reference, receivedAt
         );
     }
 
@@ -104,6 +179,15 @@ public record Payment(
         private Instant cutoffTimestamp;
         private Instant createdAt;
         private Instant updatedAt;
+        // Network confirmation fields
+        private String l1Reference;
+        private Instant l1ReceivedAt;
+        private String l2Reference;
+        private Instant l2ReceivedAt;
+        private String l3Reference;
+        private Instant l3ReceivedAt;
+        private String l4Reference;
+        private Instant l4ReceivedAt;
 
         public Builder paymentId(UUID paymentId) {
             this.paymentId = paymentId;
@@ -180,6 +264,46 @@ public record Payment(
             return this;
         }
 
+        public Builder l1Reference(String l1Reference) {
+            this.l1Reference = l1Reference;
+            return this;
+        }
+
+        public Builder l1ReceivedAt(Instant l1ReceivedAt) {
+            this.l1ReceivedAt = l1ReceivedAt;
+            return this;
+        }
+
+        public Builder l2Reference(String l2Reference) {
+            this.l2Reference = l2Reference;
+            return this;
+        }
+
+        public Builder l2ReceivedAt(Instant l2ReceivedAt) {
+            this.l2ReceivedAt = l2ReceivedAt;
+            return this;
+        }
+
+        public Builder l3Reference(String l3Reference) {
+            this.l3Reference = l3Reference;
+            return this;
+        }
+
+        public Builder l3ReceivedAt(Instant l3ReceivedAt) {
+            this.l3ReceivedAt = l3ReceivedAt;
+            return this;
+        }
+
+        public Builder l4Reference(String l4Reference) {
+            this.l4Reference = l4Reference;
+            return this;
+        }
+
+        public Builder l4ReceivedAt(Instant l4ReceivedAt) {
+            this.l4ReceivedAt = l4ReceivedAt;
+            return this;
+        }
+
         public Payment build() {
             if (paymentId == null) {
                 paymentId = UUID.randomUUID();
@@ -211,7 +335,9 @@ public record Payment(
             return new Payment(
                 paymentId, actionDate, valueDate, debitCurrency, creditCurrency,
                 debitAccount, creditAccount, debitAmount, creditAmount,
-                fxContractId, fxRate, status, cutoffTimestamp, createdAt, updatedAt
+                fxContractId, fxRate, status, cutoffTimestamp, createdAt, updatedAt,
+                l1Reference, l1ReceivedAt, l2Reference, l2ReceivedAt,
+                l3Reference, l3ReceivedAt, l4Reference, l4ReceivedAt
             );
         }
     }

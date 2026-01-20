@@ -1,5 +1,6 @@
 package com.ivamare.commandbus.worker;
 
+import com.ivamare.commandbus.CommandBusProperties.ResilienceProperties;
 import com.ivamare.commandbus.handler.HandlerRegistry;
 import com.ivamare.commandbus.policy.RetryPolicy;
 import com.ivamare.commandbus.worker.impl.DefaultWorker;
@@ -23,6 +24,7 @@ public class WorkerBuilder {
     private int concurrency = 1;
     private boolean useNotify = true;
     private RetryPolicy retryPolicy;
+    private ResilienceProperties resilience;
 
     /**
      * Set the JdbcTemplate for database operations.
@@ -136,6 +138,17 @@ public class WorkerBuilder {
     }
 
     /**
+     * Set the resilience configuration for database error recovery.
+     *
+     * @param resilience The resilience properties
+     * @return this builder
+     */
+    public WorkerBuilder resilience(ResilienceProperties resilience) {
+        this.resilience = resilience;
+        return this;
+    }
+
+    /**
      * Build the worker instance.
      *
      * @return configured Worker
@@ -163,6 +176,10 @@ public class WorkerBuilder {
             retryPolicy = RetryPolicy.defaultPolicy();
         }
 
+        if (resilience == null) {
+            resilience = new ResilienceProperties();
+        }
+
         return new DefaultWorker(
             jdbcTemplate,
             dataSource,
@@ -173,7 +190,8 @@ public class WorkerBuilder {
             pollIntervalMs,
             concurrency,
             useNotify,
-            retryPolicy
+            retryPolicy,
+            resilience
         );
     }
 }

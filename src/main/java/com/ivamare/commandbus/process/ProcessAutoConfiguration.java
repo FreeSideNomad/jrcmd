@@ -108,7 +108,8 @@ public class ProcessAutoConfiguration {
             processProps.getConcurrency(),
             processProps.getPollIntervalMs(),
             processProps.isUseNotify(),
-            processProps.isArchiveMessages()
+            processProps.isArchiveMessages(),
+            processProps.getResilience()
         );
     }
 

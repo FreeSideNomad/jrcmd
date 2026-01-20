@@ -112,7 +112,16 @@ CREATE TABLE IF NOT EXISTS e2e.payment (
     status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
     cutoff_timestamp TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Network confirmation fields (L1-L4)
+    l1_reference VARCHAR(50),
+    l1_received_at TIMESTAMPTZ,
+    l2_reference VARCHAR(50),
+    l2_received_at TIMESTAMPTZ,
+    l3_reference VARCHAR(50),
+    l3_received_at TIMESTAMPTZ,
+    l4_reference VARCHAR(50),
+    l4_received_at TIMESTAMPTZ
 );
 
 -- Index for querying by status (most common query pattern)
