@@ -161,7 +161,6 @@ stateDiagram-v2
 | `EXECUTING` | Transient error with retries remaining | `WAITING_FOR_RETRY` |
 | `EXECUTING` | Business rule violation | `COMPENSATED` |
 | `EXECUTING` | Permanent error | `WAITING_FOR_TSQ` |
-| `EXECUTING` | Terminal error | `FAILED` |
 | `WAITING_FOR_ASYNC` | `processAsyncResponse()` called | `EXECUTING` |
 | `WAITING_FOR_ASYNC` | Wait timeout expires | `WAITING_FOR_TSQ` |
 | `WAITING_FOR_RETRY` | Scheduled retry time reached | `EXECUTING` |
@@ -855,9 +854,8 @@ The framework classifies exceptions to determine behavior:
 | Type | Behavior | Example |
 |------|----------|---------|
 | `TRANSIENT` | Retry with exponential backoff | Network timeout, rate limit |
-| `BUSINESS` | Run compensations, set `COMPENSATED` | Business rule violation |
-| `PERMANENT` | Move to TSQ | Invalid data, misconfiguration |
-| `TERMINAL` | Set `FAILED`, no compensation | Definitive rejection |
+| `BUSINESS` | Run compensations, set `COMPENSATED` | Business rule violation, definitive rejection |
+| `PERMANENT` | Move to TSQ for operator intervention | Invalid data, misconfiguration |
 
 ### 7.2 Custom Exception Classification
 
@@ -866,27 +864,21 @@ Override `classifyException()` to map your domain exceptions:
 ```java
 @Override
 protected ExceptionType classifyException(Exception e) {
-    // Terminal: definitive business decisions
-    if (e instanceof PaymentDeclinedException) {
-        return ExceptionType.TERMINAL;
-    }
-
-    // Business: trigger compensation
-    if (e instanceof InsufficientFundsException ||
+    // Business: trigger compensation (includes definitive rejections)
+    if (e instanceof PaymentDeclinedException ||
+        e instanceof InsufficientFundsException ||
         e instanceof StepBusinessRuleException) {
         return ExceptionType.BUSINESS;
     }
 
-    // Transient: retry
+    // Transient: retry with exponential backoff
     if (e instanceof ServiceUnavailableException ||
         e instanceof RateLimitExceededException ||
-        (e.getMessage() != null &&
-         (e.getMessage().contains("timeout") ||
-          e.getMessage().contains("connection")))) {
+        DatabaseExceptionClassifier.isTransient(e)) {
         return ExceptionType.TRANSIENT;
     }
 
-    // Default: permanent (TSQ)
+    // Default: permanent (TSQ for operator intervention)
     return ExceptionType.PERMANENT;
 }
 ```
@@ -1137,7 +1129,7 @@ This section walks through a production-grade payment workflow. See the full imp
 │                                                              │
 │  2. bookRisk ────────────────────────────────▶ Risk Check   │
 │     ├─ APPROVED → continue                                  │
-│     ├─ DECLINED → throw RiskDeclinedException (TERMINAL)    │
+│     ├─ DECLINED → throw RiskDeclinedException (BUSINESS)    │
 │     └─ PENDING → create PendingApproval record              │
 │        └─ wait("awaitRiskApproval") for manual decision     │
 │     └─ compensation: releaseRiskBooking                     │
@@ -1194,17 +1186,18 @@ if (state.getL1ErrorCode() != null) {
 ```java
 @Override
 protected ExceptionType classifyException(Exception e) {
-    if (e instanceof RiskDeclinedException) {
-        return ExceptionType.TERMINAL;  // No retry, no TSQ, just FAILED
+    // Business errors trigger compensation → COMPENSATED status
+    if (e instanceof RiskDeclinedException ||
+        e instanceof StepBusinessRuleException) {
+        return ExceptionType.BUSINESS;
     }
-    if (e instanceof StepBusinessRuleException) {
-        return ExceptionType.BUSINESS;  // Triggers compensation
+    // Transient errors retry with exponential backoff
+    if (DatabaseExceptionClassifier.isTransient(e) ||
+        (e.getMessage() != null && e.getMessage().contains("timeout"))) {
+        return ExceptionType.TRANSIENT;
     }
-    if (e.getMessage() != null &&
-        e.getMessage().contains("timeout")) {
-        return ExceptionType.TRANSIENT;  // Retry
-    }
-    return ExceptionType.PERMANENT;  // TSQ
+    // Permanent errors go to TSQ for operator intervention
+    return ExceptionType.PERMANENT;
 }
 ```
 
@@ -1412,8 +1405,8 @@ class OrderProcessE2ETest {
 |----------|--------|
 | Define clear exception hierarchy | Enables accurate classification |
 | Classify network errors as TRANSIENT | Enables automatic retry |
-| Use TERMINAL for definitive rejections | Avoids unnecessary retry/TSQ |
-| Use BUSINESS for user-correctable issues | Triggers compensation |
+| Use BUSINESS for definitive rejections | Triggers compensation → COMPENSATED |
+| Use PERMANENT only for operator-fixable issues | Moves to TSQ for manual intervention |
 
 ### Timeout Configuration
 
@@ -1462,7 +1455,6 @@ class OrderProcessE2ETest {
 | `TRANSIENT` | Yes (with backoff) | No | (continues or `WAITING_FOR_RETRY`) |
 | `BUSINESS` | No | Yes | `COMPENSATED` |
 | `PERMANENT` | No | No | `WAITING_FOR_TSQ` |
-| `TERMINAL` | No | No | `FAILED` |
 
 ### Step Options
 
