@@ -121,4 +121,38 @@ class WorkerHealthIndicatorTest {
         assertTrue(status.running());
         assertEquals(5, status.inFlight());
     }
+
+    @Test
+    @DisplayName("should return DOWN when worker has high consecutive errors")
+    void shouldReturnDownWhenWorkerHasHighConsecutiveErrors() {
+        Worker worker = mock(Worker.class);
+        when(worker.domain()).thenReturn("payments");
+        when(worker.isRunning()).thenReturn(true);
+        when(worker.inFlightCount()).thenReturn(0);
+        when(worker.getConsecutiveErrorCount()).thenReturn(5);  // Threshold is 5
+
+        WorkerHealthIndicator healthIndicator = new WorkerHealthIndicator(List.of(worker));
+
+        Health health = healthIndicator.health();
+
+        assertEquals(Status.DOWN, health.getStatus());
+        assertEquals(5, health.getDetails().get("maxConsecutiveErrors"));
+    }
+
+    @Test
+    @DisplayName("should return UP when worker has errors below threshold")
+    void shouldReturnUpWhenWorkerHasErrorsBelowThreshold() {
+        Worker worker = mock(Worker.class);
+        when(worker.domain()).thenReturn("payments");
+        when(worker.isRunning()).thenReturn(true);
+        when(worker.inFlightCount()).thenReturn(0);
+        when(worker.getConsecutiveErrorCount()).thenReturn(4);  // Below threshold of 5
+
+        WorkerHealthIndicator healthIndicator = new WorkerHealthIndicator(List.of(worker));
+
+        Health health = healthIndicator.health();
+
+        assertEquals(Status.UP, health.getStatus());
+        assertEquals(4, health.getDetails().get("maxConsecutiveErrors"));
+    }
 }
