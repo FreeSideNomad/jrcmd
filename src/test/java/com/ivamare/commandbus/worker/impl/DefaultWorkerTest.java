@@ -839,6 +839,346 @@ class DefaultWorkerTest {
     }
 
     @Nested
+    @DisplayName("Edge Cases and Coverage Tests")
+    class EdgeCasesTests {
+
+        @Test
+        @DisplayName("should return consecutive error count")
+        void shouldReturnConsecutiveErrorCount() {
+            assertEquals(0, worker.getConsecutiveErrorCount());
+        }
+
+        @Test
+        @DisplayName("should handle data that is not a Map")
+        void shouldHandleDataThatIsNotAMap() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            // Data is a String instead of Map
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString(),
+                "data", "not a map"
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, null, null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any())).thenReturn("result");
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.delete(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            verify(handlerRegistry).dispatch(any(), any());
+        }
+
+        @Test
+        @DisplayName("should handle null result in complete")
+        void shouldHandleNullResultInComplete() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, null, null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any())).thenReturn(null); // null result
+            when(commandRepository.spFinishCommand(
+                eq(DOMAIN), eq(commandId), eq(CommandStatus.COMPLETED),
+                eq(AuditEventType.COMPLETED), isNull(), isNull(), isNull(),
+                isNull(), isNull() // details should be null when result is null
+            )).thenReturn(false);
+            when(pgmqClient.delete(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            verify(commandRepository).spFinishCommand(
+                eq(DOMAIN), eq(commandId), eq(CommandStatus.COMPLETED),
+                eq(AuditEventType.COMPLETED), isNull(), isNull(), isNull(),
+                isNull(), isNull()
+            );
+        }
+
+        @Test
+        @DisplayName("should handle blank replyTo as no reply")
+        void shouldHandleBlankReplyToAsNoReply() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString(),
+                "reply_to", "  " // blank string
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, "  ", null, null, null, // blank reply_to
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any())).thenReturn("result");
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.delete(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Should NOT send reply when replyTo is blank
+            verify(pgmqClient, never()).send(anyString(), anyMap());
+        }
+
+        @Test
+        @DisplayName("should send reply with correlationId for business rule error")
+        void shouldSendReplyWithCorrelationIdForBusinessRuleError() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            UUID correlationId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString(),
+                "correlation_id", correlationId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, correlationId, "reply_queue", null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any()))
+                .thenThrow(new BusinessRuleException("VALIDATION_ERROR", "Invalid input"));
+
+            when(commandRepository.get(eq(DOMAIN), eq(commandId)))
+                .thenReturn(Optional.of(metadata));
+
+            when(pgmqClient.archive(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.send(eq("reply_queue"), anyMap())).thenReturn(1L);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Verify reply includes correlation_id
+            verify(pgmqClient).send(eq("reply_queue"), argThat(reply ->
+                correlationId.toString().equals(reply.get("correlation_id"))
+            ));
+        }
+
+        @Test
+        @DisplayName("should send failExhausted reply when reply_to is set")
+        void shouldSendFailExhaustedReplyWhenReplyToIsSet() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                3, 3, msgId, null, "reply_queue", null, null, null, // retries exhausted
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any()))
+                .thenThrow(new TransientCommandException("TEMP_ERROR", "Temporary failure"));
+
+            when(commandRepository.get(eq(DOMAIN), eq(commandId)))
+                .thenReturn(Optional.of(metadata));
+
+            when(pgmqClient.archive(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.send(eq("reply_queue"), anyMap())).thenReturn(1L);
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Verify failure reply is sent
+            verify(pgmqClient).send(eq("reply_queue"), argThat(reply ->
+                "FAILED".equals(reply.get("outcome")) && "TEMP_ERROR".equals(reply.get("error_code"))
+            ));
+        }
+
+        @Test
+        @DisplayName("should handle reply send exception gracefully")
+        void shouldHandleReplySendExceptionGracefully() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, "reply_queue", null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any())).thenReturn("result");
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.delete(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+            when(pgmqClient.send(eq("reply_queue"), anyMap()))
+                .thenThrow(new RuntimeException("Send failed"));
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Should not throw, worker continues
+            verify(pgmqClient).delete(eq(QUEUE_NAME), eq(msgId));
+        }
+
+        @Test
+        @DisplayName("should handle business rule reply send exception gracefully")
+        void shouldHandleBusinessRuleReplySendExceptionGracefully() throws Exception {
+            UUID commandId = UUID.randomUUID();
+            long msgId = 123L;
+
+            Map<String, Object> payload = Map.of(
+                "domain", DOMAIN,
+                "command_type", "TestCommand",
+                "command_id", commandId.toString()
+            );
+
+            PgmqMessage message = new PgmqMessage(msgId, 0, Instant.now(), Instant.now(), payload);
+            CommandMetadata metadata = new CommandMetadata(
+                DOMAIN, commandId, "TestCommand", CommandStatus.IN_PROGRESS,
+                1, 3, msgId, null, "reply_queue", null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            when(pgmqClient.read(eq(QUEUE_NAME), anyInt(), anyInt()))
+                .thenReturn(List.of(message))
+                .thenReturn(List.of());
+
+            when(commandRepository.spReceiveCommand(eq(DOMAIN), eq(commandId), eq(msgId), isNull()))
+                .thenReturn(Optional.of(metadata));
+
+            when(handlerRegistry.dispatch(any(), any()))
+                .thenThrow(new BusinessRuleException("BIZ_ERROR", "Business failure"));
+
+            when(commandRepository.get(eq(DOMAIN), eq(commandId)))
+                .thenReturn(Optional.of(metadata));
+
+            when(pgmqClient.archive(eq(QUEUE_NAME), eq(msgId))).thenReturn(true);
+            when(commandRepository.spFinishCommand(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(false);
+            when(pgmqClient.send(eq("reply_queue"), anyMap()))
+                .thenThrow(new RuntimeException("Send failed"));
+
+            try {
+                worker.start();
+                Thread.sleep(300);
+            } finally {
+                worker.stopNow();
+            }
+
+            // Should not throw, worker continues
+            verify(pgmqClient).archive(eq(QUEUE_NAME), eq(msgId));
+        }
+    }
+
+    @Nested
     @DisplayName("Builder Tests")
     class BuilderTests {
 

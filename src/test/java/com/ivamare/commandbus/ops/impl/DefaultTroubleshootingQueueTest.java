@@ -480,6 +480,38 @@ class DefaultTroubleshootingQueueTest {
 
             assertNotNull(result);
         }
+
+        @Test
+        @DisplayName("should stop processing when remaining limit exhausted")
+        @SuppressWarnings("unchecked")
+        void shouldStopProcessingWhenRemainingExhausted() {
+            UUID item1 = UUID.randomUUID();
+            UUID item2 = UUID.randomUUID();
+            TroubleshootingItem mockItem1 = new TroubleshootingItem(
+                "domain1", item1, "TestCmd", 1, 3, null, null, null,
+                null, null, null, Instant.now(), Instant.now()
+            );
+            TroubleshootingItem mockItem2 = new TroubleshootingItem(
+                "domain1", item2, "TestCmd", 1, 3, null, null, null,
+                null, null, null, Instant.now(), Instant.now()
+            );
+
+            when(jdbcTemplate.queryForList(anyString(), eq(String.class), any()))
+                .thenReturn(List.of("domain1", "domain2", "domain3"));
+            // domain1 has 2 items, domain2 has 2 items, domain3 has 2 items
+            when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any(Object[].class)))
+                .thenReturn(2, 2, 2);
+            when(jdbcTemplate.query(contains("SELECT command_id"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(item1, item2));
+            // First domain returns 2 items, filling the limit
+            when(jdbcTemplate.query(contains("DISTINCT ON"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(mockItem1, mockItem2));
+
+            // Limit 2 should fetch all from domain1 and skip domain2 and domain3 entirely
+            var result = tsq.listAllTroubleshooting(2, 0, null);
+
+            assertEquals(2, result.items().size());
+        }
     }
 
     @Nested

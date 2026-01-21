@@ -608,5 +608,190 @@ class CommandStepResponseHandlerTest {
             verify(processManager).processAsyncResponse(eq(processId), any());
             handler.stop();
         }
+
+        @Test
+        @DisplayName("should handle PERMANENT_ERROR error type")
+        void shouldHandlePermanentErrorType() throws Exception {
+            UUID processId = UUID.randomUUID();
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("correlation_id", processId.toString());
+            payload.put("outcome", "FAILED");
+            payload.put("error_type", "PERMANENT_ERROR");
+            payload.put("data", Map.of("step_name", "bookFx"));
+
+            PgmqMessage message = new PgmqMessage(1L, 0, Instant.now(), Instant.now(), payload);
+            when(pgmqClient.read(anyString(), anyInt(), anyInt())).thenReturn(List.of(message));
+            when(pgmqClient.delete(anyString(), anyLong())).thenReturn(true);
+
+            handler.start();
+            handler.pollResponses("test-replies");
+
+            Thread.sleep(100);
+
+            verify(processManager).processAsyncResponse(eq(processId), any());
+            handler.stop();
+        }
+    }
+
+    @Nested
+    @DisplayName("Stop Behavior")
+    class StopBehaviorTests {
+
+        @Test
+        @DisplayName("should handle stop gracefully")
+        void shouldHandleStopGracefully() {
+            handler.start();
+            assertTrue(handler.isRunning());
+
+            handler.stop();
+            assertFalse(handler.isRunning());
+        }
+
+        @Test
+        @DisplayName("should handle stop when not running")
+        void shouldHandleStopWhenNotRunning() {
+            assertFalse(handler.isRunning());
+
+            // Should not throw
+            handler.stop();
+            assertFalse(handler.isRunning());
+        }
+    }
+
+    @Nested
+    @DisplayName("Multiple Messages")
+    class MultipleMessageTests {
+
+        @Test
+        @DisplayName("should process multiple messages in batch")
+        void shouldProcessMultipleMessagesInBatch() throws Exception {
+            UUID processId1 = UUID.randomUUID();
+            UUID processId2 = UUID.randomUUID();
+
+            Map<String, Object> payload1 = new HashMap<>();
+            payload1.put("correlation_id", processId1.toString());
+            payload1.put("command_id", UUID.randomUUID().toString());
+            payload1.put("outcome", "SUCCESS");
+            payload1.put("data", Map.of("step_name", "step1"));
+
+            Map<String, Object> payload2 = new HashMap<>();
+            payload2.put("correlation_id", processId2.toString());
+            payload2.put("command_id", UUID.randomUUID().toString());
+            payload2.put("outcome", "SUCCESS");
+            payload2.put("data", Map.of("step_name", "step2"));
+
+            PgmqMessage message1 = new PgmqMessage(1L, 0, Instant.now(), Instant.now(), payload1);
+            PgmqMessage message2 = new PgmqMessage(2L, 0, Instant.now(), Instant.now(), payload2);
+
+            when(pgmqClient.read(anyString(), anyInt(), anyInt()))
+                .thenReturn(List.of(message1, message2));
+            when(pgmqClient.delete(anyString(), anyLong())).thenReturn(true);
+
+            handler.start();
+            handler.pollResponses("test-replies");
+
+            Thread.sleep(200);
+
+            verify(processManager, times(2)).processAsyncResponse(any(), any());
+            verify(pgmqClient, times(2)).delete(eq("test-replies"), anyLong());
+            handler.stop();
+        }
+    }
+
+    @Nested
+    @DisplayName("Exception Handling")
+    class ExceptionHandlingTests {
+
+        @Test
+        @DisplayName("should handle processManager exception gracefully")
+        void shouldHandleProcessManagerExceptionGracefully() throws Exception {
+            UUID processId = UUID.randomUUID();
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("correlation_id", processId.toString());
+            payload.put("outcome", "SUCCESS");
+            payload.put("data", Map.of("step_name", "bookFx"));
+
+            PgmqMessage message = new PgmqMessage(1L, 0, Instant.now(), Instant.now(), payload);
+            when(pgmqClient.read(anyString(), anyInt(), anyInt())).thenReturn(List.of(message));
+
+            // Make processAsyncResponse throw an exception
+            doThrow(new RuntimeException("Process error")).when(processManager).processAsyncResponse(any(), any());
+
+            handler.start();
+            handler.pollResponses("test-replies");
+
+            Thread.sleep(100);
+
+            // Handler should not crash - message will be retried after visibility timeout
+            assertTrue(handler.isRunning());
+            handler.stop();
+        }
+
+        @Test
+        @DisplayName("should handle invalid correlation_id gracefully")
+        void shouldHandleInvalidCorrelationIdGracefully() throws Exception {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("correlation_id", "not-a-uuid");  // Invalid UUID
+            payload.put("outcome", "SUCCESS");
+
+            PgmqMessage message = new PgmqMessage(1L, 0, Instant.now(), Instant.now(), payload);
+            when(pgmqClient.read(anyString(), anyInt(), anyInt())).thenReturn(List.of(message));
+
+            handler.start();
+            handler.pollResponses("test-replies");
+
+            Thread.sleep(100);
+
+            // Should handle gracefully without crashing
+            assertTrue(handler.isRunning());
+            handler.stop();
+        }
+
+        @Test
+        @DisplayName("should handle delete failure gracefully")
+        void shouldHandleDeleteFailureGracefully() throws Exception {
+            UUID processId = UUID.randomUUID();
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("correlation_id", processId.toString());
+            payload.put("outcome", "SUCCESS");
+            payload.put("data", Map.of("step_name", "bookFx"));
+
+            PgmqMessage message = new PgmqMessage(1L, 0, Instant.now(), Instant.now(), payload);
+            when(pgmqClient.read(anyString(), anyInt(), anyInt())).thenReturn(List.of(message));
+
+            // Delete throws exception
+            when(pgmqClient.delete(anyString(), anyLong())).thenThrow(new RuntimeException("Delete failed"));
+
+            handler.start();
+            handler.pollResponses("test-replies");
+
+            Thread.sleep(100);
+
+            // Handler should still be running
+            assertTrue(handler.isRunning());
+            handler.stop();
+        }
+
+        @Test
+        @DisplayName("should handle consecutive poll errors with backoff")
+        void shouldHandleConsecutivePollErrorsWithBackoff() throws Exception {
+            // Multiple poll errors
+            when(pgmqClient.read(anyString(), anyInt(), anyInt()))
+                .thenThrow(new RuntimeException("Connection error"))
+                .thenThrow(new RuntimeException("Connection error"))
+                .thenReturn(List.of());
+
+            handler.start();
+            handler.pollResponses("test-replies");
+            handler.pollResponses("test-replies");
+            handler.pollResponses("test-replies");
+
+            // Handler should still be running
+            assertTrue(handler.isRunning());
+            handler.stop();
+        }
     }
 }

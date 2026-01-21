@@ -856,6 +856,23 @@ class ProcessStepManagerTest {
             assertEquals(ExceptionType.PERMANENT,
                 manager.testClassifyException(new RuntimeException("Something failed")));
         }
+
+        @Test
+        @DisplayName("should classify RateLimitExceededException as TRANSIENT")
+        void shouldClassifyRateLimitExceededAsTransient() {
+            assertEquals(ExceptionType.TRANSIENT,
+                manager.testClassifyException(new RateLimitExceededException("Rate limit exceeded")));
+        }
+
+        @Test
+        @DisplayName("should classify database transient errors as TRANSIENT")
+        void shouldClassifyDatabaseTransientErrorsAsTransient() {
+            // Create an exception that DatabaseExceptionClassifier would classify as transient
+            org.springframework.dao.TransientDataAccessResourceException transientEx =
+                new org.springframework.dao.TransientDataAccessResourceException("Connection reset");
+            assertEquals(ExceptionType.TRANSIENT,
+                manager.testClassifyException(transientEx));
+        }
     }
 
     @Nested
@@ -902,6 +919,130 @@ class ProcessStepManagerTest {
         @DisplayName("getDeadlineAction() should return TSQ")
         void getDeadlineActionShouldReturnTsq() {
             assertEquals(DeadlineAction.TSQ, manager.getDeadlineAction());
+        }
+    }
+
+    @Nested
+    @DisplayName("handleDeadlineExceeded()")
+    class HandleDeadlineExceededTests {
+
+        @Test
+        @DisplayName("should move to TSQ when deadlineAction is TSQ")
+        void shouldMoveToTsqWhenDeadlineActionIsTsq() {
+            UUID processId = UUID.randomUUID();
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
+            manager.handleDeadlineExceeded(processId);
+
+            verify(processRepo).updateStateWithAudit(
+                eq("test-domain"), eq(processId), anyString(),
+                any(), any(), eq("WAITING_FOR_TSQ"),
+                eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
+                any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+
+        @Test
+        @DisplayName("should compensate and set COMPENSATED status when deadlineAction is COMPENSATE")
+        void shouldCompensateWhenDeadlineActionIsCompensate() {
+            UUID processId = UUID.randomUUID();
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
+            // Use a manager that returns COMPENSATE as deadline action
+            TestProcessStepManager compensateManager = new TestProcessStepManager(
+                processRepo, jdbcTemplate, transactionTemplate) {
+                @Override
+                protected DeadlineAction getDeadlineAction() {
+                    return DeadlineAction.COMPENSATE;
+                }
+            };
+
+            compensateManager.handleDeadlineExceeded(processId);
+
+            verify(processRepo).updateStateWithAudit(
+                eq("test-domain"), eq(processId), anyString(),
+                any(), any(), eq("COMPENSATED"),
+                eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
+                any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+
+        @Test
+        @DisplayName("should set FAILED status when deadlineAction is FAIL")
+        void shouldFailWhenDeadlineActionIsFail() {
+            UUID processId = UUID.randomUUID();
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+
+            // Use a manager that returns FAIL as deadline action
+            TestProcessStepManager failManager = new TestProcessStepManager(
+                processRepo, jdbcTemplate, transactionTemplate) {
+                @Override
+                protected DeadlineAction getDeadlineAction() {
+                    return DeadlineAction.FAIL;
+                }
+            };
+
+            failManager.handleDeadlineExceeded(processId);
+
+            verify(processRepo).updateStateWithAudit(
+                eq("test-domain"), eq(processId), anyString(),
+                any(), any(), eq("FAILED"),
+                eq("DEADLINE_EXCEEDED"), eq("Process deadline exceeded"),
+                any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("handleWaitTimeout()")
+    class HandleWaitTimeoutTests {
+
+        @Test
+        @DisplayName("should move process to TSQ on wait timeout")
+        void shouldMoveToTsqOnWaitTimeout() {
+            UUID processId = UUID.randomUUID();
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+            when(jdbcTemplate.queryForObject(anyString(), eq(String.class), anyString(), any(UUID.class)))
+                .thenReturn("waitForApproval");
+
+            manager.handleWaitTimeout(processId);
+
+            verify(processRepo).updateStateWithAudit(
+                eq("test-domain"), eq(processId), anyString(),
+                any(), any(), eq("WAITING_FOR_TSQ"),
+                eq("WAIT_TIMEOUT"), contains("timed out"),
+                any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
+        }
+
+        @Test
+        @DisplayName("should use unknown when getCurrentWaitName fails")
+        void shouldUseUnknownWhenGetCurrentWaitNameFails() {
+            UUID processId = UUID.randomUUID();
+            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
+                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
+            // getCurrentWaitName throws exception
+            when(jdbcTemplate.queryForObject(anyString(), eq(String.class), anyString(), any(UUID.class)))
+                .thenThrow(new RuntimeException("DB error"));
+
+            manager.handleWaitTimeout(processId);
+
+            // Should still complete with "unknown" as wait name
+            verify(processRepo).updateStateWithAudit(
+                eq("test-domain"), eq(processId), anyString(),
+                any(), any(), eq("WAITING_FOR_TSQ"),
+                eq("WAIT_TIMEOUT"), contains("unknown"),
+                any(), any(), any(), any(),
+                any(JdbcTemplate.class)
+            );
         }
     }
 
