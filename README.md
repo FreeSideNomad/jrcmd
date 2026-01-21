@@ -2,7 +2,7 @@
 
 A reliable command bus implementation for Spring Boot applications using PostgreSQL and [PGMQ](https://github.com/tembo-io/pgmq) for durable message queuing.
 
-**Latest Version: [v0.2.0](RELEASE_NOTES.md)** | [Release Notes](RELEASE_NOTES.md)
+**Latest Version: [v0.4.0](RELEASE_NOTES.md)** | [Release Notes](RELEASE_NOTES.md)
 
 ## Features
 
@@ -29,14 +29,14 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.ivamare</groupId>
     <artifactId>commandbus</artifactId>
-    <version>0.2.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
 Or for Gradle:
 
 ```groovy
-implementation 'com.ivamare:commandbus:0.2.0'
+implementation 'com.ivamare:commandbus:0.4.0'
 ```
 
 ### Database Setup
