@@ -32,6 +32,10 @@ public abstract class ProcessStepState implements ProcessState {
     private List<WaitRecord> waitHistory = new ArrayList<>();
     private List<SideEffectRecord> sideEffects = new ArrayList<>();
 
+    // Command step tracking (for commandStep() method)
+    private Map<String, PendingCommandStep> pendingCommandSteps = new HashMap<>();
+    private Map<String, CommandStepResponse<?>> commandStepResponses = new HashMap<>();
+
     // Error tracking
     private String errorCode;
     private String errorMessage;
@@ -161,6 +165,110 @@ public abstract class ProcessStepState implements ProcessState {
         sideEffects.add(record);
     }
 
+    // ========== Command Step Tracking ==========
+
+    public Map<String, PendingCommandStep> getPendingCommandSteps() {
+        return pendingCommandSteps;
+    }
+
+    public void setPendingCommandSteps(Map<String, PendingCommandStep> pendingCommandSteps) {
+        this.pendingCommandSteps = pendingCommandSteps != null ? pendingCommandSteps : new HashMap<>();
+    }
+
+    public Map<String, CommandStepResponse<?>> getCommandStepResponses() {
+        return commandStepResponses;
+    }
+
+    public void setCommandStepResponses(Map<String, CommandStepResponse<?>> commandStepResponses) {
+        this.commandStepResponses = commandStepResponses != null ? commandStepResponses : new HashMap<>();
+    }
+
+    /**
+     * Store a pending command step request.
+     *
+     * @param stepName the step name
+     * @param commandId the command ID sent to the target domain
+     * @param timeoutSeconds timeout in seconds
+     */
+    public void storePendingCommandStep(String stepName, java.util.UUID commandId, long timeoutSeconds) {
+        pendingCommandSteps.put(stepName, PendingCommandStep.create(stepName, commandId, timeoutSeconds));
+    }
+
+    /**
+     * Check if waiting for a command step response.
+     *
+     * @param stepName the step name
+     * @return true if a command has been sent for this step
+     */
+    public boolean isWaitingForCommandStep(String stepName) {
+        return pendingCommandSteps.containsKey(stepName);
+    }
+
+    /**
+     * Get the pending command ID for a step.
+     *
+     * @param stepName the step name
+     * @return the command ID, or empty if not waiting
+     */
+    public Optional<java.util.UUID> getPendingCommandId(String stepName) {
+        PendingCommandStep pending = pendingCommandSteps.get(stepName);
+        return pending != null ? Optional.of(pending.commandId()) : Optional.empty();
+    }
+
+    /**
+     * Get the pending command step record.
+     *
+     * @param stepName the step name
+     * @return the pending command step, or empty if not waiting
+     */
+    public Optional<PendingCommandStep> getPendingCommandStep(String stepName) {
+        return Optional.ofNullable(pendingCommandSteps.get(stepName));
+    }
+
+    /**
+     * Store a received command step response.
+     *
+     * @param stepName the step name
+     * @param response the response received
+     */
+    public void storeCommandStepResponse(String stepName, CommandStepResponse<?> response) {
+        commandStepResponses.put(stepName, response);
+    }
+
+    /**
+     * Get stored response for a command step.
+     *
+     * @param stepName the step name
+     * @return the response, or empty if not yet received
+     */
+    @SuppressWarnings("unchecked")
+    public <T> Optional<CommandStepResponse<T>> getCommandStepResponse(String stepName) {
+        CommandStepResponse<?> response = commandStepResponses.get(stepName);
+        return response != null ? Optional.of((CommandStepResponse<T>) response) : Optional.empty();
+    }
+
+    /**
+     * Clear command step state after processing.
+     * Called after response has been processed (success or final failure).
+     *
+     * @param stepName the step name
+     */
+    public void clearCommandStepState(String stepName) {
+        pendingCommandSteps.remove(stepName);
+        commandStepResponses.remove(stepName);
+    }
+
+    /**
+     * Check if a command step has timed out.
+     *
+     * @param stepName the step name
+     * @return true if the command step has timed out
+     */
+    public boolean isCommandStepTimedOut(String stepName) {
+        PendingCommandStep pending = pendingCommandSteps.get(stepName);
+        return pending != null && pending.isTimedOut();
+    }
+
     // ========== Error Tracking ==========
 
     public String getErrorCode() {
@@ -231,6 +339,14 @@ public abstract class ProcessStepState implements ProcessState {
         map.put("stepHistory", stepHistory);
         map.put("waitHistory", waitHistory);
         map.put("sideEffects", sideEffects);
+
+        // Command step tracking
+        if (!pendingCommandSteps.isEmpty()) {
+            map.put("pendingCommandSteps", pendingCommandSteps);
+        }
+        if (!commandStepResponses.isEmpty()) {
+            map.put("commandStepResponses", commandStepResponses);
+        }
 
         if (errorCode != null) {
             map.put("errorCode", errorCode);

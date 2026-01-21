@@ -344,4 +344,85 @@ class ProcessStepWorkerTest {
 
         assertDoesNotThrow(() -> worker.checkDeadlines());
     }
+
+    @Test
+    @DisplayName("should skip non-PROCESS_STEP managers in pollRetries")
+    void shouldSkipNonProcessStepManagersInPollRetries() {
+        // Create a manager with different execution model
+        ProcessStepManager<?> nonStepManager = mock(ProcessStepManager.class);
+        when(nonStepManager.getExecutionModel()).thenReturn("SAGA");
+        when(nonStepManager.getDomain()).thenReturn("test-domain");
+        when(nonStepManager.getProcessType()).thenReturn("test-type");
+
+        ProcessStepWorker workerWithNonStepManager = new ProcessStepWorker(
+            List.of(nonStepManager),
+            processRepo
+        );
+
+        workerWithNonStepManager.start();
+        workerWithNonStepManager.pollRetries();
+
+        // Should not call repository for non-PROCESS_STEP manager
+        verify(processRepo, never()).claimDueForRetry(anyString(), anyString(), any(Instant.class), anyInt());
+
+        workerWithNonStepManager.stop();
+    }
+
+    @Test
+    @DisplayName("should skip non-PROCESS_STEP managers in checkWaitTimeouts")
+    void shouldSkipNonProcessStepManagersInCheckWaitTimeouts() {
+        ProcessStepManager<?> nonStepManager = mock(ProcessStepManager.class);
+        when(nonStepManager.getExecutionModel()).thenReturn("SAGA");
+        when(nonStepManager.getDomain()).thenReturn("test-domain");
+        when(nonStepManager.getProcessType()).thenReturn("test-type");
+
+        ProcessStepWorker workerWithNonStepManager = new ProcessStepWorker(
+            List.of(nonStepManager),
+            processRepo
+        );
+
+        workerWithNonStepManager.start();
+        workerWithNonStepManager.checkWaitTimeouts();
+
+        verify(processRepo, never()).findExpiredWaits(anyString(), anyString(), any(Instant.class));
+
+        workerWithNonStepManager.stop();
+    }
+
+    @Test
+    @DisplayName("should skip non-PROCESS_STEP managers in checkDeadlines")
+    void shouldSkipNonProcessStepManagersInCheckDeadlines() {
+        ProcessStepManager<?> nonStepManager = mock(ProcessStepManager.class);
+        when(nonStepManager.getExecutionModel()).thenReturn("SAGA");
+        when(nonStepManager.getDomain()).thenReturn("test-domain");
+        when(nonStepManager.getProcessType()).thenReturn("test-type");
+
+        ProcessStepWorker workerWithNonStepManager = new ProcessStepWorker(
+            List.of(nonStepManager),
+            processRepo
+        );
+
+        workerWithNonStepManager.start();
+        workerWithNonStepManager.checkDeadlines();
+
+        verify(processRepo, never()).findExpiredDeadlines(anyString(), anyString(), any(Instant.class));
+
+        workerWithNonStepManager.stop();
+    }
+
+    @Test
+    @DisplayName("should use custom batch size and timeout constructor")
+    void shouldUseCustomBatchSizeAndTimeoutConstructor() {
+        ProcessStepWorker customWorker = new ProcessStepWorker(
+            List.of(processManager),
+            processRepo,
+            50,  // custom batch size
+            120  // custom timeout
+        );
+
+        customWorker.start();
+        assertTrue(customWorker.isRunning());
+        customWorker.stop();
+        assertFalse(customWorker.isRunning());
+    }
 }

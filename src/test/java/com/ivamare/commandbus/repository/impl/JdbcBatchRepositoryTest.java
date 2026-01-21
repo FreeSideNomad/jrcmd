@@ -90,6 +90,59 @@ class JdbcBatchRepositoryTest {
                 any(), any(), any(), any(), any(), any(), any(), any(), any()  // Added batchType
             );
         }
+
+        @Test
+        void shouldSaveWithStartedAtAndCompletedAt() {
+            Instant now = Instant.now();
+            BatchMetadata metadata = new BatchMetadata(
+                "payments", UUID.randomUUID(), "Test", null,
+                BatchStatus.COMPLETED, 10, 10, 0, 0,
+                now, now, now, "PROCESS"  // with startedAt, completedAt, and custom batchType
+            );
+
+            repository.save(metadata);
+
+            verify(jdbcTemplate).update(
+                contains("INSERT INTO commandbus.batch"),
+                eq(metadata.domain()),
+                eq(metadata.batchId()),
+                eq(metadata.name()),
+                isNull(),  // customData is null
+                eq(metadata.status().getValue()),
+                eq(metadata.totalCount()),
+                eq(metadata.completedCount()),
+                eq(metadata.canceledCount()),
+                eq(metadata.inTroubleshootingCount()),
+                any(),  // createdAt
+                any(),  // startedAt (non-null)
+                any(),  // completedAt (non-null)
+                eq("PROCESS")  // batchType
+            );
+        }
+
+        @Test
+        void shouldSaveWithNullBatchType() {
+            BatchMetadata metadata = new BatchMetadata(
+                "payments", UUID.randomUUID(), "Test", null,
+                BatchStatus.PENDING, 10, 0, 0, 0,
+                Instant.now(), null, null, null  // null batchType
+            );
+
+            repository.save(metadata);
+
+            verify(jdbcTemplate).update(
+                contains("INSERT INTO commandbus.batch"),
+                eq(metadata.domain()),
+                eq(metadata.batchId()),
+                eq(metadata.name()),
+                isNull(),
+                any(), any(), any(), any(), any(),
+                any(),  // createdAt
+                isNull(),  // startedAt null
+                isNull(),  // completedAt null
+                eq("COMMAND")  // defaults to "COMMAND"
+            );
+        }
     }
 
     @Nested

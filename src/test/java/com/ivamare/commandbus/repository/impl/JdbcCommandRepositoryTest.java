@@ -112,6 +112,29 @@ class JdbcCommandRepositoryTest {
                 anyList()
             );
         }
+
+        @Test
+        void shouldBatchInsertMetadataWithNullReplyTo() {
+            // Create metadata with null replyTo to test that branch
+            CommandMetadata metadataWithNullReplyTo = new CommandMetadata(
+                "payments",
+                UUID.randomUUID(),
+                "TestCommand",
+                CommandStatus.PENDING,
+                0, 3, 123L,
+                UUID.randomUUID(),
+                null,  // null replyTo
+                null, null, null,
+                Instant.now(), Instant.now(), null
+            );
+
+            repository.saveBatch(List.of(metadataWithNullReplyTo), "payments__commands");
+
+            verify(jdbcTemplate).batchUpdate(
+                contains("INSERT INTO commandbus.command"),
+                anyList()
+            );
+        }
     }
 
     @Nested
@@ -288,6 +311,42 @@ class JdbcCommandRepositoryTest {
             String sql = sqlCaptor.getValue();
             assertFalse(sql.contains("status = ?"));
             assertFalse(sql.contains("AND domain = ?"));
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldIgnoreBlankDomainInQuery() {
+            when(jdbcTemplate.query(
+                anyString(),
+                any(RowMapper.class),
+                any(Object[].class)
+            )).thenReturn(List.of());
+
+            repository.query(null, "  ", null, null, null, 10, 0);
+
+            ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), any(Object[].class));
+
+            String sql = sqlCaptor.getValue();
+            assertFalse(sql.contains("AND domain = ?"));
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldIgnoreBlankCommandTypeInQuery() {
+            when(jdbcTemplate.query(
+                anyString(),
+                any(RowMapper.class),
+                any(Object[].class)
+            )).thenReturn(List.of());
+
+            repository.query(null, null, "  ", null, null, 10, 0);
+
+            ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), any(Object[].class));
+
+            String sql = sqlCaptor.getValue();
+            assertFalse(sql.contains("AND command_type = ?"));
         }
     }
 

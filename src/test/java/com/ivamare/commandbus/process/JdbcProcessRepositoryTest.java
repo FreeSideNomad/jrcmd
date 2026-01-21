@@ -705,6 +705,107 @@ class JdbcProcessRepositoryTest {
     }
 
     @Test
+    @DisplayName("should insert audit row with all null values when update finds no row")
+    void shouldInsertAuditRowWithAllNullValuesWhenUpdateFindsNoRow() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        ProcessAuditEntry entry = new ProcessAuditEntry(
+            "STEP_ONE", commandId, "DoSomething",
+            Map.of("key", "value"), Instant.now(),
+            null,  // null outcome
+            null,  // null reply data
+            null   // null received_at
+        );
+
+        // First update returns 0 (no rows updated)
+        when(jdbcTemplate.update(contains("UPDATE commandbus.process_audit"),
+            any(), any(), any(), any(), any(), any())).thenReturn(0);
+
+        repository.updateStepReply("orders", processId, commandId, entry);
+
+        // Verify INSERT was called when update returned 0 with all proper null handling
+        verify(jdbcTemplate).update(contains("INSERT INTO commandbus.process_audit"),
+            eq("orders"),
+            eq(processId),
+            eq("STEP_ONE"),
+            eq(commandId),
+            eq("DoSomething"),
+            anyString(),  // command_data
+            any(Timestamp.class),
+            isNull(),  // outcome null
+            isNull(),  // reply_data null
+            isNull()   // received_at null
+        );
+    }
+
+    @Test
+    @DisplayName("should save batch with processes having currentStep")
+    void shouldSaveBatchWithProcessesHavingCurrentStep() {
+        UUID processId1 = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        List<ProcessMetadata<?, ?>> processes = List.of(
+            new ProcessMetadata<>("orders", processId1, "ORDER", new TestState("state1"),
+                ProcessStatus.IN_PROGRESS, TestStep.STEP_ONE, now, now, now, null, null)  // with completedAt
+        );
+
+        repository.saveBatch(processes, jdbcTemplate);
+
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO commandbus.process"), anyList());
+    }
+
+    @Test
+    @DisplayName("should log batch with entries having replyOutcome and receivedAt")
+    void shouldLogBatchWithEntriesHavingReplyOutcomeAndReceivedAt() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ProcessAuditEntry entry = new ProcessAuditEntry(
+            "STEP_ONE", commandId, "Command1",
+            Map.of("key", "val1"), now,
+            ReplyOutcome.SUCCESS, Map.of("result", "ok"), now  // with outcome and receivedAt
+        );
+
+        List<JdbcProcessRepository.ProcessAuditBatchEntry> entries = List.of(
+            new JdbcProcessRepository.ProcessAuditBatchEntry(processId, entry)
+        );
+
+        repository.logBatchSteps("orders", entries, jdbcTemplate);
+
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO commandbus.process_audit"), anyList());
+    }
+
+    @Test
+    @DisplayName("should log step with non-null reply outcome")
+    void shouldLogStepWithNonNullReplyOutcome() {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        Instant now = Instant.now();
+        ProcessAuditEntry entry = new ProcessAuditEntry(
+            "STEP_ONE", commandId, "DoSomething",
+            Map.of("key", "value"), now,
+            ReplyOutcome.SUCCESS, Map.of("result", "ok"), now
+        );
+
+        repository.logStep("orders", processId, entry);
+
+        verify(jdbcTemplate).update(
+            contains("INSERT INTO commandbus.process_audit"),
+            eq("orders"),
+            eq(processId),
+            eq("STEP_ONE"),
+            eq(commandId),
+            eq("DoSomething"),
+            anyString(),  // command_data JSON
+            any(Timestamp.class),
+            eq("SUCCESS"),
+            anyString(),  // reply_data JSON
+            any(Timestamp.class)
+        );
+    }
+
+    @Test
     @DisplayName("should update state with null audit entry")
     void shouldUpdateStateWithNullAuditEntry() {
         UUID processId = UUID.randomUUID();

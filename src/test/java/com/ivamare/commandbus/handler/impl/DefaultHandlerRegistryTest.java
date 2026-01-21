@@ -269,6 +269,22 @@ class DefaultHandlerRegistryTest {
         }
 
         @Test
+        void shouldThrowWhenFirstParamNotCommand() {
+            WrongFirstParamBean bean = new WrongFirstParamBean();
+
+            assertThrows(IllegalArgumentException.class, () ->
+                registry.registerBean(bean));
+        }
+
+        @Test
+        void shouldThrowWhenSecondParamNotHandlerContext() {
+            WrongSecondParamBean bean = new WrongSecondParamBean();
+
+            assertThrows(IllegalArgumentException.class, () ->
+                registry.registerBean(bean));
+        }
+
+        @Test
         void shouldInvokeHandlerMethod() throws Exception {
             TestHandlerBean bean = new TestHandlerBean();
             registry.registerBean(bean);
@@ -360,6 +376,22 @@ class DefaultHandlerRegistryTest {
 
         @Handler(domain = "test", commandType = "Invalid")
         public String invalidHandler(String wrongParam) {
+            return "invalid";
+        }
+    }
+
+    static class WrongFirstParamBean {
+
+        @Handler(domain = "test", commandType = "WrongFirst")
+        public String handleWrongFirst(String notCommand, HandlerContext context) {
+            return "invalid";
+        }
+    }
+
+    static class WrongSecondParamBean {
+
+        @Handler(domain = "test", commandType = "WrongSecond")
+        public String handleWrongSecond(Command command, String notContext) {
             return "invalid";
         }
     }

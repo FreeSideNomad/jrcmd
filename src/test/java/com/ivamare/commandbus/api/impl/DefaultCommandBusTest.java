@@ -221,6 +221,30 @@ class DefaultCommandBusTest {
             assertThrows(DuplicateCommandException.class, () ->
                 commandBus.sendBatch(requests));
         }
+
+        @Test
+        void shouldSendBatchWithExplicitCorrelationId() {
+            UUID correlationId = UUID.randomUUID();
+            UUID commandId = UUID.randomUUID();
+
+            when(commandRepository.existsBatch(eq("payments"), anyList())).thenReturn(Set.of());
+            when(pgmqClient.sendBatch(anyString(), anyList())).thenReturn(List.of(1L));
+
+            // Use constructor with explicit correlationId
+            List<SendRequest> requests = List.of(
+                new SendRequest("payments", "Cmd1", commandId, Map.of(), correlationId, null, null)
+            );
+
+            BatchSendResult result = commandBus.sendBatch(requests);
+
+            assertEquals(1, result.totalCommands());
+
+            // Verify the message was built with the explicit correlationId
+            verify(pgmqClient).sendBatch(eq("payments__commands"), argThat(messages ->
+                messages.size() == 1 &&
+                correlationId.toString().equals(messages.get(0).get("correlation_id"))
+            ));
+        }
     }
 
     @Nested

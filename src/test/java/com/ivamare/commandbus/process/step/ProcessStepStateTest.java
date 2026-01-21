@@ -2,6 +2,7 @@ package com.ivamare.commandbus.process.step;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -9,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -231,6 +233,163 @@ class ProcessStepStateTest {
         assertEquals("ERR", map.get("errorCode"));
         assertEquals("msg", map.get("errorMessage"));
         assertEquals("2024-01-15T10:30:00Z", map.get("processDeadline"));
+    }
+
+    // ========== Command Step Tracking Tests ==========
+
+    @Nested
+    @DisplayName("Command Step Tracking")
+    class CommandStepTrackingTests {
+
+        @Test
+        @DisplayName("should store and retrieve pending command step")
+        void shouldStoreAndRetrievePendingCommandStep() {
+            UUID commandId = UUID.randomUUID();
+            state.storePendingCommandStep("bookFx", commandId, 30);
+
+            assertTrue(state.isWaitingForCommandStep("bookFx"));
+            Optional<UUID> retrievedId = state.getPendingCommandId("bookFx");
+            assertTrue(retrievedId.isPresent());
+            assertEquals(commandId, retrievedId.get());
+
+            Optional<PendingCommandStep> pendingStep = state.getPendingCommandStep("bookFx");
+            assertTrue(pendingStep.isPresent());
+            assertEquals("bookFx", pendingStep.get().stepName());
+            assertEquals(commandId, pendingStep.get().commandId());
+        }
+
+        @Test
+        @DisplayName("should return empty for non-existent pending command")
+        void shouldReturnEmptyForNonExistentPendingCommand() {
+            assertFalse(state.isWaitingForCommandStep("unknown"));
+            assertTrue(state.getPendingCommandId("unknown").isEmpty());
+            assertTrue(state.getPendingCommandStep("unknown").isEmpty());
+        }
+
+        @Test
+        @DisplayName("should store and retrieve command step response")
+        void shouldStoreAndRetrieveCommandStepResponse() {
+            UUID processId = UUID.randomUUID();
+            CommandStepResponse<String> response = CommandStepResponse.success(
+                processId, "bookFx", "FX-12345");
+
+            state.storeCommandStepResponse("bookFx", response);
+
+            Optional<CommandStepResponse<String>> retrieved = state.getCommandStepResponse("bookFx");
+            assertTrue(retrieved.isPresent());
+            assertTrue(retrieved.get().success());
+            assertEquals("FX-12345", retrieved.get().result());
+        }
+
+        @Test
+        @DisplayName("should return empty for non-existent response")
+        void shouldReturnEmptyForNonExistentResponse() {
+            Optional<CommandStepResponse<Object>> retrieved = state.getCommandStepResponse("unknown");
+            assertTrue(retrieved.isEmpty());
+        }
+
+        @Test
+        @DisplayName("should clear command step state")
+        void shouldClearCommandStepState() {
+            UUID commandId = UUID.randomUUID();
+            UUID processId = UUID.randomUUID();
+
+            state.storePendingCommandStep("bookFx", commandId, 30);
+            state.storeCommandStepResponse("bookFx", CommandStepResponse.success(processId, "bookFx", "result"));
+
+            assertTrue(state.isWaitingForCommandStep("bookFx"));
+            assertTrue(state.getCommandStepResponse("bookFx").isPresent());
+
+            state.clearCommandStepState("bookFx");
+
+            assertFalse(state.isWaitingForCommandStep("bookFx"));
+            assertTrue(state.getCommandStepResponse("bookFx").isEmpty());
+        }
+
+        @Test
+        @DisplayName("should detect timed out command step")
+        void shouldDetectTimedOutCommandStep() {
+            // Create with immediate timeout
+            Instant now = Instant.now();
+            Instant sentAt = now.minusSeconds(120);
+            Instant timeoutAt = now.minusSeconds(60);
+            PendingCommandStep pending = new PendingCommandStep("bookFx", UUID.randomUUID(), sentAt, timeoutAt);
+            state.getPendingCommandSteps().put("bookFx", pending);
+
+            assertTrue(state.isCommandStepTimedOut("bookFx"));
+        }
+
+        @Test
+        @DisplayName("should not detect non-timed out command step")
+        void shouldNotDetectNonTimedOutCommandStep() {
+            state.storePendingCommandStep("bookFx", UUID.randomUUID(), 300);
+
+            assertFalse(state.isCommandStepTimedOut("bookFx"));
+        }
+
+        @Test
+        @DisplayName("should return false for timeout check on non-existent step")
+        void shouldReturnFalseForTimeoutCheckOnNonExistentStep() {
+            assertFalse(state.isCommandStepTimedOut("unknown"));
+        }
+
+        @Test
+        @DisplayName("should handle null in setPendingCommandSteps")
+        void shouldHandleNullInSetPendingCommandSteps() {
+            state.setPendingCommandSteps(null);
+            assertNotNull(state.getPendingCommandSteps());
+            assertTrue(state.getPendingCommandSteps().isEmpty());
+        }
+
+        @Test
+        @DisplayName("should handle null in setCommandStepResponses")
+        void shouldHandleNullInSetCommandStepResponses() {
+            state.setCommandStepResponses(null);
+            assertNotNull(state.getCommandStepResponses());
+            assertTrue(state.getCommandStepResponses().isEmpty());
+        }
+    }
+
+    // ========== Error Tracking Additional Tests ==========
+
+    @Test
+    @DisplayName("hasError should return true with only error code")
+    void hasErrorShouldReturnTrueWithOnlyErrorCode() {
+        state.setErrorCode("ERR");
+        assertTrue(state.hasError());
+    }
+
+    @Test
+    @DisplayName("hasError should return true with only error message")
+    void hasErrorShouldReturnTrueWithOnlyErrorMessage() {
+        state.setErrorMessage("Some error");
+        assertTrue(state.hasError());
+    }
+
+    // ========== toMap Additional Tests ==========
+
+    @Test
+    @DisplayName("toMap should include command step data when present")
+    void toMapShouldIncludeCommandStepDataWhenPresent() {
+        UUID commandId = UUID.randomUUID();
+        UUID processId = UUID.randomUUID();
+        state.storePendingCommandStep("bookFx", commandId, 30);
+        state.storeCommandStepResponse("submitPayment",
+            CommandStepResponse.success(processId, "submitPayment", "result"));
+
+        Map<String, Object> map = state.toMap();
+
+        assertNotNull(map.get("pendingCommandSteps"));
+        assertNotNull(map.get("commandStepResponses"));
+    }
+
+    @Test
+    @DisplayName("toMap should not include command step data when empty")
+    void toMapShouldNotIncludeCommandStepDataWhenEmpty() {
+        Map<String, Object> map = state.toMap();
+
+        assertNull(map.get("pendingCommandSteps"));
+        assertNull(map.get("commandStepResponses"));
     }
 
     // ========== Setter Tests ==========

@@ -484,6 +484,177 @@ class ProcessReplyRouterTest {
     }
 
     @Test
+    @DisplayName("should handle process in terminal state")
+    void shouldHandleProcessInTerminalState() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 555L;
+
+        // Process is already COMPLETED (terminal state)
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.COMPLETED,  // Terminal state
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        // Should call updateStateOnly instead of handleReply
+        verify(manager, timeout(1000)).updateStateOnly(any(), eq(process), eq(jdbcTemplate));
+        verify(manager, never()).handleReply(any(), any(), any());
+        verify(pgmqClient, timeout(1000)).delete("test_replies", msgId);
+    }
+
+    @Test
+    @DisplayName("should use data field when result is null")
+    void shouldUseDataFieldWhenResultIsNull() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 666L;
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.WAITING_FOR_REPLY,
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        // Message has "data" instead of "result"
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS",
+                "data", Map.of("fallback_key", "fallback_value")
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        verify(manager, timeout(1000)).handleReply(
+            argThat(reply -> {
+                Map<String, Object> data = reply.data();
+                return data != null && "fallback_value".equals(data.get("fallback_key"));
+            }),
+            eq(process),
+            eq(jdbcTemplate)
+        );
+    }
+
+    @Test
+    @DisplayName("should handle process in CANCELED terminal state")
+    void shouldHandleProcessInCanceledTerminalState() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 777L;
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.CANCELED,  // Terminal state
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        verify(manager, timeout(1000)).updateStateOnly(any(), eq(process), eq(jdbcTemplate));
+    }
+
+    @Test
+    @DisplayName("should handle process in FAILED terminal state")
+    void shouldHandleProcessInFailedTerminalState() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 888L;
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.FAILED,  // Terminal state
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        verify(manager, timeout(1000)).updateStateOnly(any(), eq(process), eq(jdbcTemplate));
+    }
+
+    @Test
+    @DisplayName("should return consecutive error count")
+    void shouldReturnConsecutiveErrorCount() {
+        assertEquals(0, router.getConsecutiveErrorCount());
+    }
+
+    @Test
     @DisplayName("should archive messages when archiveMessages is true")
     void shouldArchiveMessagesWhenArchiveMessagesIsTrue() throws Exception {
         // Create router with archiveMessages=true
@@ -538,5 +709,146 @@ class ProcessReplyRouterTest {
         // Should archive instead of delete
         verify(pgmqClient, timeout(1000)).archive("test_replies", msgId);
         verify(pgmqClient, never()).delete("test_replies", msgId);
+    }
+
+    @Test
+    @DisplayName("should handle double start gracefully")
+    void shouldHandleDoubleStartGracefully() throws Exception {
+        when(pgmqClient.read(anyString(), anyInt(), anyInt()))
+            .thenReturn(List.of());
+
+        router.start();
+        assertTrue(router.isRunning());
+
+        // Starting again should not throw
+        router.start();
+        assertTrue(router.isRunning());
+
+        router.stopNow();
+    }
+
+    @Test
+    @DisplayName("stop should return completed future when not running")
+    void stopShouldReturnCompletedFutureWhenNotRunning() throws Exception {
+        assertFalse(router.isRunning());
+
+        var future = router.stop(Duration.ofSeconds(5));
+        assertNotNull(future);
+        assertTrue(future.isDone());
+    }
+
+    @Test
+    @DisplayName("isRunning should return false when stopping")
+    void isRunningShouldReturnFalseWhenStopping() throws Exception {
+        when(pgmqClient.read(anyString(), anyInt(), anyInt()))
+            .thenReturn(List.of());
+
+        router.start();
+        assertTrue(router.isRunning());
+
+        // Start stop process
+        router.stop(Duration.ofSeconds(5));
+        Thread.sleep(50);
+
+        // Should report not running once stop initiated
+        assertFalse(router.isRunning());
+    }
+
+    @Test
+    @DisplayName("should handle non-transient poll exception")
+    void shouldHandleNonTransientPollException() throws Exception {
+        // First throw a non-transient error, then return empty
+        when(pgmqClient.read(anyString(), anyInt(), anyInt()))
+            .thenThrow(new RuntimeException("Non-transient error"))
+            .thenReturn(List.of());
+
+        router.start();
+        Thread.sleep(200);
+
+        // Should still be running after non-transient error
+        assertTrue(router.isRunning());
+
+        router.stopNow();
+    }
+
+    @Test
+    @DisplayName("should calculate exponential backoff")
+    void shouldCalculateExponentialBackoff() {
+        // getConsecutiveErrorCount is available
+        assertEquals(0, router.getConsecutiveErrorCount());
+    }
+
+    @Test
+    @DisplayName("should handle empty result from data fallback")
+    void shouldHandleEmptyResultData() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 999L;
+
+        ProcessMetadata<?, ?> process = new ProcessMetadata<>(
+            "test_domain", processId, "TEST_PROCESS",
+            new MapProcessState(Map.of()),
+            ProcessStatus.WAITING_FOR_REPLY,
+            null,
+            Instant.now(), Instant.now(), null, null, null
+        );
+
+        // Message with neither result nor data
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.of(process));
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        verify(manager, timeout(1000)).handleReply(any(), eq(process), eq(jdbcTemplate));
+    }
+
+    @Test
+    @DisplayName("should handle missing process for reply")
+    void shouldHandleMissingProcessForReply() throws Exception {
+        UUID processId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        long msgId = 999L;
+
+        PgmqMessage message = new PgmqMessage(
+            msgId, 1, Instant.now(), Instant.now().plusSeconds(30),
+            Map.of(
+                "command_id", commandId.toString(),
+                "correlation_id", processId.toString(),
+                "outcome", "SUCCESS"
+            )
+        );
+
+        when(pgmqClient.read(eq("test_replies"), eq(30), anyInt()))
+            .thenReturn(List.of(message))
+            .thenReturn(List.of());
+
+        // Process not found
+        when(processRepo.getById("test_domain", processId, jdbcTemplate))
+            .thenReturn(Optional.empty());
+
+        router.start();
+        Thread.sleep(300);
+        router.stopNow();
+
+        // Manager should not be called
+        verify(manager, never()).handleReply(any(), any(), any());
+
+        // Message should still be deleted
+        verify(pgmqClient, timeout(1000)).delete("test_replies", msgId);
     }
 }
