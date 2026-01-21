@@ -1,5 +1,48 @@
 # Release Notes
 
+## v0.4.0
+
+### Highlights
+
+- **Command Step Infrastructure** - New pattern for orchestrating downstream API calls with concurrency control
+- **Removed bucket4j Dependency** - Replaced rate limiting with command-based concurrency using existing infrastructure
+- **Documentation** - Comprehensive concurrency implementation analysis
+
+### New Features
+
+#### Command Step Infrastructure (#118)
+
+Replaces bucket4j rate limiting with command-based concurrency control using the existing Command/Handler/Worker infrastructure.
+
+**New Components:**
+- `CommandStepResponse<T>` - Generic response record with error type classification (TRANSIENT, PERMANENT, BUSINESS, TIMEOUT)
+- `CommandStepResponseHandler` - Polls reply queues and routes responses to processes
+- `PendingCommandStep` - Tracks in-flight commands with timeout support
+- `ProcessStepState` extensions - Command step tracking methods
+
+**Concurrency Control:**
+Rate is controlled by: `replicas × concurrent-messages` per domain, providing natural backpressure without external rate limiting libraries.
+
+**Test Domain Handlers:**
+- `BookFxHandler` - FX booking simulation
+- `SubmitPaymentHandler` - Payment submission simulation
+
+### Removed
+
+- **bucket4j dependency** - All bucket4j-related code removed
+- Rate limiting now handled through command queue concurrency
+
+### Documentation
+
+- Added `docs/concurrency-implementation.md` - Comprehensive analysis of race condition management
+- Updated `DEVELOPER_GUIDE.md` - Payment Workflow diagram, removed non-existent TERMINAL exception type
+
+### Breaking Changes
+
+None. The bucket4j removal is transparent if you weren't using the rate limiting features directly.
+
+---
+
 ## v0.3.0
 
 ### Highlights
