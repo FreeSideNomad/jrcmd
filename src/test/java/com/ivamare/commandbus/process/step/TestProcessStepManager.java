@@ -1,9 +1,10 @@
 package com.ivamare.commandbus.process.step;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ivamare.commandbus.CommandBusProperties;
+import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.process.ProbabilisticBehavior;
 import com.ivamare.commandbus.process.ProcessRepository;
-import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
 import com.ivamare.commandbus.process.step.exceptions.StepBusinessRuleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,21 +65,22 @@ public abstract class TestProcessStepManager<TState extends TestProcessStepState
         super(processRepo, jdbcTemplate, transactionTemplate, objectMapper);
     }
 
+    /**
+     * Constructor with command step support.
+     *
+     * @param processRepo the process repository
+     * @param jdbcTemplate the JDBC template
+     * @param transactionTemplate the transaction template
+     * @param commandBus the command bus for sending commands
+     * @param properties the command bus properties
+     */
     protected TestProcessStepManager(
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
-            Bucket4jRateLimiter rateLimiter) {
-        super(processRepo, jdbcTemplate, transactionTemplate, rateLimiter);
-    }
-
-    protected TestProcessStepManager(
-            ProcessRepository processRepo,
-            JdbcTemplate jdbcTemplate,
-            TransactionTemplate transactionTemplate,
-            Bucket4jRateLimiter rateLimiter,
-            ObjectMapper objectMapper) {
-        super(processRepo, jdbcTemplate, transactionTemplate, rateLimiter, objectMapper);
+            CommandBus commandBus,
+            CommandBusProperties properties) {
+        super(processRepo, jdbcTemplate, transactionTemplate, commandBus, properties);
     }
 
     // ========== Overridden step() with behavior injection ==========

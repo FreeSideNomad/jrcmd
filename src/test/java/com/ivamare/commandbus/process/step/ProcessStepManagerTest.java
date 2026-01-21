@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
-import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
 import com.ivamare.commandbus.process.step.exceptions.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -990,171 +989,6 @@ class ProcessStepManagerTest {
     }
 
     @Nested
-    @DisplayName("Rate Limiting")
-    class RateLimitingTests {
-
-        private Bucket4jRateLimiter rateLimiterMock;
-        private TestProcessStepManager managerWithRateLimiter;
-
-        @BeforeEach
-        void setUpRateLimiter() {
-            rateLimiterMock = mock(Bucket4jRateLimiter.class);
-            managerWithRateLimiter = new TestProcessStepManager(
-                processRepo, jdbcTemplate, transactionTemplate, rateLimiterMock);
-        }
-
-        @Test
-        @DisplayName("should call rate limiter when rateLimitKey is configured")
-        void shouldCallRateLimiterWhenConfigured() {
-            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
-            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
-                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
-            when(rateLimiterMock.acquire(anyString(), any(Duration.class))).thenReturn(true);
-
-            AtomicBoolean stepExecuted = new AtomicBoolean(false);
-            managerWithRateLimiter.setExecuteAction(state -> {
-                StepOptions<TestState, String> options = StepOptions.<TestState, String>builder()
-                    .action(s -> {
-                        stepExecuted.set(true);
-                        return "result";
-                    })
-                    .rateLimitKey("api-calls")
-                    .rateLimitTimeout(Duration.ofSeconds(10))
-                    .build();
-                managerWithRateLimiter.testStepWithOptions("rateLimitedStep", options);
-            });
-
-            TestState initialState = new TestState();
-            managerWithRateLimiter.start(initialState, StartOptions.builder().executeImmediately(true).build());
-
-            assertTrue(stepExecuted.get());
-            verify(rateLimiterMock).acquire("api-calls", Duration.ofSeconds(10));
-        }
-
-        @Test
-        @DisplayName("should schedule retry when rate limit exceeded and retries available")
-        void shouldScheduleRetryWhenRateLimitExceeded() {
-            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
-            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
-                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
-            when(rateLimiterMock.acquire(anyString(), any(Duration.class))).thenReturn(false);
-
-            AtomicBoolean stepExecuted = new AtomicBoolean(false);
-            managerWithRateLimiter.setExecuteAction(state -> {
-                StepOptions<TestState, String> options = StepOptions.<TestState, String>builder()
-                    .action(s -> {
-                        stepExecuted.set(true);
-                        return "result";
-                    })
-                    .maxRetries(3)  // Enable retries
-                    .rateLimitKey("api-calls")
-                    .rateLimitTimeout(Duration.ofSeconds(10))
-                    .build();
-                managerWithRateLimiter.testStepWithOptions("rateLimitedStep", options);
-            });
-
-            TestState initialState = new TestState();
-            managerWithRateLimiter.start(initialState, StartOptions.builder().executeImmediately(true).build());
-
-            assertFalse(stepExecuted.get(), "Step action should not execute when rate limited");
-            // Rate limit exceeded is TRANSIENT - should schedule retry
-            verify(processRepo).updateStateAtomicStep(
-                anyString(), any(UUID.class), any(),
-                any(), eq("WAITING_FOR_RETRY"),
-                isNull(), isNull(), any(Instant.class), isNull(), isNull(),
-                any(JdbcTemplate.class)
-            );
-        }
-
-        @Test
-        @DisplayName("should move to TSQ when rate limit exceeded with no retries configured")
-        void shouldMoveToTsqWhenRateLimitExceededNoRetries() {
-            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
-            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
-                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
-            when(rateLimiterMock.acquire(anyString(), any(Duration.class))).thenReturn(false);
-
-            AtomicBoolean stepExecuted = new AtomicBoolean(false);
-            managerWithRateLimiter.setExecuteAction(state -> {
-                StepOptions<TestState, String> options = StepOptions.<TestState, String>builder()
-                    .action(s -> {
-                        stepExecuted.set(true);
-                        return "result";
-                    })
-                    // Default maxRetries=1 means no retries
-                    .rateLimitKey("api-calls")
-                    .rateLimitTimeout(Duration.ofSeconds(10))
-                    .build();
-                managerWithRateLimiter.testStepWithOptions("rateLimitedStep", options);
-            });
-
-            TestState initialState = new TestState();
-            managerWithRateLimiter.start(initialState, StartOptions.builder().executeImmediately(true).build());
-
-            assertFalse(stepExecuted.get(), "Step action should not execute when rate limited");
-            // With no retries configured, should move to TSQ
-            verify(processRepo).updateStateAtomicStep(
-                anyString(), any(UUID.class), any(),
-                any(), eq("WAITING_FOR_TSQ"),
-                eq("RETRIES_EXHAUSTED"), anyString(), isNull(), isNull(), isNull(),
-                any(JdbcTemplate.class)
-            );
-        }
-
-        @Test
-        @DisplayName("should skip rate limiting when rateLimiter is null")
-        void shouldSkipRateLimitingWhenRateLimiterIsNull() {
-            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
-            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
-                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
-
-            AtomicBoolean stepExecuted = new AtomicBoolean(false);
-            // Use manager without rate limiter (from parent setUp)
-            manager.setExecuteAction(state -> {
-                StepOptions<TestState, String> options = StepOptions.<TestState, String>builder()
-                    .action(s -> {
-                        stepExecuted.set(true);
-                        return "result";
-                    })
-                    .rateLimitKey("api-calls")
-                    .rateLimitTimeout(Duration.ofSeconds(10))
-                    .build();
-                manager.testStepWithOptions("rateLimitedStep", options);
-            });
-
-            TestState initialState = new TestState();
-            manager.start(initialState, StartOptions.builder().executeImmediately(true).build());
-
-            assertTrue(stepExecuted.get(), "Step should execute when rateLimiter is null");
-        }
-
-        @Test
-        @DisplayName("should skip rate limiting when rateLimitKey is not configured")
-        void shouldSkipRateLimitingWhenKeyNotConfigured() {
-            when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
-            when(processRepo.getStateJson(anyString(), any(UUID.class), any(JdbcTemplate.class)))
-                .thenReturn("{\"data\":\"test\",\"stepHistory\":[],\"waitHistory\":[],\"sideEffects\":[]}");
-
-            AtomicBoolean stepExecuted = new AtomicBoolean(false);
-            managerWithRateLimiter.setExecuteAction(state -> {
-                // Using step without rate limit options
-                String result = managerWithRateLimiter.testStep("normalStep", s -> {
-                    stepExecuted.set(true);
-                    return "result";
-                });
-                assertEquals("result", result);
-            });
-
-            TestState initialState = new TestState();
-            managerWithRateLimiter.start(initialState, StartOptions.builder().executeImmediately(true).build());
-
-            assertTrue(stepExecuted.get());
-            // Rate limiter should not be called
-            verify(rateLimiterMock, never()).acquire(anyString(), any(Duration.class));
-        }
-    }
-
-    @Nested
     @DisplayName("resume()")
     class ResumeTests {
 
@@ -1368,13 +1202,6 @@ class ProcessStepManagerTest {
                                       TransactionTemplate transactionTemplate,
                                       ObjectMapper objectMapper) {
             super(processRepo, jdbcTemplate, transactionTemplate, objectMapper);
-        }
-
-        public TestProcessStepManager(ProcessRepository processRepo,
-                                      JdbcTemplate jdbcTemplate,
-                                      TransactionTemplate transactionTemplate,
-                                      Bucket4jRateLimiter rateLimiter) {
-            super(processRepo, jdbcTemplate, transactionTemplate, rateLimiter);
         }
 
         void setExecuteAction(Consumer<TestState> action) {

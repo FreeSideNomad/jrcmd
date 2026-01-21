@@ -5,11 +5,12 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.ivamare.commandbus.CommandBusProperties;
+import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.model.ReplyOutcome;
 import com.ivamare.commandbus.process.ProcessAuditEntry;
 import com.ivamare.commandbus.process.ProcessRepository;
 import com.ivamare.commandbus.process.ProcessStatus;
-import com.ivamare.commandbus.process.ratelimit.Bucket4jRateLimiter;
 import com.ivamare.commandbus.exception.DatabaseExceptionClassifier;
 import com.ivamare.commandbus.process.step.exceptions.*;
 import org.slf4j.Logger;
@@ -77,7 +78,8 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
     protected final JdbcTemplate jdbcTemplate;
     protected final TransactionTemplate transactionTemplate;
     protected final ObjectMapper objectMapper;
-    protected final Bucket4jRateLimiter rateLimiter;  // nullable for backward compatibility
+    protected final CommandBus commandBus;            // nullable for backward compatibility
+    protected final CommandBusProperties properties;  // nullable for backward compatibility
 
     // Thread-local execution context (set during execute())
     protected final ThreadLocal<ExecutionContext<TState>> currentContext = new ThreadLocal<>();
@@ -88,7 +90,7 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate) {
-        this(processRepo, jdbcTemplate, transactionTemplate, null, createObjectMapper());
+        this(processRepo, jdbcTemplate, transactionTemplate, null, null, createObjectMapper());
     }
 
     protected ProcessStepManager(
@@ -96,27 +98,42 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
             ObjectMapper objectMapper) {
-        this(processRepo, jdbcTemplate, transactionTemplate, null, objectMapper);
+        this(processRepo, jdbcTemplate, transactionTemplate, null, null, objectMapper);
     }
 
+    /**
+     * Constructor with command step support.
+     *
+     * @param processRepo the process repository
+     * @param jdbcTemplate the JDBC template
+     * @param transactionTemplate the transaction template
+     * @param commandBus the command bus for sending commands (nullable)
+     * @param properties the command bus properties (nullable)
+     */
     protected ProcessStepManager(
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
-            Bucket4jRateLimiter rateLimiter) {
-        this(processRepo, jdbcTemplate, transactionTemplate, rateLimiter, createObjectMapper());
+            CommandBus commandBus,
+            CommandBusProperties properties) {
+        this(processRepo, jdbcTemplate, transactionTemplate, commandBus, properties, createObjectMapper());
     }
 
+    /**
+     * Full constructor with all dependencies.
+     */
     protected ProcessStepManager(
             ProcessRepository processRepo,
             JdbcTemplate jdbcTemplate,
             TransactionTemplate transactionTemplate,
-            Bucket4jRateLimiter rateLimiter,
+            CommandBus commandBus,
+            CommandBusProperties properties,
             ObjectMapper objectMapper) {
         this.processRepo = processRepo;
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
-        this.rateLimiter = rateLimiter;
+        this.commandBus = commandBus;
+        this.properties = properties;
         this.objectMapper = objectMapper;
     }
 
@@ -708,15 +725,6 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         persistState(ctx.processId(), state);
 
         try {
-            // Rate limiting (if configured) - inside try so exceptions are handled
-            if (options.hasRateLimiting() && rateLimiter != null) {
-                if (!rateLimiter.acquire(options.rateLimitKey(), options.rateLimitTimeout())) {
-                    throw new RateLimitExceededException(
-                        "Rate limit exceeded for " + options.rateLimitKey(),
-                        options.rateLimitKey());
-                }
-            }
-
             // Execute the action
             R result = options.action().apply(state);
 
@@ -734,6 +742,358 @@ public abstract class ProcessStepManager<TState extends ProcessStepState> {
         } catch (Exception e) {
             return handleStepException(name, options, ctx, e, startedRecord.startedAt());
         }
+    }
+
+    // ========== Command Step Methods ==========
+
+    /**
+     * Execute a step by sending a command to an external domain and waiting for response.
+     *
+     * <p>This method supports:
+     * <ul>
+     *   <li><b>Deterministic replay</b> - If step already completed, returns cached result</li>
+     *   <li><b>Async response handling</b> - If response arrived, processes it and continues</li>
+     *   <li><b>Timeout handling</b> - If command timed out, throws appropriate exception</li>
+     *   <li><b>Rate limiting</b> - Throughput controlled by domain concurrent-messages config</li>
+     * </ul>
+     *
+     * <p>Usage:
+     * <pre>{@code
+     * FxResult fxResult = commandStep("bookFx", new BookFxRequest(...), FxResult.class);
+     * }</pre>
+     *
+     * @param stepName Unique step name within this process (must match command-steps config)
+     * @param request The request payload to send
+     * @param responseType The expected response type class
+     * @param <TReq> The request type
+     * @param <TResp> The response type
+     * @return The response from the external domain
+     * @throws StepBusinessRuleException if business rule violation in response
+     * @throws WaitConditionNotMetException if waiting for async response
+     * @throws StepFailedException if permanent failure or retries exhausted
+     */
+    protected <TReq, TResp> TResp commandStep(
+            String stepName,
+            TReq request,
+            Class<TResp> responseType) throws StepBusinessRuleException {
+        return commandStep(stepName, request, responseType, null);
+    }
+
+    /**
+     * Execute a command step with compensation support.
+     *
+     * @param stepName Unique step name within this process
+     * @param request The request payload to send
+     * @param responseType The expected response type class
+     * @param compensation Optional compensation action for saga rollback
+     * @param <TReq> The request type
+     * @param <TResp> The response type
+     * @return The response from the external domain
+     * @throws StepBusinessRuleException if business rule violation in response
+     */
+    protected <TReq, TResp> TResp commandStep(
+            String stepName,
+            TReq request,
+            Class<TResp> responseType,
+            Consumer<TState> compensation) throws StepBusinessRuleException {
+
+        ExecutionContext<TState> ctx = currentContext.get();
+        if (ctx == null) {
+            throw new IllegalStateException("commandStep() called outside of execute() context");
+        }
+
+        if (commandBus == null || properties == null) {
+            throw new IllegalStateException("commandStep() requires CommandBus and CommandBusProperties. " +
+                "Use constructor with CommandBus and CommandBusProperties parameters.");
+        }
+
+        TState state = ctx.state();
+        UUID processId = ctx.processId();
+
+        // Get command step configuration
+        CommandBusProperties.CommandStepConfig config = properties.getCommandStepConfig(stepName);
+        if (config == null) {
+            throw new IllegalStateException("No command step configuration found for step: " + stepName +
+                ". Configure in commandbus.command-steps." + stepName);
+        }
+
+        // Check if step already completed (replay)
+        var completedStep = ctx.getCompletedStep(stepName);
+        if (completedStep.isPresent()) {
+            log.debug("Replaying completed command step {} for process {}", stepName, processId);
+            // Register compensation even during replay
+            if (compensation != null) {
+                ctx.registerCompensation(stepName, compensation);
+            }
+            return deserializeResult(completedStep.get().responseJson(), responseType);
+        }
+
+        // Check if response has arrived (resume from async)
+        var storedResponse = state.getCommandStepResponse(stepName);
+        if (storedResponse.isPresent()) {
+            CommandStepResponse<?> response = storedResponse.get();
+            return handleCommandStepResponse(stepName, response, responseType, compensation, ctx);
+        }
+
+        // Check if command timed out
+        if (state.isCommandStepTimedOut(stepName)) {
+            log.warn("Command step {} timed out for process {}", stepName, processId);
+            state.clearCommandStepState(stepName);
+
+            // Record step as failed due to timeout
+            ctx.recordStepFailed(stepName, "COMMAND_STEP_TIMEOUT",
+                "Command step timed out waiting for response");
+            persistState(processId, state);
+
+            // Log to audit trail
+            logStepFailure(processId, stepName, Instant.now(), "COMMAND_STEP_TIMEOUT",
+                "Timed out waiting for response from " + config.getDomain());
+
+            throw new StepFailedException(stepName, "COMMAND_STEP_TIMEOUT",
+                "Command step timed out waiting for response", null);
+        }
+
+        // Check if already waiting for response
+        if (state.isWaitingForCommandStep(stepName)) {
+            log.debug("Process {} still waiting for command step {} response", processId, stepName);
+            throw new WaitConditionNotMetException(stepName);
+        }
+
+        // First execution - send command to external domain
+        UUID commandId = UUID.randomUUID();
+        String targetDomain = config.getDomain();
+        String commandType = config.getCommandType();
+        long timeoutSeconds = config.getTimeout().getSeconds();
+        String replyQueue = config.getReplyQueue() != null
+            ? config.getReplyQueue()
+            : getDomain() + "__replies";
+
+        // Register compensation before sending
+        if (compensation != null) {
+            ctx.registerCompensation(stepName, compensation);
+        }
+
+        // Record step start
+        StepRecord startedRecord = new StepRecord(
+            stepName, StepStatus.STARTED, 1, 0,
+            Instant.now(), null, serializeRequest(request), null, null, null, null
+        );
+        state.recordStep(startedRecord);
+
+        // Serialize request to command data
+        Map<String, Object> commandData = serializeCommandData(request, processId, stepName);
+
+        // Store pending command step
+        state.storePendingCommandStep(stepName, commandId, timeoutSeconds);
+        persistState(processId, state);
+
+        try {
+            // Send command with reply queue
+            commandBus.send(
+                targetDomain,
+                commandType,
+                commandId,
+                commandData,
+                processId,  // correlation ID = process ID for routing replies
+                replyQueue,
+                null  // use default max attempts
+            );
+
+            log.info("Command step {} sent command {} to domain {} for process {}",
+                stepName, commandId, targetDomain, processId);
+
+            // Log to audit trail
+            logCommandStepSent(processId, stepName, commandId, targetDomain, commandType);
+
+            // Update process status to waiting for async
+            Instant timeoutAt = Instant.now().plusSeconds(timeoutSeconds);
+            processRepo.updateStateAtomicStep(
+                getDomain(), processId, null,
+                null, ProcessStatus.WAITING_FOR_ASYNC.name(),
+                null, null, null, timeoutAt, stepName,
+                jdbcTemplate
+            );
+
+            // Throw to pause execution until response arrives
+            throw new WaitConditionNotMetException(stepName);
+
+        } catch (WaitConditionNotMetException e) {
+            throw e;  // Re-throw - this is expected
+        } catch (Exception e) {
+            // Command send failed - clean up pending state
+            state.clearCommandStepState(stepName);
+            ctx.recordStepFailed(stepName, "COMMAND_SEND_FAILED", e.getMessage());
+            persistState(processId, state);
+
+            logStepFailure(processId, stepName, startedRecord.startedAt(),
+                "COMMAND_SEND_FAILED", e.getMessage());
+
+            throw new StepFailedException(stepName, "COMMAND_SEND_FAILED",
+                "Failed to send command: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Handle a command step response (success, failure, business error).
+     */
+    @SuppressWarnings("unchecked")
+    private <TResp> TResp handleCommandStepResponse(
+            String stepName,
+            CommandStepResponse<?> response,
+            Class<TResp> responseType,
+            Consumer<TState> compensation,
+            ExecutionContext<TState> ctx) throws StepBusinessRuleException {
+
+        TState state = ctx.state();
+        UUID processId = ctx.processId();
+
+        // Clear pending state now that we have a response
+        state.clearCommandStepState(stepName);
+
+        if (response.success()) {
+            // Success - record step completion
+            String responseJson = serializeResult(response.result());
+            ctx.recordStepCompleted(stepName, responseJson);
+            persistState(processId, state);
+
+            // Log to audit trail
+            logStepSuccess(processId, stepName, Instant.now(), responseJson);
+
+            log.info("Command step {} completed successfully for process {}", stepName, processId);
+
+            // Register compensation if provided
+            if (compensation != null) {
+                ctx.registerCompensation(stepName, compensation);
+            }
+
+            // Deserialize and return the strongly-typed result
+            return deserializeResult(responseJson, responseType);
+        }
+
+        // Handle different error types
+        if (response.isBusinessError()) {
+            // Business error - run compensations
+            ctx.recordStepFailed(stepName, response.errorCode(), response.errorMessage());
+            persistState(processId, state);
+
+            logStepFailure(processId, stepName, Instant.now(),
+                response.errorCode(), response.errorMessage());
+
+            log.info("Command step {} business error for process {}: {}",
+                stepName, processId, response.errorMessage());
+
+            // Run compensations for all completed steps
+            runCompensations(processId, state);
+
+            processRepo.updateStateAtomicStep(
+                getDomain(), processId, null,
+                null, ProcessStatus.COMPENSATED.name(),
+                response.errorCode(), response.errorMessage(), null, null, null,
+                jdbcTemplate
+            );
+
+            throw new StepBusinessRuleException(response.errorMessage());
+        }
+
+        if (response.shouldMoveToTsq()) {
+            // Permanent error - move to TSQ
+            ctx.recordStepFailed(stepName, response.errorCode(), response.errorMessage());
+            persistState(processId, state);
+
+            logStepFailure(processId, stepName, Instant.now(),
+                response.errorCode(), response.errorMessage());
+            logMoveToTsq(processId, Instant.now(), "permanent_error",
+                response.errorCode(), response.errorMessage());
+
+            log.warn("Command step {} permanent error for process {}: {}",
+                stepName, processId, response.errorMessage());
+
+            throw new StepFailedException(stepName, response.errorCode(),
+                response.errorMessage(), null);
+        }
+
+        if (response.isRetryable()) {
+            // Transient/timeout error - will be retried by re-sending command
+            // Clear the response so next execution sends a new command
+            log.info("Command step {} transient error for process {}: {} - will retry",
+                stepName, processId, response.errorMessage());
+
+            // Don't record as failed - just clear state and let it retry
+            persistState(processId, state);
+
+            // Throw to trigger retry on next execution
+            throw new WaitConditionNotMetException(stepName);
+        }
+
+        // Unknown error type - treat as permanent
+        ctx.recordStepFailed(stepName, response.errorCode(), response.errorMessage());
+        persistState(processId, state);
+
+        throw new StepFailedException(stepName, response.errorCode(),
+            response.errorMessage(), null);
+    }
+
+    /**
+     * Serialize request object to command data map.
+     */
+    private <TReq> Map<String, Object> serializeCommandData(TReq request, UUID processId, String stepName) {
+        Map<String, Object> commandData = new java.util.HashMap<>();
+        commandData.put("process_id", processId.toString());
+        commandData.put("step_name", stepName);
+
+        if (request != null) {
+            try {
+                // Convert request object to map
+                @SuppressWarnings("unchecked")
+                Map<String, Object> requestData = objectMapper.convertValue(request, Map.class);
+                commandData.put("request", requestData);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to serialize command request", e);
+            }
+        }
+
+        return commandData;
+    }
+
+    /**
+     * Serialize request for step record.
+     */
+    private <TReq> String serializeRequest(TReq request) {
+        if (request == null) {
+            return "{}";
+        }
+        try {
+            return objectMapper.writeValueAsString(request);
+        } catch (JsonProcessingException e) {
+            return "{}";
+        }
+    }
+
+    /**
+     * Deserialize result with specific type.
+     */
+    private <TResp> TResp deserializeResult(String json, Class<TResp> responseType) {
+        if (json == null || responseType == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, responseType);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to deserialize response to " + responseType.getName(), e);
+        }
+    }
+
+    /**
+     * Log a command step sent to audit trail.
+     */
+    protected void logCommandStepSent(UUID processId, String stepName, UUID commandId,
+                                       String targetDomain, String commandType) {
+        Map<String, Object> responseData = new java.util.HashMap<>();
+        responseData.put("commandId", commandId.toString());
+        responseData.put("targetDomain", targetDomain);
+        responseData.put("commandType", commandType);
+        logStepAudit(processId, stepName, "COMMAND_STEP_SENT", Instant.now(),
+            ReplyOutcome.SUCCESS, responseData);
     }
 
     // ========== Wait Methods ==========

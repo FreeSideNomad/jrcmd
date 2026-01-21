@@ -2,7 +2,10 @@ package com.ivamare.commandbus;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Configuration properties for Command Bus.
@@ -65,6 +68,21 @@ public class CommandBusProperties {
      */
     private ProcessStepProperties processStep = new ProcessStepProperties();
 
+    /**
+     * Feature toggles for worker capabilities.
+     */
+    private FeaturesProperties features = new FeaturesProperties();
+
+    /**
+     * Per-domain configuration for concurrency and enabling/disabling.
+     */
+    private Map<String, DomainConfig> domains = new HashMap<>();
+
+    /**
+     * Command step configuration for ProcessStepManager.commandStep().
+     */
+    private Map<String, CommandStepConfig> commandSteps = new HashMap<>();
+
     // Getters and setters
 
     public boolean isEnabled() {
@@ -121,6 +139,50 @@ public class CommandBusProperties {
 
     public void setProcessStep(ProcessStepProperties processStep) {
         this.processStep = processStep;
+    }
+
+    public FeaturesProperties getFeatures() {
+        return features;
+    }
+
+    public void setFeatures(FeaturesProperties features) {
+        this.features = features;
+    }
+
+    public Map<String, DomainConfig> getDomains() {
+        return domains;
+    }
+
+    public void setDomains(Map<String, DomainConfig> domains) {
+        this.domains = domains;
+    }
+
+    public Map<String, CommandStepConfig> getCommandSteps() {
+        return commandSteps;
+    }
+
+    public void setCommandSteps(Map<String, CommandStepConfig> commandSteps) {
+        this.commandSteps = commandSteps;
+    }
+
+    /**
+     * Get domain configuration, returning defaults if not explicitly configured.
+     *
+     * @param domain domain name
+     * @return domain configuration (never null)
+     */
+    public DomainConfig getDomainConfig(String domain) {
+        return domains.getOrDefault(domain, new DomainConfig());
+    }
+
+    /**
+     * Get command step configuration.
+     *
+     * @param stepName step name
+     * @return command step configuration, or null if not configured
+     */
+    public CommandStepConfig getCommandStepConfig(String stepName) {
+        return commandSteps.get(stepName);
     }
 
     /**
@@ -590,6 +652,190 @@ public class CommandBusProperties {
             // Add jitter: +/- 10%
             double jitter = delay * 0.1 * (Math.random() * 2 - 1);
             return Math.min((long) (delay + jitter), maxBackoffMs);
+        }
+    }
+
+    /**
+     * Feature toggles for worker capabilities.
+     *
+     * <p>Controls what features are enabled for this worker instance.
+     * Use to create dedicated workers (e.g., rate-limited command handlers only)
+     * or multi-purpose workers (all features enabled).
+     *
+     * <p>Example configuration:
+     * <pre>
+     * commandbus:
+     *   features:
+     *     command-handlers: true
+     *     process-execution: false
+     *     reply-processing: false
+     * </pre>
+     */
+    public static class FeaturesProperties {
+
+        /**
+         * Enable/disable command handler processing.
+         */
+        private boolean commandHandlers = true;
+
+        /**
+         * Enable/disable ProcessStepManager execution.
+         */
+        private boolean processExecution = true;
+
+        /**
+         * Enable/disable reply processing for command steps.
+         */
+        private boolean replyProcessing = true;
+
+        public boolean isCommandHandlers() {
+            return commandHandlers;
+        }
+
+        public void setCommandHandlers(boolean commandHandlers) {
+            this.commandHandlers = commandHandlers;
+        }
+
+        public boolean isProcessExecution() {
+            return processExecution;
+        }
+
+        public void setProcessExecution(boolean processExecution) {
+            this.processExecution = processExecution;
+        }
+
+        public boolean isReplyProcessing() {
+            return replyProcessing;
+        }
+
+        public void setReplyProcessing(boolean replyProcessing) {
+            this.replyProcessing = replyProcessing;
+        }
+    }
+
+    /**
+     * Per-domain configuration.
+     *
+     * <p>Controls whether a domain is enabled and its concurrency limit.
+     * The concurrency limit controls how many messages are processed
+     * concurrently by this worker instance for this domain.
+     *
+     * <p>Total concurrent API calls = replicas × concurrent-messages
+     *
+     * <p>Example configuration:
+     * <pre>
+     * commandbus:
+     *   domains:
+     *     fx:
+     *       enabled: true
+     *       concurrent-messages: 2
+     *     payments:
+     *       enabled: true
+     *       concurrent-messages: 5
+     * </pre>
+     */
+    public static class DomainConfig {
+
+        /**
+         * Enable/disable processing for this domain.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Maximum concurrent messages to process for this domain.
+         * Each virtual thread blocks on I/O, so this directly controls
+         * how many concurrent API calls can be in-flight.
+         */
+        private int concurrentMessages = 5;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getConcurrentMessages() {
+            return concurrentMessages;
+        }
+
+        public void setConcurrentMessages(int concurrentMessages) {
+            this.concurrentMessages = concurrentMessages;
+        }
+    }
+
+    /**
+     * Command step configuration for ProcessStepManager.commandStep().
+     *
+     * <p>Maps step names to target domains and command types.
+     *
+     * <p>Example configuration:
+     * <pre>
+     * commandbus:
+     *   command-steps:
+     *     bookFx:
+     *       domain: fx
+     *       command-type: BookFx
+     *       timeout: 30s
+     *     submitPayment:
+     *       domain: payments
+     *       command-type: SubmitPayment
+     *       timeout: 30s
+     * </pre>
+     */
+    public static class CommandStepConfig {
+
+        /**
+         * Target domain for this command step.
+         */
+        private String domain;
+
+        /**
+         * Command type for handler routing.
+         */
+        private String commandType;
+
+        /**
+         * Timeout for command step execution.
+         */
+        private Duration timeout = Duration.ofSeconds(30);
+
+        /**
+         * Reply queue name. If not specified, defaults to {process-domain}__replies.
+         */
+        private String replyQueue;
+
+        public String getDomain() {
+            return domain;
+        }
+
+        public void setDomain(String domain) {
+            this.domain = domain;
+        }
+
+        public String getCommandType() {
+            return commandType;
+        }
+
+        public void setCommandType(String commandType) {
+            this.commandType = commandType;
+        }
+
+        public Duration getTimeout() {
+            return timeout;
+        }
+
+        public void setTimeout(Duration timeout) {
+            this.timeout = timeout;
+        }
+
+        public String getReplyQueue() {
+            return replyQueue;
+        }
+
+        public void setReplyQueue(String replyQueue) {
+            this.replyQueue = replyQueue;
         }
     }
 }
