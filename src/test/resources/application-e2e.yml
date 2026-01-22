@@ -48,6 +48,16 @@ commandbus:
     timeout-check-interval-ms: 60000   # Check wait timeouts
     deadline-check-interval-ms: 60000  # Check process deadlines
     auto-start: true
+  # Command step configuration for COMMAND_STEP execution model
+  command-steps:
+    bookFx:
+      domain: fx
+      command-type: BookFx
+      timeout: 30s
+    submitPayment:
+      domain: network
+      command-type: SubmitPayment
+      timeout: 60s
 
 server:
   port: 8080

@@ -11,7 +11,9 @@ import java.time.LocalDate;
 /**
  * Request DTO for creating a batch of payments.
  *
- * @param executionModel Execution model: "COMMAND_BASED" (BaseProcessManager) or "STEP_BASED" (ProcessStepManager)
+ * @param executionModel Execution model: "COMMAND_BASED" (BaseProcessManager),
+ *                       "STEP_BASED" (ProcessStepManager), or
+ *                       "COMMAND_STEP" (ProcessStepManager with commandStep() for external calls)
  */
 public record PaymentBatchCreateRequest(
     String name,
@@ -48,6 +50,21 @@ public record PaymentBatchCreateRequest(
      */
     public boolean isStepBasedModel() {
         return "STEP_BASED".equals(executionModel);
+    }
+
+    /**
+     * Check if using COMMAND_STEP execution model (ProcessStepManager with commandStep()).
+     */
+    public boolean isCommandStepModel() {
+        return "COMMAND_STEP".equals(executionModel);
+    }
+
+    /**
+     * Check if using process-step based execution (either STEP_BASED or COMMAND_STEP).
+     * Both use PaymentStepState and ProcessStepManager infrastructure.
+     */
+    public boolean isProcessStepBasedModel() {
+        return isStepBasedModel() || isCommandStepModel();
     }
 
     /**
