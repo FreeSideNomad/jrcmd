@@ -13,6 +13,7 @@ import com.ivamare.commandbus.pgmq.PgmqClient;
 import com.ivamare.commandbus.process.BaseProcessManager;
 import com.ivamare.commandbus.process.ProcessReplyRouter;
 import com.ivamare.commandbus.process.ProcessRepository;
+import com.ivamare.commandbus.process.step.CommandStepResponseHandler;
 import com.ivamare.commandbus.process.step.ProcessStepWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 import java.util.List;
@@ -191,6 +194,41 @@ public class E2ETestApplication {
             worker.start();
         } catch (Exception e) {
             log.debug("ProcessStepWorker not available (UI-only mode): {}", e.getMessage());
+        }
+    }
+
+    // ========== CommandStep Reply Handling ==========
+
+    /**
+     * Create CommandStepResponseHandler to poll payments__replies and route
+     * responses back to PaymentCommandStepProcess.
+     * Only runs in worker mode (not UI).
+     */
+    @Bean
+    @Profile("!ui")
+    public CommandStepResponseHandler commandStepResponseHandler(
+            PgmqClient pgmqClient,
+            ObjectMapper objectMapper,
+            PaymentCommandStepProcess paymentCommandStepProcess) {
+        log.info("Creating CommandStepResponseHandler for payments__replies");
+        return new CommandStepResponseHandler(
+            pgmqClient,
+            objectMapper,
+            List.of(paymentCommandStepProcess)
+        );
+    }
+
+    /**
+     * Auto-start the CommandStepResponseHandler when the application is ready.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void startCommandStepResponseHandler(ApplicationReadyEvent event) {
+        try {
+            CommandStepResponseHandler handler = event.getApplicationContext().getBean(CommandStepResponseHandler.class);
+            log.info("Auto-starting CommandStepResponseHandler");
+            handler.start();
+        } catch (Exception e) {
+            log.debug("CommandStepResponseHandler not available (UI-only mode): {}", e.getMessage());
         }
     }
 }

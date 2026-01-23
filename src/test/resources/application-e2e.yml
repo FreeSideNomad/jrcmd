@@ -49,13 +49,14 @@ commandbus:
     deadline-check-interval-ms: 60000  # Check process deadlines
     auto-start: true
   # Command step configuration for COMMAND_STEP execution model
+  # Uses a common payment_process domain to avoid creating separate fx/network workers
   command-steps:
     bookFx:
-      domain: fx
+      domain: payment_process
       command-type: BookFx
       timeout: 30s
     submitPayment:
-      domain: network
+      domain: payment_process
       command-type: SubmitPayment
       timeout: 60s
 

@@ -201,9 +201,6 @@ public class CommandStepResponseHandler {
                 ? ReplyOutcome.fromValue(outcomeStr)
                 : ReplyOutcome.FAILED;
 
-            // Create CommandStepResponse from the message
-            CommandStepResponse<?> response = createResponseFromPayload(processId, payload, outcome);
-
             // Find the process manager for this process
             ProcessStepManager<?> manager = findProcessManager(processId);
             if (manager == null) {
@@ -212,8 +209,11 @@ public class CommandStepResponseHandler {
                 return;
             }
 
+            // Create CommandStepResponse from the message (step name will be looked up from state)
+            CommandStepResponse<?> response = createResponseFromPayload(processId, commandId, payload, outcome);
+
             // Route response to the process
-            routeResponseToProcess(manager, processId, response);
+            routeResponseToProcess(manager, processId, commandId, response);
 
             // Acknowledge message
             deleteMessage(replyQueueName, message.msgId());
@@ -230,19 +230,17 @@ public class CommandStepResponseHandler {
 
     /**
      * Create a CommandStepResponse from a reply message payload.
+     * Step name is passed as a placeholder - it will be resolved when routing to the process.
      */
     @SuppressWarnings("unchecked")
     private CommandStepResponse<?> createResponseFromPayload(
             UUID processId,
+            UUID commandId,
             Map<String, Object> payload,
             ReplyOutcome outcome) {
 
-        // Extract step name from the original command data
-        Map<String, Object> data = (Map<String, Object>) payload.get("data");
-        String stepName = data != null ? (String) data.get("step_name") : null;
-        if (stepName == null) {
-            stepName = "unknown";
-        }
+        // Step name is a placeholder - will be looked up from process state using commandId
+        String stepName = "pending_lookup";
 
         if (outcome == ReplyOutcome.SUCCESS) {
             // Success response - extract result
@@ -297,27 +295,59 @@ public class CommandStepResponseHandler {
 
     /**
      * Route a response to the appropriate process.
+     * Looks up the step name from the process state's pendingCommandSteps using the commandId.
      *
      * @param manager The process manager
      * @param processId The process ID
-     * @param response The command step response
+     * @param commandId The command ID to look up the step name
+     * @param response The command step response (with placeholder step name)
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void routeResponseToProcess(
             ProcessStepManager manager,
             UUID processId,
+            UUID commandId,
             CommandStepResponse<?> response) {
 
         // Use processAsyncResponse to update state and resume process
         manager.processAsyncResponse(processId, state -> {
             if (state instanceof ProcessStepState processState) {
-                // Store the response in state for the next execution to pick up
-                processState.storeCommandStepResponse(response.stepName(), response);
+                // Look up step name from pendingCommandSteps using commandId
+                String stepName = findStepNameByCommandId(processState, commandId);
+
+                if (stepName == null) {
+                    log.warn("No pending command step found for commandId {} in process {}",
+                        commandId, processId);
+                    return;
+                }
+
+                // Create response with correct step name and store it
+                CommandStepResponse<?> correctedResponse = response.success()
+                    ? CommandStepResponse.success(processId, stepName, response.result())
+                    : CommandStepResponse.failure(processId, stepName,
+                        response.errorType(), response.errorCode(), response.errorMessage());
+
+                processState.storeCommandStepResponse(stepName, correctedResponse);
+                log.info("Routed response for step {} to process {} (success={})",
+                    stepName, processId, response.success());
             }
         });
+    }
 
-        log.info("Routed response for step {} to process {} (success={})",
-            response.stepName(), processId, response.success());
+    /**
+     * Find the step name by command ID from the pending command steps.
+     */
+    private String findStepNameByCommandId(ProcessStepState state, UUID commandId) {
+        if (commandId == null) {
+            return null;
+        }
+
+        for (Map.Entry<String, PendingCommandStep> entry : state.getPendingCommandSteps().entrySet()) {
+            if (commandId.equals(entry.getValue().commandId())) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     /**
