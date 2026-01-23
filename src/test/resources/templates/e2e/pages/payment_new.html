@@ -108,6 +108,9 @@
                             <option value="STEP_BASED" th:selected="${request.executionModel() == 'STEP_BASED'}">
                                 STEP_BASED
                             </option>
+                            <option value="COMMAND_STEP" th:selected="${request.executionModel() == 'COMMAND_STEP'}">
+                                COMMAND_STEP
+                            </option>
                         </select>
                         <small class="text-muted">Workflow execution approach</small>
                     </div>

@@ -3,6 +3,7 @@ package com.ivamare.commandbus.e2e.service;
 import com.ivamare.commandbus.api.CommandBus;
 import com.ivamare.commandbus.e2e.dto.*;
 import com.ivamare.commandbus.e2e.payment.*;
+import com.ivamare.commandbus.e2e.payment.step.PaymentCommandStepProcess;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepProcess;
 import com.ivamare.commandbus.e2e.payment.step.PaymentStepState;
 import com.ivamare.commandbus.e2e.process.OutputType;
@@ -44,6 +45,7 @@ public class E2EService {
     private final PaymentRepository paymentRepository;
     private final PaymentProcessManager paymentProcessManager;
     private final PaymentStepProcess paymentStepProcess;
+    private final PaymentCommandStepProcess paymentCommandStepProcess;
 
     public E2EService(
             JdbcTemplate jdbcTemplate,
@@ -56,7 +58,8 @@ public class E2EService {
             @Nullable StatementReportProcessManager statementReportProcessManager,
             @Nullable PaymentRepository paymentRepository,
             @Nullable PaymentProcessManager paymentProcessManager,
-            @Nullable PaymentStepProcess paymentStepProcess) {
+            @Nullable PaymentStepProcess paymentStepProcess,
+            @Nullable PaymentCommandStepProcess paymentCommandStepProcess) {
         this.jdbcTemplate = jdbcTemplate;
         this.commandBus = commandBus;
         this.commandRepository = commandRepository;
@@ -68,6 +71,7 @@ public class E2EService {
         this.paymentRepository = paymentRepository;
         this.paymentProcessManager = paymentProcessManager;
         this.paymentStepProcess = paymentStepProcess;
+        this.paymentCommandStepProcess = paymentCommandStepProcess;
     }
 
     // ========== Dashboard ==========
@@ -876,7 +880,8 @@ public class E2EService {
     /**
      * Create a payment and start the payment process.
      *
-     * @param executionModel "COMMAND_BASED" (BaseProcessManager) or "STEP_BASED" (ProcessStepManager)
+     * @param executionModel "COMMAND_BASED" (BaseProcessManager), "STEP_BASED" (ProcessStepManager),
+     *                       or "COMMAND_STEP" (ProcessStepManager with commandStep() for external calls)
      */
     @Transactional
     public UUID createPayment(Payment payment, PaymentStepBehavior behavior, String executionModel) {
@@ -895,6 +900,13 @@ public class E2EService {
             // Create PaymentStepState from Payment
             PaymentStepState state = PaymentStepState.fromPayment(payment, behavior);
             return paymentStepProcess.start(state);
+        } else if ("COMMAND_STEP".equals(executionModel)) {
+            if (paymentCommandStepProcess == null) {
+                throw new IllegalStateException("PaymentCommandStepProcess not configured for COMMAND_STEP execution");
+            }
+            // Create PaymentStepState from Payment and use commandStep-based process
+            PaymentStepState state = PaymentStepState.fromPayment(payment, behavior);
+            return paymentCommandStepProcess.start(state);
         } else {
             // Default to COMMAND_BASED
             if (paymentProcessManager == null) {
@@ -1073,6 +1085,15 @@ public class E2EService {
                 .map(p -> PaymentStepState.fromPayment(p, request.behavior()))
                 .toList();
             paymentStepProcess.startBatch(states, BatchOptions.withBatchId(batchId));
+        } else if (request.isCommandStepModel()) {
+            if (paymentCommandStepProcess == null) {
+                throw new IllegalStateException("PaymentCommandStepProcess not configured for COMMAND_STEP execution");
+            }
+            // Create states from payments and start batch with batchId using commandStep-based process
+            List<PaymentStepState> states = payments.stream()
+                .map(p -> PaymentStepState.fromPayment(p, request.behavior()))
+                .toList();
+            paymentCommandStepProcess.startBatch(states, BatchOptions.withBatchId(batchId));
         } else {
             // Default to COMMAND_BASED
             if (paymentProcessManager == null) {
