@@ -46,7 +46,7 @@
         <spring-boot.version>3.5.9</spring-boot.version>
         <log4j2.version>2.25.3</log4j2.version>
         <postgresql.version>42.7.9</postgresql.version>
-        <testcontainers.version>2.0.3</testcontainers.version>
+        <testcontainers.version>2.0.4</testcontainers.version>
 
         <!-- Plugin versions -->
         <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
